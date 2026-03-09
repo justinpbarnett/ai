@@ -5,7 +5,7 @@ CLAUDE_DIR="$HOME/.claude"
 
 ITEMS=(skills agents hooks rules CLAUDE.md settings.json)
 
-echo "Removing claude-config symlinks from $CLAUDE_DIR"
+echo "Removing claude symlinks from $CLAUDE_DIR"
 echo ""
 
 for item in "${ITEMS[@]}"; do

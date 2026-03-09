@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
 
-echo "Installing claude-config from $REPO_DIR"
+echo "Installing claude from $REPO_DIR"
 echo "Target: $CLAUDE_DIR"
 echo ""
 

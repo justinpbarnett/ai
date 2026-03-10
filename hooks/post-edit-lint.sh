@@ -19,7 +19,7 @@ EXT="${FILE_PATH##*.}"
 DIR=$(dirname "$FILE_PATH")
 PROJECT_ROOT=""
 while [ "$DIR" != "/" ]; do
-  if [ -f "$DIR/go.mod" ] || [ -f "$DIR/package.json" ]; then
+  if [ -f "$DIR/go.mod" ] || [ -f "$DIR/package.json" ] || [ -f "$DIR/pyproject.toml" ]; then
     PROJECT_ROOT="$DIR"
     break
   fi

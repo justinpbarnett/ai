@@ -70,7 +70,7 @@ if echo "$MSG" | grep -iqE '\bgpt-[0-9]' 2>/dev/null; then
 fi
 
 # Check for emdashes (U+2014)
-if echo "$MSG" | grep -qP '\xe2\x80\x94' 2>/dev/null || echo "$MSG" | grep -qF $'\xe2\x80\x94' 2>/dev/null; then
+if echo "$MSG" | grep -qF '—' 2>/dev/null; then
   echo "Commit message contains an emdash. Use a hyphen (-), comma, or period instead." >&2
   exit 2
 fi
@@ -79,7 +79,7 @@ fi
 # First non-empty line should match: type(scope): description  or  type: description
 FIRST_LINE=$(echo "$MSG" | grep -v '^$' | head -n1 | sed 's/^[[:space:]]*//')
 if [ -n "$FIRST_LINE" ]; then
-  if ! echo "$FIRST_LINE" | grep -qP '^(feat|fix|refactor|docs|test|chore|style|perf|ci|build|revert)(\(.+\))?(!)?:\s+\S'; then
+  if ! echo "$FIRST_LINE" | grep -qE '^(feat|fix|refactor|docs|test|chore|style|perf|ci|build|revert)(\(.+\))?(!)?: +[^ ]'; then
     jq -n '{
       hookSpecificOutput: {
         hookEventName: "PreToolUse",

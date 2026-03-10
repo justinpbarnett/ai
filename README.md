@@ -21,7 +21,7 @@ Removes symlinks and restores backups if they exist.
 
 ## What's Included
 
-### Skills (14)
+### Skills (15)
 
 | Skill | Purpose |
 |-------|---------|
@@ -38,6 +38,7 @@ Removes symlinks and restores backups if they exist.
 | `start` | Discovers and runs the dev server |
 | `document` | Generates feature docs from git diffs |
 | `decompose` | Breaks large specs into focused sub-tasks |
+| `team` | Spawns and coordinates agent teams for complex parallel work |
 | `skill-builder` | Creates, converts, or improves skills |
 
 ### Agents (8)
@@ -53,7 +54,7 @@ Removes symlinks and restores backups if they exist.
 | `changelog` | haiku | Release notes from git history (read-only) |
 | `api-docs` | haiku | API reference from route handlers (read-only) |
 
-### Hooks (5)
+### Hooks (9)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
@@ -62,6 +63,10 @@ Removes symlinks and restores backups if they exist.
 | `check-emdash.sh` | PostToolUse (Write/Edit) | Catches emdash characters in user-facing files |
 | `post-edit-lint.sh` | PostToolUse (Write/Edit) | go vet or eslint after edits |
 | `track-commits.sh` | PostToolUse (Bash) | Logs commits to project memory |
+| `post-commit-check.sh` | PostToolUse (Bash) | Runs project test/lint suite after git commits |
+| `teammate-idle-lint.sh` | TeammateIdle | Lints files changed by idle teammates |
+| `track-tasks.sh` | TaskCompleted | Tracks completed agent team tasks in project memory |
+| `notify-user.sh` | Stop, Notification | Desktop notification when Claude needs user input |
 
 ### Rules (3)
 

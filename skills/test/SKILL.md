@@ -145,6 +145,9 @@ Failed tests sorted to top. Fixed tests get `"fixed": true`.
 <If: test case is flaky (passes sometimes, fails sometimes)>
 <Then: run 3 times. Pass on 2/3, fail on 1/3 or fewer passes.>
 
+<If: multiple app types detected (e.g., CLI + API + Web) and changes span all types>
+<Then: consider spawning teammates to test each app type in parallel. One teammate per app type, each following the appropriate test strategy (CLI commands, Playwright, curl). Merge results into a single JSON array. Teammates use sonnet. Only do this when there are 3+ distinct app types to test -- for 1-2 types, sequential execution is simpler.>
+
 <If: change is purely internal refactor with no user-visible behavior change>
 <Then: identify the closest user-visible behavior and test that. If none, suggest running unit tests directly instead.>
 

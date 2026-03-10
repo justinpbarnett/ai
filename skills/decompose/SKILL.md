@@ -17,7 +17,7 @@ Analyzes a feature spec and determines whether it should be decomposed into smal
 
 ## Variables
 
-- `argument` — Two space-separated values: `{spec_file_path} {task_id}` (e.g., `specs/feat-user-auth.md AUTH-042`). If no task_id is provided, derive one from the spec filename.
+- `argument`  -- Two space-separated values: `{spec_file_path} {task_id}` (e.g., `specs/feat-user-auth.md AUTH-042`). If no task_id is provided, derive one from the spec filename.
 
 ## Instructions
 
@@ -25,10 +25,10 @@ Analyzes a feature spec and determines whether it should be decomposed into smal
 
 Read the full feature spec file. Identify:
 
-1. **Implementation steps** — The numbered steps or tasks
-2. **Files touched** — All files listed in "Relevant Files"
-3. **New files** — Files that need to be created
-4. **Dependencies between steps** — Which steps depend on which
+1. **Implementation steps**  -- The numbered steps or tasks
+2. **Files touched**  -- All files listed in "Relevant Files"
+3. **New files**  -- Files that need to be created
+4. **Dependencies between steps**  -- Which steps depend on which
 
 ### Step 2: Evaluate Complexity
 
@@ -50,9 +50,9 @@ If the feature needs decomposition:
    - **Tests** → bundled with the thing they test
    - **Seed/fixture data** → separate late task
 
-2. **Assign stages** — Stage 1 has no dependencies. Stage N depends on prior stages.
+2. **Assign stages**  -- Stage 1 has no dependencies. Stage N depends on prior stages.
 
-3. **Create mini-specs** at `specs/subtasks/{task_id}/{sub_task_id}.md` — each containing only the scope, steps, relevant files, and validation for that sub-task. Reference the parent spec for full context.
+3. **Create mini-specs** at `specs/subtasks/{task_id}/{sub_task_id}.md`  -- each containing only the scope, steps, relevant files, and validation for that sub-task. Reference the parent spec for full context.
 
 4. **Output the task graph** as JSON to stdout.
 
@@ -72,6 +72,7 @@ Output clean, parseable JSON as the final output:
       "stage": 1,
       "spec_file": "specs/subtasks/{task_id}/task-1-data-model.md",
       "depends_on": [],
+      "files_owned": ["src/models/user.go", "migrations/001_add_users.sql"],
       "status": "pending"
     }
   ]
@@ -80,11 +81,11 @@ Output clean, parseable JSON as the final output:
 
 ## Workflow
 
-1. **Read** — Parse the spec file path and task ID
-2. **Analyze** — Evaluate complexity
-3. **Decide** — Single task or decompose
-4. **Write** — Create mini-spec files if decomposing
-5. **Output** — Print task graph JSON
+1. **Read**  -- Parse the spec file path and task ID
+2. **Analyze**  -- Evaluate complexity
+3. **Decide**  -- Single task or decompose
+4. **Write**  -- Create mini-spec files if decomposing
+5. **Output**  -- Print task graph JSON
 
 ## Cookbook
 
@@ -100,6 +101,9 @@ Output clean, parseable JSON as the final output:
 <If: spec is ambiguous about step boundaries>
 <Then: prefer larger sub-tasks over smaller ones. 3-5 sub-tasks is ideal. Avoid more than 8.>
 
+<If: decomposing for agent team execution>
+<Then: include a files_owned array in each task listing every file that task will create or modify. Verify that no two tasks in the same stage share any files_owned entries. If overlap is unavoidable, move one task to a later stage.>
+
 <If: all steps are tightly coupled and cannot be separated>
 <Then: output single-task graph even if the feature is large. Note this in the output.>
 
@@ -110,3 +114,4 @@ Output clean, parseable JSON as the final output:
 - Stage numbering starts at 1
 - `depends_on` references are valid task IDs
 - No circular dependencies
+- No two tasks in the same stage share entries in `files_owned`

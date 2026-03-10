@@ -59,6 +59,12 @@
             "command": "~/.claude/hooks/track-commits.sh",
             "timeout": 10,
             "statusMessage": "Tracking commit..."
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-commit-check.sh",
+            "timeout": 120,
+            "statusMessage": "Running post-commit checks..."
           }
         ]
       }

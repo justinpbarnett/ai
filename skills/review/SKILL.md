@@ -180,6 +180,9 @@ Key rules:
 <If: unsure about issue severity>
 <Then: lean toward the less severe classification. Over-classifying as `blocker` creates unnecessary churn.>
 
+<If: diff is large (20+ files changed) and touches multiple subsystems>
+<Then: consider spawning a review team with parallel teammates: one for code review against the spec, one running the security agent, one running /test. Merge findings into a single report. Teammates use sonnet. Only do this for genuinely large, cross-cutting changes -- small diffs don't benefit from team overhead.>
+
 <If: changes touch authentication, authorization, input validation, or data handling>
 <Then: use the `security` agent to run a focused OWASP vulnerability scan on the changed files before finalizing the review.>
 

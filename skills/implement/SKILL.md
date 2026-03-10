@@ -109,6 +109,9 @@ Format the report as:
 
 ## Cookbook
 
+<If: task touches 3+ independent files/modules that can be worked on in parallel>
+<Then: consider spawning teammates to parallelize the work. Use /team with the plan, assigning each teammate a subset of files with clear ownership. Teammates use sonnet. Only do this when the files are truly independent -- shared utilities or tightly coupled modules should stay in one agent.>
+
 <If: plan references files that no longer exist>
 <Then: inform the user of the discrepancy. Suggest either updating the plan or adapting the implementation to the current state. Do not silently ignore missing files.>
 

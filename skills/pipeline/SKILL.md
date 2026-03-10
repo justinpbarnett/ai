@@ -89,15 +89,15 @@ Pass the spec file path or inline task description to the implement skill direct
 
 #### Decomposed (parallel by stage)
 
-Execute sub-tasks from the task graph stage by stage:
+Execute sub-tasks from the task graph stage by stage. Choose the execution strategy based on the number of stages:
 
-1. **Stage 1** -- Launch an Agent (subagent_type: `general-purpose`) for each stage-1 sub-task, all in parallel. Each agent runs `/implement` on its mini-spec file. Wait for all stage-1 agents to complete.
-2. **Stage 2** -- Launch agents for all stage-2 sub-tasks in parallel. Wait for completion.
-3. **Continue** through all stages in order.
+**Agent teams (2+ stages):** Create an agent team using `/team` with the task graph. The team skill handles teammate spawning, file ownership, stage sequencing, and integration checks. Teammates use sonnet model. Wait for the team to complete and collect the report.
+
+**Single subagent (1 stage):** Launch an Agent (subagent_type: `general-purpose`) for each sub-task in parallel. Each agent runs `/implement` on its mini-spec file. Wait for all agents to complete.
 
 After all stages complete, run a compile check on the full project to catch any integration issues between parallel sub-tasks. Fix any integration errors before proceeding.
 
-**Important:** Each parallel agent gets its own mini-spec file path. The agent runs `/implement <mini-spec-path>` and returns its summary. Collect all summaries for the final report.
+**Important:** Each parallel agent or teammate gets its own mini-spec file path and explicit file ownership from the task graph's `files_owned` field. Collect all summaries for the final report.
 
 **Skip condition:** Skip if `--from` is set to a later step.
 
@@ -237,6 +237,12 @@ Pipeline stopped. Steps 1-<N-1> completed successfully.
 
 <If: input is an inline task description (not a spec file)>
 <Then: use the inline description as the plan for the implement skill. Derive the branch name from the description. For the review step, review the diff against the inline description rather than a spec file.>
+
+<If: decomposed task graph has 2+ stages>
+<Then: use agent teams for parallel implementation. Pass the task graph to /team, which spawns teammates per stage, each running /implement on their mini-spec. Teammates use sonnet. Wait for each stage to complete before starting the next.>
+
+<If: decomposed task graph has 1 stage or is_decomposed is false>
+<Then: use a single subagent as before. Teams add 4-15x token overhead without benefit for single-stage work.>
 
 <If: a parallel implementation agent fails>
 <Then: collect the error from the failed agent. Attempt to fix the issue in the main context. If the fix is straightforward (compilation error, missing import), apply it and continue. If the failure is fundamental, stop the pipeline and report which sub-tasks succeeded and which failed.>

@@ -24,12 +24,14 @@ def test_extract_cost_missing():
 
 
 def test_extract_cost_real_claude_output():
-    data = json.dumps({
-        "type": "result",
-        "result": "Done",
-        "total_cost_usd": 0.023721,
-        "usage": {"input_tokens": 5, "output_tokens": 286},
-    })
+    data = json.dumps(
+        {
+            "type": "result",
+            "result": "Done",
+            "total_cost_usd": 0.023721,
+            "usage": {"input_tokens": 5, "output_tokens": 286},
+        }
+    )
     assert _parse_claude_output(data).cost == 0.023721
 
 
@@ -48,13 +50,15 @@ def test_extract_summary_truncates():
 
 
 def test_extract_permission_denials_present():
-    data = json.dumps({
-        "result": "Could not write",
-        "permission_denials": [
-            {"tool_name": "Write", "tool_use_id": "abc"},
-            {"tool_name": "Bash", "tool_use_id": "def"},
-        ],
-    })
+    data = json.dumps(
+        {
+            "result": "Could not write",
+            "permission_denials": [
+                {"tool_name": "Write", "tool_use_id": "abc"},
+                {"tool_name": "Bash", "tool_use_id": "def"},
+            ],
+        }
+    )
     assert _parse_claude_output(data).permission_denials == ["Write", "Bash"]
 
 

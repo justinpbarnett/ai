@@ -28,11 +28,13 @@ class Notifier:
             pass
 
     def _notify_webhook(self, title: str, message: str, event: str) -> None:
-        payload = json.dumps({
-            "event": event,
-            "title": title,
-            "message": message,
-        }).encode()
+        payload = json.dumps(
+            {
+                "event": event,
+                "title": title,
+                "message": message,
+            }
+        ).encode()
         req = urllib.request.Request(
             self.webhook_url,
             data=payload,

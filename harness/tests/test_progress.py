@@ -44,12 +44,14 @@ def test_update():
 def test_update_accumulates_cost():
     p = Progress()
     for i in range(3):
-        p.update(IterationResult(
-            task_id=str(i),
-            task_name=f"Task {i}",
-            status="done",
-            cost_usd=0.10,
-        ))
+        p.update(
+            IterationResult(
+                task_id=str(i),
+                task_name=f"Task {i}",
+                status="done",
+                cost_usd=0.10,
+            )
+        )
     assert abs(p.total_cost - 0.30) < 1e-9
     assert p.iteration == 3
 
@@ -71,7 +73,13 @@ def test_format_for_prompt():
 def test_format_for_prompt_with_history():
     p = Progress(iteration=1, total_cost=0.05, started_at="2026-01-01")
     p.history = [
-        {"iteration": 1, "task_id": "1", "task_name": "Init", "status": "done", "cost_usd": 0.05},
+        {
+            "iteration": 1,
+            "task_id": "1",
+            "task_name": "Init",
+            "status": "done",
+            "cost_usd": 0.05,
+        },
     ]
     text = p.format_for_prompt()
     assert "Recent history:" in text

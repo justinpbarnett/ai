@@ -15,9 +15,16 @@ def cli():
 
 
 @cli.command()
-@click.option("--spec", type=click.Path(exists=True, path_type=Path), help="Path to spec file")
+@click.option(
+    "--spec", type=click.Path(exists=True, path_type=Path), help="Path to spec file"
+)
 @click.option("--prompt", type=str, help="Inline description of what to build")
-@click.option("--project-dir", type=click.Path(path_type=Path), default=".", help="Target project directory")
+@click.option(
+    "--project-dir",
+    type=click.Path(path_type=Path),
+    default=".",
+    help="Target project directory",
+)
 @click.option("--model", type=str, help="Claude model to use")
 def init(spec: Path | None, prompt: str | None, project_dir: Path, model: str | None):
     """Generate a task list from a spec file or prompt."""
@@ -27,6 +34,7 @@ def init(spec: Path | None, prompt: str | None, project_dir: Path, model: str | 
     project_dir = project_dir.resolve()
 
     from harness.init import initialize
+
     try:
         task_list = initialize(project_dir, spec=spec, prompt=prompt, model=model)
     except RuntimeError as e:
@@ -36,17 +44,32 @@ def init(spec: Path | None, prompt: str | None, project_dir: Path, model: str | 
 
 
 @cli.command()
-@click.option("--project-dir", type=click.Path(path_type=Path), default=".", help="Target project directory")
+@click.option(
+    "--project-dir",
+    type=click.Path(path_type=Path),
+    default=".",
+    help="Target project directory",
+)
 @click.option("--max-iterations", type=int, help="Stop after N iterations")
-@click.option("--max-cost", type=float, help="Stop when cumulative cost exceeds this (USD)")
+@click.option(
+    "--max-cost", type=float, help="Stop when cumulative cost exceeds this (USD)"
+)
 @click.option(
     "--on-failure",
     type=click.Choice(["pause", "skip"]),
     default="pause",
     help="What to do when a task fails after retry",
 )
-@click.option("--parallel", type=int, default=1, help="Number of concurrent claude processes")
-@click.option("--notify", "notify_type", type=str, default="desktop", help="Notification type: desktop or webhook=URL")
+@click.option(
+    "--parallel", type=int, default=1, help="Number of concurrent claude processes"
+)
+@click.option(
+    "--notify",
+    "notify_type",
+    type=str,
+    default="desktop",
+    help="Notification type: desktop or webhook=URL",
+)
 @click.option("--model", type=str, help="Claude model to use")
 def run(
     project_dir: Path,
@@ -63,6 +86,7 @@ def run(
     notifier = _parse_notifier(notify_type)
 
     from harness.runner import RunConfig, run_loop
+
     config = RunConfig(
         project_dir=project_dir,
         max_iterations=max_iterations,
@@ -76,7 +100,12 @@ def run(
 
 
 @cli.command()
-@click.option("--project-dir", type=click.Path(path_type=Path), default=".", help="Target project directory")
+@click.option(
+    "--project-dir",
+    type=click.Path(path_type=Path),
+    default=".",
+    help="Target project directory",
+)
 def status(project_dir: Path):
     """Show current progress summary."""
     project_dir = project_dir.resolve()
@@ -108,14 +137,14 @@ def status(project_dir: Path):
     # Show tasks with errors
     errors = [t for t in task_list.tasks if t.status == "error"]
     if errors:
-        click.echo(f"\nFailed tasks:")
+        click.echo("\nFailed tasks:")
         for t in errors:
             click.echo(f"  [{t.id}] {t.name}: {t.error_message}")
 
 
 def _parse_notifier(notify_type: str) -> Notifier:
     if notify_type.startswith("webhook="):
-        url = notify_type[len("webhook="):]
+        url = notify_type[len("webhook=") :]
         return Notifier(desktop=False, webhook_url=url)
     elif notify_type == "desktop":
         return Notifier(desktop=True)

@@ -42,14 +42,15 @@ def initialize(
     return task_list
 
 
-def _generate_tasks(
-    prompt: str, project_dir: Path, model: str | None
-) -> TaskList:
+def _generate_tasks(prompt: str, project_dir: Path, model: str | None) -> TaskList:
     cmd = [
         "claude",
-        "-p", prompt,
-        "--output-format", "json",
-        "--max-turns", "3",
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
+        "--max-turns",
+        "3",
         "--dangerously-skip-permissions",
     ]
     if model:
@@ -65,7 +66,9 @@ def _generate_tasks(
             env=clean_env(),
         )
     except subprocess.TimeoutExpired:
-        raise RuntimeError("claude -p timed out after 600 seconds during initialization")
+        raise RuntimeError(
+            "claude -p timed out after 600 seconds during initialization"
+        )
 
     if result.returncode != 0:
         print(f"Error from claude: {result.stderr}", file=sys.stderr)
@@ -76,12 +79,14 @@ def _generate_tasks(
 
     tasks = []
     for item in task_data:
-        tasks.append(Task(
-            id=str(item["id"]),
-            name=item["name"],
-            description=item["description"],
-            verify=item.get("verify"),
-        ))
+        tasks.append(
+            Task(
+                id=str(item["id"]),
+                name=item["name"],
+                description=item["description"],
+                verify=item.get("verify"),
+            )
+        )
 
     return TaskList(tasks=tasks)
 
@@ -103,7 +108,7 @@ def _extract_task_json(raw: str) -> list[dict]:
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines).strip()
 
     try:
@@ -118,7 +123,7 @@ def _extract_task_json(raw: str) -> list[dict]:
     end = text.rfind("]")
     if start != -1 and end != -1:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 

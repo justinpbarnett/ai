@@ -49,13 +49,19 @@ def run_loop(config: RunConfig) -> None:
     notifier = config.notifier or Notifier(desktop=False)
 
     s = task_list.summary()
-    print(f"Starting run loop. {s['total']} tasks: {s['done']} done, {s['pending']} pending, {s['error']} errors")
+    print(
+        f"Starting run loop. {s['total']} tasks: {s['done']} done, {s['pending']} pending, {s['error']} errors"
+    )
 
     try:
         if config.parallel > 1:
-            _run_parallel(config, task_list, progress, tasks_path, progress_path, notifier)
+            _run_parallel(
+                config, task_list, progress, tasks_path, progress_path, notifier
+            )
         else:
-            _run_sequential(config, task_list, progress, tasks_path, progress_path, notifier)
+            _run_sequential(
+                config, task_list, progress, tasks_path, progress_path, notifier
+            )
     except KeyboardInterrupt:
         print("\nInterrupted. Saving state...")
         task_list.save(tasks_path)
@@ -72,7 +78,9 @@ def run_loop(config: RunConfig) -> None:
     notifier.send("Harness complete", msg, "loop_complete")
 
 
-def _should_stop(config: RunConfig, task_list: TaskList, progress: Progress) -> str | None:
+def _should_stop(
+    config: RunConfig, task_list: TaskList, progress: Progress
+) -> str | None:
     if task_list.all_done():
         return "all tasks done"
     if config.max_iterations and progress.iteration >= config.max_iterations:
@@ -117,7 +125,9 @@ def _run_sequential(
             print(f"  Failed: {result.error_message}. Retrying...")
             task_list.reset_to_pending(task.id)
             task_list.claim(task.id)
-            retry_result = _run_iteration(config, task, progress, retry_context=result.error_message)
+            retry_result = _run_iteration(
+                config, task, progress, retry_context=result.error_message
+            )
 
             if retry_result.status == "done":
                 task_list.complete(task.id)
@@ -164,7 +174,7 @@ def _run_parallel(
         if not pending:
             break
 
-        batch = pending[:config.parallel]
+        batch = pending[: config.parallel]
         for t in batch:
             task_list.claim(t.id)
         task_list.save(tasks_path)
@@ -213,7 +223,9 @@ def _run_parallel(
                 return
 
 
-def _run_iteration_standalone(config: RunConfig, task: Task, progress: Progress) -> IterationResult:
+def _run_iteration_standalone(
+    config: RunConfig, task: Task, progress: Progress
+) -> IterationResult:
     """Standalone function for ProcessPoolExecutor (must be picklable)."""
     return _run_iteration(config, task, progress)
 
@@ -249,8 +261,10 @@ def _run_iteration(
 
     cmd = [
         "claude",
-        "-p", prompt,
-        "--output-format", "json",
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
         "--dangerously-skip-permissions",
     ]
     if config.model:
@@ -258,8 +272,12 @@ def _run_iteration(
 
     def _error(msg, cost=0.0, dur=0.0):
         return IterationResult(
-            task_id=task.id, task_name=task.name, status="error",
-            cost_usd=cost, duration_seconds=dur, error_message=msg,
+            task_id=task.id,
+            task_name=task.name,
+            status="error",
+            cost_usd=cost,
+            duration_seconds=dur,
+            error_message=msg,
         )
 
     start_time = time.time()
@@ -279,16 +297,28 @@ def _run_iteration(
     parsed = _parse_claude_output(result.stdout)
 
     if result.returncode != 0:
-        return _error(f"Exit code {result.returncode}: {result.stderr[:500]}", parsed.cost, duration)
+        return _error(
+            f"Exit code {result.returncode}: {result.stderr[:500]}",
+            parsed.cost,
+            duration,
+        )
 
     if parsed.permission_denials:
-        return _error(f"Permission denied for: {', '.join(parsed.permission_denials)}", parsed.cost, duration)
+        return _error(
+            f"Permission denied for: {', '.join(parsed.permission_denials)}",
+            parsed.cost,
+            duration,
+        )
 
     if task.verify:
         vr = run_verify(task.verify, config.project_dir)
         if not vr.passed:
-            error_detail = vr.stderr.strip() or vr.stdout.strip() or f"exit code {vr.exit_code}"
-            return _error(f"Verification failed: {error_detail[:300]}", parsed.cost, duration)
+            error_detail = (
+                vr.stderr.strip() or vr.stdout.strip() or f"exit code {vr.exit_code}"
+            )
+            return _error(
+                f"Verification failed: {error_detail[:300]}", parsed.cost, duration
+            )
         print(f"  Verified: {task.verify}")
 
     return IterationResult(
@@ -336,6 +366,8 @@ def _parse_claude_output(raw: str) -> ClaudeOutput:
     # Permission denials
     denials = data.get("permission_denials", [])
     if isinstance(denials, list):
-        out.permission_denials = [d.get("tool_name", "unknown") for d in denials if isinstance(d, dict)]
+        out.permission_denials = [
+            d.get("tool_name", "unknown") for d in denials if isinstance(d, dict)
+        ]
 
     return out

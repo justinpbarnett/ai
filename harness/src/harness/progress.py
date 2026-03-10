@@ -49,15 +49,17 @@ class Progress:
         self.total_cost += result.cost_usd
         self.last_task = result.task_name
         self.last_status = result.status
-        self.history.append({
-            "iteration": self.iteration,
-            "task_id": result.task_id,
-            "task_name": result.task_name,
-            "status": result.status,
-            "cost_usd": result.cost_usd,
-            "duration_seconds": result.duration_seconds,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self.history.append(
+            {
+                "iteration": self.iteration,
+                "task_id": result.task_id,
+                "task_name": result.task_name,
+                "status": result.status,
+                "cost_usd": result.cost_usd,
+                "duration_seconds": result.duration_seconds,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         if len(self.history) > 50:
             self.history = self.history[-50:]
 

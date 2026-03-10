@@ -1,216 +1,188 @@
 ---
 name: test
 description: >
-  Discovers and executes the project's validation suite -- linting, type checking,
-  unit tests, and integration/e2e tests -- fixing any failures found, then returning
-  results in a standardized JSON format for automated processing. Auto-detects
-  available test commands from the project's task runner or package manager. Use
-  when a user wants to run tests, validate the application, check code quality,
-  or verify the app is healthy. Triggers on "run tests", "test the app", "validate
-  the application", "run the test suite", "check for errors", "run all checks",
-  "is the app healthy". Do NOT use for implementing features (use the implement
-  skill). Do NOT use for reviewing against a spec (use the review skill). Do NOT
-  use for starting the dev server (use the start skill).
+  Analyzes recent changes, builds a test plan of happy paths and edge cases,
+  then validates by using the application as a real user would -- running CLI
+  commands, driving web UIs with Playwright, hitting API endpoints with real
+  requests. Fixes bugs found during testing and reports results in JSON.
+  Use when a user wants to test the app, validate changes, smoke test,
+  try it out, or check if things work. Triggers on "test this", "validate
+  the app", "run real tests", "test my changes", "does this work", "try it
+  out", "smoke test", "test the happy path", "test edge cases". Do NOT use
+  for lint/typecheck/unit tests (run those directly). Do NOT use for
+  generating test files (use the test-gen agent). Do NOT use for reviewing
+  against a spec (use the review skill). Do NOT use for starting the dev
+  server (use the start skill).
 ---
-
-# Purpose
-
-Discovers and executes the project's full validation suite -- linting, type checking, unit tests, and integration/e2e tests. If any tests fail, diagnoses and fixes the issues, then re-runs to confirm the fix. Returns a human-readable summary followed by a JSON report.
-
-## Variables
-
-This skill requires no additional input.
 
 ## Instructions
 
-### Step 1: Discover Available Test Commands
+### Step 1: Analyze Changes and Detect App Type
 
-Read all config files in **parallel** (single batch of tool calls): check for `justfile`, `package.json`, `Makefile`, and `pyproject.toml` / `setup.cfg` simultaneously. From the results, identify available commands:
+The optional `argument` narrows or expands scope (e.g., "test the auth flow", "test everything"). Default: derive scope from git diff.
 
-1. **justfile** -- look for recipes like `check`, `lint`, `typecheck`, `test`, `test-e2e`
-2. **package.json** -- look for scripts like `lint`, `typecheck`, `test`, `test:e2e`, `test:unit`, `check`
-3. **Makefile** -- look for targets like `check`, `lint`, `test`
-4. **pyproject.toml / setup.cfg** -- For Python projects, look for test configuration (pytest, ruff, mypy)
+Run two parallel workstreams:
 
-Map discovered commands to these test categories:
+**Change analysis:**
+- Run `git diff main...HEAD` to get changed files and understand what changed
+- If the user provided a scope argument, use that to filter or expand
+- Read changed files relevant to the detected app type to understand behavioral impact
 
-| Category | What it validates | Common commands |
-|----------|-------------------|-----------------|
-| `linting` | Code quality, style | `just lint`, `npm run lint`, `make lint`, `ruff check` |
-| `type_check` | Type annotations | `just typecheck`, `tsc --noEmit`, `mypy .`, `pyright` |
-| `unit_tests` | Unit/component tests | `just test`, `npm test`, `pytest`, `go test ./...` |
-| `e2e_tests` | End-to-end tests | `just test-e2e`, `npm run test:e2e`, `playwright test` |
+**App type detection** (check in parallel):
+- **CLI app**: look for `main.go`, `main.py`, `src/main.rs`, `[[bin]]` in Cargo.toml, `bin` field in package.json, `click`/`typer`/`argparse`/`cobra`/`kingpin` imports
+- **Web app**: look for Next.js/React/Vue/Svelte/Angular in package.json, `app/` or `pages/` directories, HTML templates
+- **API server**: look for Express/Fastify/Gin/Echo/FastAPI/Django REST/Rails routes without a frontend
+- **Library**: look for exported modules with no entry point, published package config
 
-If a category has no discoverable command, skip it. If no test commands are found at all, report this and stop.
+If multiple types detected (e.g., CLI + API), test both.
 
-### Step 2: Execute Tests
+### Step 2: Build Test Plan
 
-If a combined `check` command is available (e.g., `make check`, `just check`, `npm run check`), prefer it -- it runs all independent checks in one shot. Map its result to the appropriate test categories in the report.
+Based on the change analysis, generate a checklist with two sections:
 
-Otherwise, run independent test categories in **parallel** using concurrent Bash tool calls:
+**Happy paths** -- expected usage scenarios affected by the changes:
+- For CLI: commands the user would run, with typical arguments
+- For web: user flows (navigate to page, fill form, submit, verify result)
+- For API: request sequences a client would make
+- For library: calling the changed public APIs with normal inputs
 
-- Launch **linting**, **type_check**, and **unit_tests** simultaneously (concurrent Bash tool calls)
-- Wait for all to complete
-- Run **e2e_tests** last -- they often depend on a correct build, so prefer running them after unit_tests pass. If unit_tests failed, use judgment: skip e2e if the failures would clearly cascade, otherwise run them anyway for a complete picture.
+**Edge cases** -- boundary conditions, error handling, unusual inputs:
+- Invalid/missing arguments for CLI
+- Empty states, long inputs, special characters for web
+- Malformed requests, auth failures for API
+- Nil/empty/oversized inputs for library
 
-For each test:
+Display the plan as a markdown checklist. Then immediately begin execution (no pause).
 
-1. Run the command with a **generous timeout** (match the project's typical test duration)
-2. Capture the result (passed/failed) and any error output
+### Step 3: Execute Test Plan
 
-### Step 3: Fix Failures (if any)
+For each test case in the plan:
 
-If all tests passed, skip to Step 4.
+**CLI apps:**
+1. Build the binary (e.g., `go build`, `cargo build`, `npm run build`)
+2. Run the command with real arguments
+3. Check exit code, stdout, stderr against expected behavior
+4. Test both success and error paths
 
-If any tests failed, fix them:
+**Web apps:**
+1. Start the dev server in background (detect start command from justfile/package.json/Makefile)
+2. Wait for server to be ready (poll the URL)
+3. Use Playwright via a Node.js script to:
+   - Navigate to relevant pages
+   - Interact with UI elements (click, type, select)
+   - Assert visible content and behavior
+   - Take screenshots on failure for debugging
+4. Stop the dev server when done
+5. If Playwright is not installed, run `npx playwright install chromium` first
 
-1. Read the error output carefully -- identify the root cause (broken test, lint violation, type error, or a real bug in the implementation)
-2. Fix the issue:
-   - **Lint/type errors** -- fix the code to satisfy the linter or type checker
-   - **Test failures from implementation bugs** -- fix the implementation code, not the test assertions
-   - **Test failures from outdated test expectations** -- update the test to match the new correct behavior (e.g., golden files, snapshot assertions, changed return values)
-3. Re-run **only the failed test category** to confirm the fix
-4. If it passes, re-run the full suite to check for regressions
-5. If it still fails, repeat from sub-step 1
+**API servers:**
+1. Start the server in background
+2. Wait for it to be ready
+3. Make real HTTP requests (curl or equivalent)
+4. Check response status, headers, body
+5. Stop the server when done
 
-**Maximum 3 fix attempts.** If tests still fail after 3 rounds of fixes, stop and include the remaining failures in the report.
+**Libraries:**
+1. Write a small test script that imports and calls the changed APIs
+2. Run it and check output
 
-### Step 4: Produce the Report
+Mark each checklist item as pass/fail as execution proceeds.
 
-First, output a **human-readable summary** -- a few sentences describing what passed, what failed, and what was fixed. This is the primary output the user sees.
+### Step 4: Fix Issues
 
-Then, output a **JSON array** on its own line (valid for `JSON.parse()`). This enables automated pipelines to consume the results.
+When a test case fails:
+1. Analyze the failure -- read error output, screenshots (for web), exit codes
+2. Read the relevant source code
+3. Fix the implementation (not the test plan)
+4. Re-run that specific test case
+5. If it passes, continue to next case
+6. If it fails, try again (max 3 attempts per case)
+7. After 3 failures, mark as failed and continue
 
-JSON rules:
-- Sort the array with failed tests (`passed: false`) at the top
-- Include all executed tests (both passed and failed)
-- If a test passed, omit the `error` field
-- If a test failed, include the error message in the `error` field
-- If a test was fixed during Step 3, add `"fixed": true` to the entry
-- The `execution_command` field should contain the exact command that can be run to reproduce the test
+Prioritize fixing application bugs over fixing test infrastructure (Playwright scripts, build configs).
 
-### Output Structure
+### Step 5: Report
+
+Output a **human-readable summary** (scope, pass/fail/fixed counts, key issues), then a **JSON array** on its own line (valid for `JSON.parse()`):
 
 ```json
 [
   {
-    "test_name": "string",
+    "test_name": "string (descriptive name of the test case)",
     "passed": boolean,
-    "execution_command": "string",
-    "test_purpose": "string",
+    "execution_command": "string (command or steps to reproduce)",
+    "test_purpose": "string (what user behavior this validates)",
     "error": "optional string",
     "fixed": "optional boolean"
   }
 ]
 ```
 
-### Example Output
-
-```json
-[
-  {
-    "test_name": "unit_tests",
-    "passed": true,
-    "execution_command": "go test ./...",
-    "test_purpose": "Validates all unit tests pass",
-    "fixed": true
-  },
-  {
-    "test_name": "linting",
-    "passed": true,
-    "execution_command": "make lint",
-    "test_purpose": "Validates code quality using go vet"
-  }
-]
-```
-
-## Workflow
-
-1. **Discover** -- Detect available test commands from justfile, package.json, Makefile, or language-specific config
-2. **Run** -- Prefer a combined `check` command when available; otherwise run linting, type_check, and unit_tests in parallel, then e2e_tests if all pass
-3. **Fix** -- If any tests failed, diagnose and fix (up to 3 attempts), re-running after each fix
-4. **Report** -- Produce a JSON array with results, failed tests sorted to top
+Failed tests sorted to top. Fixed tests get `"fixed": true`.
 
 ## Cookbook
 
-<If: no test commands discovered>
-<Then: report that no test infrastructure was found. Suggest the user check their project setup or specify commands manually.>
+<If: user provides a scope argument>
+<Then: focus the test plan on that scope. "test everything" expands beyond git diff to all major flows. A narrow scope (e.g., "test the login flow") skips unrelated changes. No argument means derive from git diff.>
 
-<If: a combined check command exists (e.g., `make check`, `just check`, `npm run check`)>
-<Then: prefer running the combined command -- it handles parallelism internally and reduces overhead. Map its pass/fail result to the relevant test categories in the report.>
+<If: multiple app types detected (e.g., CLI + API)>
+<Then: build separate test plan sections for each type. Execute each with the appropriate strategy.>
 
-<If: test runner discovers no tests>
-<Then: verify test files exist. Check the project's config for test file patterns.>
+<If: Playwright is not installed>
+<Then: run `npx playwright install chromium` before web app tests. If installation fails, fall back to curl-based checks and report the limitation.>
 
-<If: error messages are very long>
-<Then: keep them concise but include enough context to locate and fix the issue>
+<If: build or dev server fails to start>
+<Then: report the failure with error output. Attempt to fix (counts toward 3-attempt limit). If unfixable, stop and report -- no tests can proceed.>
 
-<If: Python project detected>
-<Then: look for pytest, ruff/flake8, mypy/pyright. Run with appropriate commands (e.g., `pytest`, `ruff check .`, `mypy .`)>
+<If: no meaningful changes detected in git diff>
+<Then: if user provided a scope argument, use that. Otherwise, report that no changes were detected and ask the user what they want to test.>
 
-<If: a fix introduces new failures>
-<Then: this counts as one of the 3 fix attempts. Read the new error carefully -- it may indicate the previous fix was wrong. Revert if needed and try a different approach.>
+<If: app needs setup (seed data, auth, config files)>
+<Then: check for seed scripts, .env.example, setup documentation. Prepare the environment before testing.>
 
-<If: golden file / snapshot mismatches>
-<Then: check if the project has an update command (e.g., `make update-golden`, `npm test -- -u`). If the new output is correct, regenerate the snapshots. If the output is wrong, fix the code.>
+<If: test case is flaky (passes sometimes, fails sometimes)>
+<Then: run 3 times. Pass on 2/3, fail on 1/3 or fewer passes.>
 
-<If: test coverage is thin or key code paths have no tests>
-<Then: suggest using the `test-gen` agent to generate tests matching the project's existing conventions and patterns.>
+<If: change is purely internal refactor with no user-visible behavior change>
+<Then: identify the closest user-visible behavior and test that. If none, suggest running unit tests directly instead.>
 
 ## Validation
 
 Before returning the report:
-- Verify the JSON is valid and parseable
-- Confirm failed tests are sorted to the top
-- Verify each `execution_command` can be copy-pasted and run from the project root
+- Every test case in the plan has been executed or explicitly skipped with reason
+- All fixable issues have been fixed (up to 3 attempts per case)
+- JSON is valid and parseable
+- Failed tests sorted to top
+- Dev servers and background processes are stopped and cleaned up
+- `execution_command` fields are reproducible from the project root
 
 ## Examples
 
-### Example 1: Go project -- all tests pass
+### Example 1: CLI app -- new flag added
 
-**Discovery:** Makefile has `check`, `lint`, `test` targets. `check` runs lint + tests together.
-**Actions:**
-1. `make check` is available -- run it as a single command
-2. All tests pass -- no fixes needed
-3. Return JSON report
+**Scope:** new `--verbose` flag on `build` command. **App type:** CLI (Go).
+**Plan:** `./myapp build` (default), `./myapp build --verbose` (new flag), `./myapp build --verbose --invalid` (bad flag), `./myapp build --verbose ""` (empty arg).
+**Actions:** `go build -o myapp .`, run each case, all pass.
 
 ```json
 [
-  {
-    "test_name": "linting + unit_tests",
-    "passed": true,
-    "execution_command": "make check",
-    "test_purpose": "Runs go vet and go test in parallel"
-  }
+  {"test_name": "build default behavior", "passed": true, "execution_command": "./myapp build", "test_purpose": "Verify default build still works without new flag"},
+  {"test_name": "build with --verbose", "passed": true, "execution_command": "./myapp build --verbose", "test_purpose": "Verify new verbose flag produces detailed output"},
+  {"test_name": "unknown flag rejected", "passed": true, "execution_command": "./myapp build --verbose --invalid", "test_purpose": "Verify unknown flags produce a clear error"},
+  {"test_name": "empty argument handled", "passed": true, "execution_command": "./myapp build --verbose \"\"", "test_purpose": "Verify empty string argument doesn't crash"}
 ]
 ```
 
-### Example 2: Go project -- test failure, fixed
+### Example 2: Web app -- form flow with auto-fix
 
-**Discovery:** Makefile has `check` target.
-**Actions:**
-1. Run `make check` -- unit test fails: `TestFoo expected "bar" got "baz"`
-2. Read the failing test and the implementation. The implementation changed the return value correctly but the test expectation is outdated
-3. Update the test assertion to match the new behavior
-4. Re-run `make check` -- all pass
-5. Return JSON report with `"fixed": true`
+**Scope:** signup form component changed. **App type:** Web (Next.js).
+**Plan:** fill and submit form (happy path), submit empty (validation), invalid email (validation).
+**Actions:** `npm run dev &`, wait for ready, Playwright tests. Empty-field test fails -- form submits without validation. Fix: add required attributes. Re-run passes. Kill server.
 
-### Example 3: Node.js project -- lint failure, fixed
-
-**Discovery:** package.json has `lint` and `test` scripts.
-**Actions:**
-1. Run `npm run lint` and `npm test` in parallel -- lint fails with unused import
-2. Remove the unused import
-3. Re-run `npm run lint` -- passes
-4. Re-run full suite to confirm no regressions
-5. Return JSON report
-
-### Example 4: Unfixable failure after 3 attempts
-
-**Discovery:** Makefile has `check` target.
-**Actions:**
-1. Run `make check` -- test fails
-2. Attempt fix 1 -- still fails (different error)
-3. Attempt fix 2 -- still fails
-4. Attempt fix 3 -- still fails
-5. Return JSON report with `"passed": false` and the error details
+```json
+[
+  {"test_name": "empty field validation", "passed": true, "execution_command": "Navigate to /signup, click Submit without filling fields", "test_purpose": "Verify form shows validation errors for empty fields", "fixed": true},
+  {"test_name": "signup happy path", "passed": true, "execution_command": "Navigate to /signup, fill name/email/password, click Submit", "test_purpose": "Verify a new user can sign up successfully"},
+  {"test_name": "invalid email validation", "passed": true, "execution_command": "Navigate to /signup, enter 'notanemail' in email field, click Submit", "test_purpose": "Verify form rejects invalid email format"}
+]
+```

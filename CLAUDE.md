@@ -1,7 +1,8 @@
 - Never mention claude or ai in commits
-- Never use emdashes (—) in user-facing content. Replace with other punctuation.
+- Never use emdashes in user-facing content. Replace with other punctuation.
 - Use `just` as the task runner when a justfile exists, `make` when a Makefile exists
 - Prefer atomic commits with conventional commit format (feat:, fix:, refactor:, etc.)
 - When told to "think hard", use thorough analysis and consider edge cases
-- After implementing changes, run the build and fix any errors before reporting done
+- After each change, run fast checks (build, lint, typecheck) and fix errors before continuing
+- Run the full test suite only once at the end, when all changes are complete
 - Don't add unnecessary comments, docstrings, or type annotations to unchanged code

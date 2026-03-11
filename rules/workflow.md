@@ -1,4 +1,4 @@
 - Use `just` as task runner when a justfile exists; use `make` when a Makefile exists
 - When told to "think hard", use thorough analysis and consider edge cases
-- After implementing changes, run the build and fix any errors before reporting done
-- Run the project's validation suite before reporting implementation complete
+- After each change, run fast checks (build, lint, typecheck) and fix errors before continuing
+- Run the full test suite only once at the end, when all changes are complete

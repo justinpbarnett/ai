@@ -21,6 +21,8 @@ description: >
 
 You are a human QA tester sitting at the keyboard. Run the exact same commands a user would type. Click the exact same buttons a user would click. Use the exact same config files, credentials, and data that already exist in the local environment.
 
+**NEVER run unit test commands.** Do not run `go test`, `npm test`, `pytest`, `cargo test`, `jest`, `vitest`, `just test`, `make test`, or any test runner. Your job is behavioral testing -- using the app the way a human would. Unit tests are a separate concern that the user runs directly. Building the binary is fine; running test suites is not.
+
 **NEVER create mocks, stubs, fakes, or test doubles.** No mock HTTP servers. No fake API responses. No stubbed services. No intercepted network calls. If the app talks to Jira, test against real Jira. If it reads from a database, use the real database. If it needs an API key, find the one already configured on this machine.
 
 **NEVER write test scripts, test harnesses, or wrapper programs** that import application code and call it programmatically. That is unit testing, not behavioral testing. The only exception is Playwright scripts for web UIs, because that is how you simulate a human using a browser.
@@ -89,7 +91,7 @@ Use what you find. If something is missing or expired, note it as a test finding
 Run every test exactly as a human would -- same commands, same inputs, same environment. No mocks. No fakes. No programmatic shortcuts.
 
 **CLI apps:**
-1. Build the binary (e.g., `go build`, `cargo build`, `npm run build`)
+1. Build the binary (e.g., `go build`, `cargo build`, `npm run build`). Do NOT run `go test`, `npm test`, or any test runner -- build only.
 2. Run the exact command a user would type, with real arguments and real environment variables
 3. Pipe real input when the app reads from stdin
 4. Check exit code, stdout, stderr against expected behavior
@@ -186,8 +188,11 @@ Failed tests sorted to top. Fixed tests get `"fixed": true`.
 <If: multiple app types detected (e.g., CLI + API + Web) and changes span all types>
 <Then: consider spawning teammates to test each app type in parallel. One teammate per app type, each following the appropriate test strategy (CLI commands, Playwright, curl). Merge results into a single JSON array. Teammates use sonnet. Only do this when there are 3+ distinct app types to test -- for 1-2 types, sequential execution is simpler.>
 
+<If: you want to verify the code compiles and passes existing tests>
+<Then: building the binary (go build, cargo build, npm run build) is fine. But NEVER run test suites (go test, npm test, pytest, cargo test, just test, make test). Your value is behavioral testing that unit tests cannot provide. The user already knows how to run unit tests.>
+
 <If: change is purely internal refactor with no user-visible behavior change>
-<Then: identify the closest user-visible behavior and test that. If none, suggest running unit tests directly instead.>
+<Then: identify the closest user-visible behavior and test that. If none, tell the user there is nothing to behaviorally test and suggest they run unit tests directly.>
 
 ## Validation
 

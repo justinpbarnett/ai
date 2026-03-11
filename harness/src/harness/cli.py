@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
+from collections import deque
 from pathlib import Path
 
 import click
 
 from harness.notify import Notifier
 from harness.progress import Progress
+from harness.subprocess_env import clean_env
 from harness.tasks import TaskList
 
 
@@ -166,9 +167,9 @@ def start(
         if prompt:
             cmd.extend(["--prompt", prompt])
         cmd.extend(["--project-dir", str(project_dir)])
-        if max_iterations:
+        if max_iterations is not None:
             cmd.extend(["--max-iterations", str(max_iterations)])
-        if max_cost:
+        if max_cost is not None:
             cmd.extend(["--max-cost", str(max_cost)])
         cmd.extend(["--on-failure", on_failure])
         cmd.extend(["--parallel", str(parallel)])
@@ -183,7 +184,7 @@ def start(
                 stdout=lf,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
-                env=os.environ.copy(),
+                env=clean_env(),
             )
 
         # Save PID for status command
@@ -241,14 +242,14 @@ def status(project_dir: Path, logs: int):
     pid_file = project_dir / "harness.pid"
 
     # Process status
-    if pid_file.exists():
+    try:
         pid = int(pid_file.read_text().strip())
         if _is_running(pid):
             click.echo(f"Status: RUNNING (PID {pid})")
         else:
             click.echo("Status: STOPPED")
             pid_file.unlink(missing_ok=True)
-    else:
+    except (FileNotFoundError, ValueError):
         click.echo("Status: NOT STARTED")
 
     if not tasks_path.exists():
@@ -281,13 +282,16 @@ def status(project_dir: Path, logs: int):
             click.echo(f"  [{t.id}] {t.name}: {t.error_message}")
 
     # Show log tail
-    log_file = project_dir / "harness.log"
-    if logs > 0 and log_file.exists():
-        lines = log_file.read_text().splitlines()
-        tail = lines[-logs:]
-        click.echo(f"\n--- Last {len(tail)} log lines ---")
-        for line in tail:
-            click.echo(line)
+    if logs > 0:
+        log_file = project_dir / "harness.log"
+        try:
+            with open(log_file) as f:
+                tail = list(deque(f, maxlen=logs))
+            click.echo(f"\n--- Last {len(tail)} log lines ---")
+            for line in tail:
+                click.echo(line.rstrip("\n"))
+        except FileNotFoundError:
+            pass
 
 
 def _is_running(pid: int) -> bool:

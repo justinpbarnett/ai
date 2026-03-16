@@ -1,101 +1,60 @@
 ---
 name: prime
 description: >
-  Builds deep codebase context by systematically scanning the project structure,
-  reading key documentation, and summarizing understanding. Use when starting a
-  new session, onboarding to the codebase, or when asked to "prime", "get context",
-  "learn the codebase", "orient yourself", "understand the project", or
-  "familiarize yourself with the code". Also triggers when asked "what does this
-  project do" or "summarize the codebase". Do NOT use for implementing features,
-  fixing bugs, or running commands. Do NOT use when already primed in the current
-  session.
+  Fast project orientation. Scans recent activity, identifies key files, and
+  summarizes current state. Use on "prime", "get context", "orient yourself",
+  "catch me up", or "what does this project do". Do NOT use when already primed.
 ---
 
-# Purpose
+# Prime
 
-Builds codebase context by scanning the project structure, reading key documentation, and understanding the architecture so you can work effectively in subsequent tasks.
+Fast orientation for any project. CLAUDE.md already covers structure and rules. Prime adds: what's happening now, what's the stack, and where to look.
 
-## Variables
+## Trigger
 
-This skill requires no additional input.
+"prime", "get context", "orient yourself", "catch me up", "what does this project do"
 
-## Instructions
+## Process
 
-### Step 1: Survey Current State
-
-Run in parallel:
-
-```bash
-git ls-files | head -200
-```
-
-```bash
-git status
-```
+### 1. Current state (parallel)
 
 ```bash
 git log --oneline -10
 ```
+```bash
+git status
+```
+```bash
+git diff main...HEAD --stat  # skip if on main
+```
 
-If `git ls-files` fails (not a git repo), fall back to listing the directory tree.
+### 2. Read CLAUDE.md
 
-### Step 2: Read Core Documentation
+Read `CLAUDE.md` or `.claude/CLAUDE.md` if it exists. This is the primary context source -- it has structure, conventions, and domain rules. If it covers the project well, skip step 3.
 
-Read these files in order. If a file does not exist, skip it and note its absence:
+### 3. Identify the project (only if no CLAUDE.md)
 
-1. **`README.md`** — Project overview, setup instructions, architecture
-2. **`CLAUDE.md`** or **`.claude/CLAUDE.md`** — Project-specific agent instructions
-3. **`CONTRIBUTING.md`** — Contribution guidelines and conventions (if it exists)
+Read the first file that exists: `README.md`, `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`. Just enough to know what the project is, what stack it uses, and how to run it.
 
-### Step 3: Understand the Tooling
+### 4. Active work
 
-Check for a task runner or build system to understand available commands:
+If a `specs/` directory exists, list files by modification time. Read the first 40 lines of the most recent spec to understand current direction.
 
-1. **`justfile`** — Read for available recipes
-2. **`package.json`** — Read the `scripts` section
-3. **`Makefile`** — Read for available targets
-4. **`pyproject.toml`** — Read for project metadata and scripts
+## Output
 
-Read whichever exists (check in that order, read the first one found plus package.json if it exists).
+Concise. Adapt length to project size, but bias toward short.
 
-### Step 4: Check Active Specs
+```
+[Project name]: [one-line description]
+Stack: [languages, frameworks, key deps]
+State: [branch, uncommitted changes, recent direction]
+Run: [key commands -- build, test, dev server]
+```
 
-If a `specs/` directory exists, list files sorted by modification time. Read the 1-2 most recently modified specs (first 60 lines each) to understand current development direction.
-
-### Step 5: Branch Context (if not on main)
-
-If on a feature branch, run `git diff main...HEAD --stat` to understand branch scope.
-
-### Step 6: Summarize
-
-Provide a concise structured summary covering:
-
-- **What the project is** — Core purpose and domain
-- **How it's structured** — Key directories and their roles
-- **How to run it** — Available commands, scripts, entry points
-- **Key patterns** — Conventions, naming schemes, architectural decisions
-- **Technology stack** — Languages, frameworks, tools, dependencies
-- **Current state** — Branch, uncommitted changes, active specs
-
-## Workflow
-
-1. **Scan** — `git ls-files`, `git status`, `git log` (parallel)
-2. **Read docs** — README, CLAUDE.md, CONTRIBUTING.md
-3. **Tooling** — Read justfile / package.json / Makefile / pyproject.toml
-4. **Specs** — Check for active specs in `specs/`
-5. **Branch** — Understand feature branch scope if applicable
-6. **Summarize** — Structured summary of the project
+For projects with CLAUDE.md, skip anything it already covers. Just surface what's live (branch, recent commits, active spec).
 
 ## Cookbook
 
-<If: already primed in the current session>
-<Then: quick refresh — run `git status` and `git log --oneline -5` only. Skip all reads.>
-
-<If: not a git repository>
-<Then: fall back to `ls -la` and directory exploration. Note this in the summary.>
-
-<If: no README.md exists>
-<Then: look for alternative documentation (docs/, wiki/, CONTRIBUTING.md, or package.json description). Note the absence.>
-
-<If: monorepo with multiple packages>
-<Then: identify the top-level structure and note the key packages/workspaces. Don't read every sub-package in detail during priming — read those on-demand when the task requires it.>
+- Already primed this session? Just `git status` + `git log --oneline -5`. Skip everything else.
+- Not a git repo? `ls -la` and read whatever docs exist.
+- Monorepo? Top-level structure only. Read sub-packages on demand.

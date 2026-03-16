@@ -85,6 +85,11 @@ This gives the user visibility into the full shape of the conversation and where
 
 This is the core collaborative phase. Drive a focused conversation to fill in gaps and make decisions. Cover these areas as relevant to the task type:
 
+**Design principles** (apply to all decisions):
+
+- Reduce the layers a reader has to trace
+- Reduce the state a reader has to hold in their head
+
 **For all types:**
 
 - Scope boundaries -- what's in, what's explicitly out

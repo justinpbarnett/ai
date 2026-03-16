@@ -100,6 +100,11 @@ For each issue found during review, classify its severity using the guidelines i
 - **tech_debt** -- Does not prevent release but creates debt that should be addressed in a future iteration.
 - **skippable** -- Non-blocking and minor. A real problem but not critical to the feature's core value.
 
+Additionally, flag code that violates these principles:
+
+- Adds unnecessary layers a reader has to trace (excessive indirection, wrapper functions, over-abstraction)
+- Forces a reader to hold too much state in their head (deep nesting, long functions, scattered mutations)
+
 Think carefully about impact before classifying. When in doubt, lean toward the less severe classification.
 
 ### Step 7: Fix All Actionable Issues

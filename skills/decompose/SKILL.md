@@ -40,7 +40,10 @@ If the feature is small enough for a single agent, output a task graph JSON with
 
 ### Step 3b: Decompose into Sub-Tasks
 
-If the feature needs decomposition:
+If the feature needs decomposition, apply these principles to the task boundaries:
+
+- Reduce the layers a reader has to trace -- keep sub-task interfaces simple and direct
+- Reduce the state a reader has to hold in their head -- each sub-task should be self-contained
 
 1. **Group related steps** into focused sub-tasks:
    - **Data model + migration** → early task (stage 1), other tasks depend on it

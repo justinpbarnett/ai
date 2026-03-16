@@ -74,6 +74,7 @@ Create the agent team with the designed composition:
    - The files they own (and explicit instruction not to modify other files)
    - Relevant context from the spec or task description
    - The model to use (sonnet)
+   - These code principles: reduce the layers a reader has to trace, reduce the state a reader has to hold in their head
 2. **Assign tasks** through the shared task list
 3. **Monitor progress** -- Track which teammates are active and what they're working on
 4. **Handle failures** -- If a teammate gets stuck or fails:

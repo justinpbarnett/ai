@@ -59,6 +59,8 @@ Before writing any code, build context:
 
 Work through the plan's tasks in dependency order:
 
+- **Reduce layers** - Minimize the layers a reader has to trace. Prefer direct over indirect.
+- **Reduce state** - Minimize the state a reader has to hold in their head. Keep scope tight.
 - **One task at a time** - Complete each task fully before moving to the next
 - **Follow existing patterns** - Match the codebase's style, naming conventions, and architectural patterns
 - **Prefer editing over creating** - Modify existing files when possible rather than creating new ones

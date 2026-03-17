@@ -58,19 +58,36 @@ If all exist, this is an **update**. If none exist, this is a **new setup**. If 
 
 ### Step 3: Generate CLAUDE.md
 
-**New setup:** Run the built-in `/init` command first to generate a baseline CLAUDE.md, then enhance it with the structure from `references/claude-md-template.md`. The final CLAUDE.md should include:
+**New setup:** Generate CLAUDE.md from actual codebase analysis. Do NOT use `/init` -- build it yourself from what you found in step 1 plus deeper structural mapping.
 
-- Project name and one-line description
-- Tech stack summary
-- Key commands (discovered from task runner)
-- Architecture overview (top-level directory purposes)
-- Testing setup
+**Structural mapping (parallel globs):**
+- Entry points: `main.go`, `cmd/*/main.go`, `src/index.*`, `src/main.*`, `app.py`, `manage.py`, `src/App.*`
+- Routes/handlers: `**/routes/**`, `**/handlers/**`, `**/controllers/**`, `**/api/**`
+- Models/data: `**/models/**`, `**/schema*`, `**/types/**`, `**/entities/**`
+- Tests: `**/*_test.*`, `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`
+- Config: `**/config/**`, `.env.example`, `docker-compose.*`
+
+Read key files (not just detect them) to understand architecture:
+- Task runner: if justfile, run `just --list`. If Makefile, read targets. If package.json, read scripts.
+- Entry points: read the main file to understand what the app does
+- README.md: first 30 lines for project description
+
+Generate CLAUDE.md following the structure in `references/claude-md-template.md`. The final file should include:
+
+- Project name and one-line description (from README or package manifest)
+- Tech stack summary (from step 1 detection)
+- Key commands (from task runner -- copy-pasteable, not paraphrased)
+- Architecture overview (top-level directories with purposes inferred from contents)
+- Testing setup (framework, directory, how to run)
 - Domain-specific rules (ask the user if unclear)
+
+Keep under 100 lines. This is loaded into every conversation -- brevity matters.
 
 **Update:** Read the existing CLAUDE.md. Check if any sections are outdated:
 - Compare key commands against the actual task runner config
 - Check if new top-level directories exist that aren't documented
 - Verify the stack description matches current dependencies
+- Run the same structural mapping globs to find undocumented patterns
 - Suggest additions but do not remove existing content without asking
 
 ### Step 4: Configure Project Settings

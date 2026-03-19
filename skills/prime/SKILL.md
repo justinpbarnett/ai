@@ -4,12 +4,12 @@ description: >
   Fast project orientation. Scans recent activity, identifies key files, and
   summarizes current state. Generates CLAUDE.md for projects that don't have one.
   Use on "prime", "get context", "orient yourself", "catch me up", or "what does
-  this project do". Do NOT use when already primed.
+  this project do". Do NOT use when already primed this session.
 ---
 
 # Prime
 
-Fast orientation for any project. When CLAUDE.md exists, prime adds what's happening now. When it doesn't, prime generates one -- giving Claude architectural context for any codebase.
+Fast orientation for any project. Two modes: if CLAUDE.md exists, surface what's live right now. If it doesn't, generate one from the codebase.
 
 ## Trigger
 
@@ -31,13 +31,17 @@ git diff main...HEAD --stat  # skip if on main
 
 Also check: does `CLAUDE.md` or `.claude/CLAUDE.md` exist?
 
-### 2a. CLAUDE.md exists -- read and continue
+### 2a. CLAUDE.md exists -- surface what's live
 
-Read it. This is the primary context source. Skip to step 3.
+CLAUDE.md is already loaded into context at session start. Don't re-read it. Instead, focus on what's changed since last session -- that's the value prime adds for established projects.
+
+**Respect progressive disclosure.** If CLAUDE.md has a context index (a table pointing to files with "Read when" triggers), those files are on-demand. Don't read them during prime. Mention the index exists so future queries know where to look, but don't front-load context that isn't needed yet. The whole point of progressive disclosure is that context loads when a task demands it, not at session start.
+
+Skip to step 3.
 
 ### 2b. No CLAUDE.md -- generate one
 
-This is the core value of prime on unfamiliar codebases. Instead of reading one file and moving on, build a CLAUDE.md that gives Claude full architectural context.
+This is the core value of prime on unfamiliar codebases. Build a CLAUDE.md that gives Claude full architectural context.
 
 **Detection (parallel):**
 
@@ -100,22 +104,33 @@ Generate a concise CLAUDE.md (under 80 lines) at the project root:
 - <Any conventions visible from the codebase: linting config, CI setup, etc.>
 ```
 
-Tell the user you generated it and suggest they review/edit it. Do NOT run `/setup` -- that's a separate, heavier operation for full Claude Code config.
+Tell the user you generated it and suggest they review/edit it. Do NOT run `/setup` -- that's a separate, heavier operation.
 
 ### 3. Active work
 
-If a `specs/` directory exists, list files by modification time. Read the first 40 lines of the most recent spec to understand current direction.
+Check for active work signals (in parallel where possible):
+
+- `specs/` directory -- list by modification time, read first 40 lines of most recent
+- Feature branches -- if not on main, note the branch name and what's changed
+- Uncommitted changes -- summarize what's staged/unstaged from git status
+- Recent commit direction -- from the git log, identify the area of the codebase that's been active (e.g., "last 5 commits touch daily brief pipeline" or "recent work on auth module")
 
 ## Output
 
-Concise. Adapt length to project size, but bias toward short.
+Concise. Adapt length to project size, but bias toward short. The goal is orientation, not a tour.
 
 **With existing CLAUDE.md:**
 ```
 [Project name]: [one-line description]
-State: [branch, uncommitted changes, recent direction]
+State: [branch, clean/dirty, recent direction from commits]
 ```
-Skip anything CLAUDE.md already covers. Just surface what's live.
+
+That's it for clean, on-main repos. Add more only if there's something to surface:
+- Uncommitted changes? Summarize them.
+- On a feature branch? Note what it's for.
+- Recent spec or active initiative? Mention it.
+
+Don't repeat anything CLAUDE.md already covers. Don't read on-demand context files. Just surface what's live.
 
 **After generating CLAUDE.md:**
 ```
@@ -134,3 +149,4 @@ Review the generated CLAUDE.md -- edit anything that's wrong or missing.
 - Monorepo? Top-level structure only. Note sub-packages in architecture section. Read sub-packages on demand.
 - CLAUDE.md exists but looks stale/thin? Leave it alone. Suggest the user run `/setup update` if they want a refresh.
 - Large project (50+ top-level files)? Focus on `src/`, `cmd/`, `app/`, `lib/` -- skip config noise in the architecture section.
+- CLAUDE.md has a context index? Note it in your output (e.g., "6 context files available on-demand") so the user knows the system is there. Don't enumerate them.

@@ -4,8 +4,8 @@ description: >
   Standard feature harness. Research → generate → evaluate → security → simplify
   → commit → PR. Creates a branch and opens a PR by default.
   Use for new features, moderate changes, anything that warrants its own PR.
-  Triggers on: "make", "add", "implement this feature", "create a new",
-  "build this feature", "add support for".
+  Triggers on: "make", "add this", "implement this feature", "create a new",
+  "add support for", "add a feature".
   Use /fix for small targeted changes. Use /build for complex multi-sprint work.
 
   Flags:
@@ -16,7 +16,7 @@ description: >
 
 # Make
 
-Standard feature harness. Five agents in sequence, single sprint, branches and PRs by default.
+Standard feature harness. Single sprint: research → generate → evaluate → security → simplify. Branches and PRs by default.
 
 ## Variables
 
@@ -59,8 +59,9 @@ Returns a brief: relevant files, patterns, conventions, and anything the generat
 Invoke the `generator` agent. Pass:
 - The full spec
 - The research brief
+- "Do not commit -- the harness handles this"
 
-The generator declares its contract (scope + success criteria) before coding, then implements. Its output will include the declared contract and a commit hash.
+The generator declares its contract (scope + success criteria) before coding, then implements.
 
 ### Step 4: Evaluate
 

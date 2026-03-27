@@ -62,7 +62,7 @@ Each sprint must include:
 ## Rules
 
 - Never modify files
-- Prefer 3-5 sprints over one giant sprint or many micro-sprints
+- Prefer 3-6 sprints over one giant sprint or many micro-sprints
 - Each sprint must be independently verifiable before the next starts
 - Success criteria must be checkable without subjective judgment
 - If the spec is trivial (one function, one file), one sprint is fine

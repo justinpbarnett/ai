@@ -72,7 +72,8 @@ Invoke the `generator` agent. Pass:
 #### 3b. Evaluate
 
 Invoke the `evaluator` agent. Pass:
-- This sprint's contract
+- The original spec (full spec passed to the planner -- source of truth for intent)
+- This sprint's contract from the planner (serves as the declared contract for this sprint)
 - Generator output summary
 - Note if Playwright MCP tools are available for web projects
 
@@ -84,7 +85,7 @@ Invoke the `evaluator` agent. Pass:
 
 #### 3d. Commit gate
 
-After each sprint passes, check the generator's output summary for a commit hash. If none is present, invoke the `generator` agent again with only this task: commit the sprint work with a conventional commit message and return the commit hash.
+After each sprint passes, check the generator's output summary for a commit hash. If none is present, treat it as a generator failure and retry from 3a with the instruction: "your previous output did not include a commit. Commit your work and return the hash."
 
 ### Step 4: Security
 

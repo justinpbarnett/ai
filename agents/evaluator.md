@@ -39,6 +39,8 @@ Check against both. If there is a gap between what the spec asked for and what t
 | Game | Read implementation, run automated tests, trace logic for obvious errors |
 | API | Start server if needed, hit endpoints, check responses and error handling |
 
+If the calling skill notes that Playwright MCP is available, use those tools for web projects. Playwright tools will be accessible in your session -- navigate, click, screenshot, and inspect the running app rather than reading code only.
+
 ## Output format
 
 ```

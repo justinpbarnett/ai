@@ -56,14 +56,16 @@ The agent finds the relevant code and returns a brief: what to change, where, an
 Invoke the `generator` agent. Pass:
 - The original change description or spec
 - The research brief
+- "Do not commit -- the harness handles this"
 
-The generator declares its contract (scope + success criteria) before coding, then implements. Its output will include the declared contract and a commit hash.
+The generator declares its contract (scope + success criteria) before coding, then implements. Its output will include the declared contract.
 
 ### Step 4: Evaluate
 
 Invoke the `evaluator` agent. Pass:
 - The original change description or spec
 - The generator's declared contract and output summary
+- Note if Playwright MCP is available for web projects
 
 Single pass -- no retry loop. If the evaluator returns FAIL, print the specific failures and stop. Don't proceed to commit.
 
@@ -75,11 +77,10 @@ Single pass -- no retry loop. If the evaluator returns FAIL, print the specific 
 
 **`--no-commit`:** skip. Leave changes in place and report what changed.
 
-**If `--worktree`:** after commit, clean up:
+**If `--worktree`:** after the git result step completes, clean up:
 ```
 git worktree remove /tmp/<branch-name>
 ```
-Unless `--pr` was used, in which case leave the worktree until the PR is open.
 
 ## Output
 
@@ -98,6 +99,9 @@ Committed: <hash> <message>   (or PR: <url>)
 
 <If: evaluator fails>
 <Then: stop and report the specific failures. Don't commit partial work. The user can refine the description and re-run, or switch to /make if the scope is larger than expected.>
+
+<If: evaluator fails and --worktree is set>
+<Then: clean up the worktree before stopping. Run: git worktree remove /tmp/<branch-name>. Don't leave orphaned worktrees.>
 
 <If: change is purely mechanical (rename, format, delete dead code)>
 <Then: research is still useful to find all affected locations. Don't skip it.>

@@ -65,7 +65,7 @@ The generator declares its contract (scope + success criteria) before coding, th
 Invoke the `evaluator` agent. Pass:
 - The original change description or spec
 - The generator's declared contract and output summary
-- Note if Playwright MCP is available for web projects
+- Whether Playwright MCP is available for web projects (check your available tool list for `mcp__plugin_playwright` tools; if present, tell the evaluator it can use them)
 
 Single pass -- no retry loop. If the evaluator returns FAIL, print the specific failures and stop. Don't proceed to commit.
 
@@ -105,6 +105,9 @@ Committed: <hash> <message>   (or PR: <url>)
 
 <If: change is purely mechanical (rename, format, delete dead code)>
 <Then: research is still useful to find all affected locations. Don't skip it.>
+
+<If: change touches authentication, encryption, input validation, or secrets handling>
+<Then: despite being small, consider running the `security` agent after evaluate. /fix has no built-in security step, but these areas warrant it.>
 
 <If: --branch and --pr are both set>
 <Then: create the branch, do the work, commit and open a PR from that branch.>

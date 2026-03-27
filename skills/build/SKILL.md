@@ -67,7 +67,7 @@ For each sprint, run up to 3 generator→evaluator cycles:
 Invoke the `generator` agent. Pass:
 - This sprint's contract (goal, scope, success criteria)
 - The full plan (context)
-- Evaluator feedback from the previous cycle (if retrying)
+- All evaluator feedback from previous cycles of this sprint, accumulated (if retrying -- give the full history, not just the last cycle)
 
 #### 3b. Evaluate
 
@@ -75,7 +75,7 @@ Invoke the `evaluator` agent. Pass:
 - The original spec (full spec passed to the planner -- source of truth for intent)
 - This sprint's contract from the planner (serves as the declared contract for this sprint)
 - Generator output summary
-- Note if Playwright MCP tools are available for web projects
+- Whether Playwright MCP is available for web projects (check your available tool list for `mcp__plugin_playwright` tools; if present, tell the evaluator it can use them)
 
 #### 3c. Verdict
 

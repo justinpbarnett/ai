@@ -68,7 +68,7 @@ The generator declares its contract (scope + success criteria) before coding, th
 Invoke the `evaluator` agent. Pass:
 - The original spec
 - The generator's declared contract and output summary
-- Note if Playwright MCP is available for web projects
+- Whether Playwright MCP is available for web projects (check your available tool list for `mcp__plugin_playwright` tools; if present, tell the evaluator it can use them)
 
 Single pass -- no loop. If FAIL, report failures and stop. The user should refine the spec or switch to `/build` for iterative work.
 

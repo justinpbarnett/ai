@@ -84,7 +84,7 @@ Invoke the `evaluator` agent. Pass:
 
 #### 3d. Commit gate
 
-After each sprint passes, verify a commit exists (check `git log --oneline -1`). If the generator didn't commit, invoke the `generator` agent again with only the task: commit this sprint's work with a conventional commit message.
+After each sprint passes, check the generator's output summary for a commit hash. If none is present, invoke the `generator` agent again with only this task: commit the sprint work with a conventional commit message and return the commit hash.
 
 ### Step 4: Security
 

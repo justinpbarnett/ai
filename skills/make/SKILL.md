@@ -58,16 +58,15 @@ Returns a brief: relevant files, patterns, conventions, and anything the generat
 
 Invoke the `generator` agent. Pass:
 - The full spec
-- Research brief
-- A sprint contract: scope = everything in the spec, success criteria derived from the spec's requirements
+- The research brief
 
-Single sprint -- no decomposition. If the spec is too large for one sprint, stop and suggest using `/build` instead.
+The generator declares its contract (scope + success criteria) before coding, then implements. Its output will include the declared contract and a commit hash.
 
 ### Step 4: Evaluate
 
 Invoke the `evaluator` agent. Pass:
-- Sprint contract
-- Generator output summary
+- The original spec
+- The generator's declared contract and output summary
 - Note if Playwright MCP is available for web projects
 
 Single pass -- no loop. If FAIL, report failures and stop. The user should refine the spec or switch to `/build` for iterative work.

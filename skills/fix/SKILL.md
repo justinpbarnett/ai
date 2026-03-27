@@ -54,17 +54,16 @@ The agent finds the relevant code and returns a brief: what to change, where, an
 ### Step 3: Generate
 
 Invoke the `generator` agent. Pass:
-- The change description
+- The original change description or spec
 - The research brief
-- A minimal contract: what the fix does + two or three success criteria derived from the description
 
-The generator implements the change and verifies build/lint pass.
+The generator declares its contract (scope + success criteria) before coding, then implements. Its output will include the declared contract and a commit hash.
 
 ### Step 4: Evaluate
 
 Invoke the `evaluator` agent. Pass:
-- The success criteria from the generator's contract
-- The generator's output summary
+- The original change description or spec
+- The generator's declared contract and output summary
 
 Single pass -- no retry loop. If the evaluator returns FAIL, print the specific failures and stop. Don't proceed to commit.
 

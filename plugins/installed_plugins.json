@@ -1,0 +1,145 @@
+{
+  "version": 2,
+  "plugins": {
+    "php-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/php-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-02-05T17:26:39.280Z",
+        "lastUpdated": "2026-02-05T17:26:39.280Z",
+        "gitCommitSha": "27d2b86d72da27c64585150857cee8472ad47abb"
+      }
+    ],
+    "github@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/github/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-10T12:42:32.359Z",
+        "lastUpdated": "2026-03-25T11:49:51.157Z",
+        "gitCommitSha": "205b6e0b30366a969412d9aab7b99bea99d58db1"
+      }
+    ],
+    "frontend-design@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-10T12:42:32.359Z",
+        "lastUpdated": "2026-03-25T11:49:51.159Z",
+        "gitCommitSha": "205b6e0b30366a969412d9aab7b99bea99d58db1"
+      }
+    ],
+    "typescript-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-10T12:42:32.359Z",
+        "lastUpdated": "2026-03-10T12:42:32.359Z",
+        "gitCommitSha": "205b6e0b30366a969412d9aab7b99bea99d58db1"
+      }
+    ],
+    "pyright-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/pyright-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-10T12:42:32.359Z",
+        "lastUpdated": "2026-03-10T12:42:32.359Z",
+        "gitCommitSha": "205b6e0b30366a969412d9aab7b99bea99d58db1"
+      }
+    ],
+    "gopls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-10T12:42:32.359Z",
+        "lastUpdated": "2026-03-10T12:42:32.359Z",
+        "gitCommitSha": "205b6e0b30366a969412d9aab7b99bea99d58db1"
+      }
+    ],
+    "playwright@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/playwright/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.156Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "skill-creator@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/skill-creator/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.163Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "plugin-dev@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/plugin-dev/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.171Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "commit-commands@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/commit-commands/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.159Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "code-review@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/code-review/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.158Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "pr-review-toolkit@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.161Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "claude-code-setup@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/claude-code-setup/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-24T13:20:51.412Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ],
+    "feature-dev@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/justin.barnett/.claude/plugins/cache/claude-plugins-official/feature-dev/unknown",
+        "version": "unknown",
+        "installedAt": "2026-03-24T13:20:51.412Z",
+        "lastUpdated": "2026-03-25T11:49:51.160Z",
+        "gitCommitSha": "61c0597779bd2d670dcd4fbbf37c66aa19eb2ce6"
+      }
+    ]
+  }
+}

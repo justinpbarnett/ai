@@ -12,7 +12,7 @@ echo ""
 mkdir -p "$CLAUDE_DIR"
 
 # Items to symlink
-ITEMS=(skills agents hooks rules CLAUDE.md settings.json)
+ITEMS=(skills agents hooks rules plugins CLAUDE.md settings.json)
 
 for item in "${ITEMS[@]}"; do
     target="$CLAUDE_DIR/$item"

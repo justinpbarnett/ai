@@ -1,11 +1,14 @@
 {
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "15000"
   },
   "attribution": {
     "commit": "",
     "pr": ""
   },
+  "enableAllProjectMcpServers": true,
   "hooks": {
     "PreToolUse": [
       {
@@ -54,6 +57,16 @@
             "statusMessage": "Tracking commit..."
           }
         ]
+      },
+      {
+        "matcher": "Bash|Read|Write|Edit|Glob|Grep|Skill|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/dev/workshop/data/sentinel/scripts/sentinel-log.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "TeammateIdle": [
@@ -80,18 +93,28 @@
         ]
       }
     ],
-    "Stop": [
+    "Stop": [],
+    "StopFailure": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/notify-user.sh",
-            "timeout": 5
+            "command": "~/dev/workshop/data/sentinel/scripts/sentinel-stop-failure.sh",
+            "timeout": 10
           }
         ]
       }
     ],
-    "Notification": []
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"continue\": false}'"
+          }
+        ]
+      }
+    ]
   },
   "enabledPlugins": {
     "github@claude-plugins-official": true,
@@ -108,8 +131,18 @@
     "code-review@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true
+    "feature-dev@claude-plugins-official": true,
+    "enver@enver-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "enver-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "EnverVentures/claude-plugins"
+      }
+    }
   },
   "effortLevel": "high",
+  "voiceEnabled": true,
   "skipDangerousModePermissionPrompt": true
 }

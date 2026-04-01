@@ -1,152 +1,96 @@
 ---
 name: prime
 description: >
-  Fast project orientation. Scans recent activity, identifies key files, and
-  summarizes current state. Generates CLAUDE.md for projects that don't have one.
-  Use on "prime", "get context", "orient yourself", "catch me up", or "what does
-  this project do". Do NOT use when already primed this session.
+  Quick project orientation using git tools. Surfaces real-time git status and 
+  recent activity to supplement the existing AGENTS.md/CLAUDE.md context. Uses
+  git_status, git_log, and git_branch tools for fast, deterministic results.
+  Triggers: "prime", "get context", "catch me up", "what changed", "what's new".
 ---
 
 # Prime
 
-Fast orientation for any project. Two modes: if CLAUDE.md exists, surface what's live right now. If it doesn't, generate one from the codebase.
+Fast real-time status check using git tools. Shows current branch, recent commits, and uncommitted changes. Supplements (doesn't replace) the project context files.
 
-## Trigger
+## When to Use
 
-"prime", "get context", "orient yourself", "catch me up", "what does this project do"
+At the start of a session to see what's live since the context files were written:
+- "prime", "catch me up", "what's new", "what changed"
 
-## Process
+## What It Does
 
-### 1. Current state (parallel)
+1. Uses `git_branch` to show current branch
+2. Uses `git_log` to show recent commits
+3. Uses `git_status` to show uncommitted files
+4. Notes if on a feature branch vs main
+5. Checks for specs/ directory (lists recent specs if exists)
 
-```bash
-git log --oneline -10
-```
-```bash
-git status
-```
-```bash
-git diff main...HEAD --stat  # skip if on main
-```
+## Tools to Use
 
-Also check: does `CLAUDE.md` or `.claude/CLAUDE.md` exist?
-
-### 2a. CLAUDE.md exists -- surface what's live
-
-CLAUDE.md is already loaded into context at session start. Don't re-read it. Instead, focus on what's changed since last session -- that's the value prime adds for established projects.
-
-**Respect progressive disclosure.** If CLAUDE.md has a context index (a table pointing to files with "Read when" triggers), those files are on-demand. Don't read them during prime. Mention the index exists so future queries know where to look, but don't front-load context that isn't needed yet. The whole point of progressive disclosure is that context loads when a task demands it, not at session start.
-
-Skip to step 3.
-
-### 2b. No CLAUDE.md -- generate one
-
-This is the core value of prime on unfamiliar codebases. Build a CLAUDE.md that gives Claude full architectural context.
-
-**Detection (parallel):**
-
-Scan project root for stack signals:
-
-| File | Indicates |
-|---|---|
-| `go.mod` | Go (read for module name + deps) |
-| `package.json` | Node/TS (read for name, scripts, deps, framework) |
-| `pyproject.toml` / `requirements.txt` | Python (read for project name, deps, framework) |
-| `Cargo.toml` | Rust (read for name, deps) |
-| `Gemfile` | Ruby |
-
-Also detect in parallel:
-- **Task runner**: `justfile`, `Makefile`, `package.json` scripts
-- **Package manager**: `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`, `package-lock.json`, `go.sum`, `uv.lock`
-- **README.md**: read first 20 lines for project description
-- **Top-level directory listing**: `ls -1` for architecture mapping
-
-**Structure mapping:**
-
-Glob for key patterns to understand how the code is organized:
-- Entry points: `main.go`, `cmd/`, `src/index.*`, `src/main.*`, `app.py`, `manage.py`, `src/App.*`
-- Routes/handlers: `**/routes/**`, `**/handlers/**`, `**/controllers/**`, `**/api/**`
-- Models/data: `**/models/**`, `**/schema*`, `**/types/**`, `**/entities/**`
-- Tests: `**/*_test.*`, `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`
-- Config: `**/config/**`, `.env.example`, `docker-compose.*`
-
-Don't read these files. Just note which patterns exist and where.
-
-**Write CLAUDE.md:**
-
-Generate a concise CLAUDE.md (under 80 lines) at the project root:
-
-```md
-# <Project Name>
-
-<One-line description from README or package manifest.>
-
-## Stack
-
-- <Language, framework, key deps>
-- <Database/ORM if detected>
-- <Package manager>
-
-## Key commands
-
-<From task runner -- list actual commands with descriptions. If justfile, run `just --list`. If Makefile, read targets. If package.json, list scripts.>
-
-## Architecture
-
-- `<dir>/` -- <purpose, inferred from contents and naming>
-
-## Testing
-
-- <test framework> (`<test directory>`)
-
-## Domain rules
-
-- <Any conventions visible from the codebase: linting config, CI setup, etc.>
-```
-
-Tell the user you generated it and suggest they review/edit it. Do NOT run `/setup` -- that's a separate, heavier operation.
-
-### 3. Active work
-
-Check for active work signals (in parallel where possible):
-
-- `specs/` directory -- list by modification time, read first 40 lines of most recent
-- Feature branches -- if not on main, note the branch name and what's changed
-- Uncommitted changes -- summarize what's staged/unstaged from git status
-- Recent commit direction -- from the git log, identify the area of the codebase that's been active (e.g., "last 5 commits touch daily brief pipeline" or "recent work on auth module")
+**Instead of bash commands, use these deterministic tools:**
+- `git_branch` - Get current branch name
+- `git_log` - Show recent commits (use count=5, oneline=true)
+- `git_status` - Check for uncommitted changes
 
 ## Output
 
-Concise. Adapt length to project size, but bias toward short. The goal is orientation, not a tour.
-
-**With existing CLAUDE.md:**
+**Single line format (most cases):**
 ```
-[Project name]: [one-line description]
-State: [branch, clean/dirty, recent direction from commits]
+[branch-name]: [last commit message] | [+X/-Y uncommitted files]
 ```
 
-That's it for clean, on-main repos. Add more only if there's something to surface:
-- Uncommitted changes? Summarize them.
-- On a feature branch? Note what it's for.
-- Recent spec or active initiative? Mention it.
-
-Don't repeat anything CLAUDE.md already covers. Don't read on-demand context files. Just surface what's live.
-
-**After generating CLAUDE.md:**
+**With uncommitted changes:**
 ```
-Generated CLAUDE.md for [project name].
-Stack: [languages, frameworks, key deps]
-State: [branch, uncommitted changes, recent direction]
-Run: [key commands]
+[branch-name]: [last commit]
+Uncommitted: [file1, file2, file3]
+```
 
-Review the generated CLAUDE.md -- edit anything that's wrong or missing.
+**On feature branch:**
+```
+feat/something: Add new feature | +3/-0 uncommitted
+```
+
+**With active spec:**
+```
+main: Latest commit message
+Specs: specs/feat-user-auth.md (2h ago)
+Uncommitted: 0
+```
+
+## Rules
+
+- **Never read CLAUDE.md or AGENTS.md** - they're already loaded into context
+- **Use tools, not bash** - git_status, git_log, git_branch for deterministic results
+- **Keep it under 10 lines** - this is a quick status check
+- **Skip if already primed this session** - just run git tools, skip full prime
+- **Not a git repo?** - Just run `ls -la` and note what files exist
+
+## Example Outputs
+
+**Clean, on main:**
+```
+main: feat: add dark mode toggle
+```
+
+**Feature branch with work:**
+```
+feat/dashboard-v2: WIP: add chart components
+Uncommitted: src/components/Chart.tsx, src/lib/data.ts
+```
+
+**With active spec:**
+```
+feat/auth: feat: implement JWT middleware
+Spec: specs/feat-auth-flow.md (active)
+Uncommitted: 0
 ```
 
 ## Cookbook
 
-- Already primed this session? Just `git status` + `git log --oneline -5`. Skip everything else.
-- Not a git repo? `ls -la` and read whatever docs exist. Still generate CLAUDE.md if missing.
-- Monorepo? Top-level structure only. Note sub-packages in architecture section. Read sub-packages on demand.
-- CLAUDE.md exists but looks stale/thin? Leave it alone. Suggest the user run `/setup update` if they want a refresh.
-- Large project (50+ top-level files)? Focus on `src/`, `cmd/`, `app/`, `lib/` -- skip config noise in the architecture section.
-- CLAUDE.md has a context index? Note it in your output (e.g., "6 context files available on-demand") so the user knows the system is there. Don't enumerate them.
+<If: user says "prime" and context already shows recent changes>
+<Then: just use git_status and git_log tools. Skip full prime.>
+
+<If: not a git repo>
+<Then: run `ls -la` and report what exists. Very brief.>
+
+<If: uncommitted changes are just lockfiles (package-lock, etc.)>
+<Then: mention them but don't list individually.>

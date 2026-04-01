@@ -1,6 +1,6 @@
-# Promote
+# Promote (Multi-Agent with Tools)
 
-Convert git worktrees to regular branches for manual testing. Works with any project that uses worktrees for isolated development -- orchestrators, team agents, manual worktrees, etc.
+Converts git worktrees to regular branches using parallel validation agents and deterministic tools. Multiple agents verify: worktree state, PR status, test readiness, and orchestrator sync before promoting. Uses git tools for precise git operations.
 
 ## Trigger
 
@@ -15,84 +15,157 @@ One of:
 
 ## Process
 
-### 1. Discover worktrees
+### Step 1: Discover Worktrees
 
-List all worktrees in the current repo:
-
+List all worktrees using bash:
 ```bash
 git worktree list
 ```
 
-If the user provided an identifier, filter to matching worktrees. If the project has multiple repos (check by looking for sibling directories that are also git repos), scan all of them.
+Or use `git_status` tool if checking a specific worktree.
 
-For multi-repo projects like Passion Camp:
-```bash
-cd ~/dev/passion/passioncamp/app/client && git worktree list
-cd ~/dev/passion/passioncamp/app/server && git worktree list
+For multi-repo projects, scan all repos.
+
+### Step 2: Launch Parallel Validation Agents
+
+For each worktree to promote, spawn 3-4 agents in parallel:
+
+```
+@worktree-validator
+Validate worktree state:
+- Use git_status tool to check for uncommitted changes
+- Use git_diff to confirm no merge conflicts
+- Verify all tests pass (if test suite exists)
+- Check for required files (tests, docs)
+
+Tools: git_status, git_diff
+Report: is_ready, blockers_list, uncommitted_changes
 ```
 
-### 2. Check for associated PRs
+```
+@pr-status-checker
+Check PR status and readiness:
+- Find associated PRs via gh cli
+- Check if PR is draft
+- Verify CI checks are passing
+- Confirm reviews if required
 
-```bash
-BRANCH=$(git -C <worktree_path> branch --show-current)
-gh pr list --head "$BRANCH" --json number,url,title,isDraft
+Report: pr_url, is_draft, ci_status, ready_for_review
 ```
 
-### 3. Convert worktree to branch
+```
+@orchestrator-sync-agent
+Sync with orchestrator state if applicable:
+- Check passion-state.json for ticket status
+- Check embers-tasks.json for task status  
+- Verify orchestrator temp files exist
+- Prepare state update
 
-For each matching worktree:
+Report: orchestrator_found, current_status, can_promote
+```
+
+```
+@promotion-planner
+Plan the promotion steps:
+- Determine commit order if uncommitted changes exist
+- Identify any dependent worktrees that should promote together
+- Plan cleanup steps
+- Estimate time required
+
+Report: promotion_steps, estimated_duration, dependencies
+```
+
+### Step 3: Review Validation Results
+
+Combine all agent reports:
+
+**If any agent reports blockers:**
+- List all blockers
+- Suggest fixes
+- Ask user to resolve before promoting
+
+**If all agents approve:**
+- Proceed with promotion
+
+### Step 4: Execute Promotion
 
 ```bash
-# Check for uncommitted changes
-git -C <worktree_path> status --porcelain
+# Commit uncommitted changes if any
+# Or use git_add and git_commit tools:
+git_add({ files: [] })  # stage all
+git_commit({ message: "wip: uncommitted changes before promote", type: "chore" })
 
-# If uncommitted changes exist, commit them
-git -C <worktree_path> add -A
-git -C <worktree_path> commit -m "wip: uncommitted changes before promote"
-
-# Remove the worktree (keeps the branch and all commits)
+# Remove worktree (keeps branch and commits)
 git worktree remove <worktree_path>
 
-# Check out the branch in the main repo
+# Checkout branch in main repo using git_createBranch or bash
 git checkout <branch_name>
 ```
 
-### 4. Mark PRs as ready for review
+### Step 5: Mark PR Ready
 
-If draft PRs exist for the branch:
+If draft PRs exist:
 ```bash
 gh pr ready <PR_NUMBER>
 ```
 
-### 5. Update orchestrator state (if applicable)
+### Step 6: Update Orchestrator State
 
-Check for known orchestrator state files and update status to "promoted":
-
-- `~/dev/workshop/build/initiatives/passion-state.json` (Passion autopilot)
-- `~/dev/workshop/build/initiatives/embers-tasks.json` (Embers orchestrator)
-
-If on a remote machine (e.g., MacBook) and state lives on omarchy:
+If orchestrator-sync-agent found state files:
 ```bash
-ssh jpb@omarchy "python3 -c \"import json,sys; f='build/initiatives/passion-state.json'; s=json.load(open(f)); k=sys.argv[1]; s.get('tickets',{}).get(k,{})['status']='promoted'; json.dump(s,open(f,'w'),indent=2)\" '<KEY>'"
+# Update passion-state.json or embers-tasks.json
+# Set status to "promoted"
 ```
 
-### 6. Clean up
+### Step 7: Cleanup and Summary
 
-Remove any orchestrator temp files:
+Remove temp files:
 ```bash
-rm -f /tmp/passion-task-<KEY>.txt /tmp/passion-run-<KEY>.sh /tmp/passion-result-<KEY>.txt
+rm -f /tmp/passion-task-<KEY>.txt /tmp/passion-run-<KEY>.sh
 ```
 
-### 7. Summary
+**Report to user:**
+```
+Promoted: {branch_name}
 
-Tell the user:
-- Which branch is now checked out (per repo if multi-repo)
-- Which PRs are ready for review (with URLs)
-- Remind: smoke test, then approve and merge
+Validation Results:
+- Worktree State: {ready/not ready} (@worktree-validator)
+- PR Status: {url} (@pr-status-checker)
+- Orchestrator: {synced/not applicable} (@orchestrator-sync-agent)
+
+Actions Taken:
+✓ Committed uncommitted changes (if any)
+✓ Removed worktree
+✓ Checked out branch in main repo
+✓ Marked PR ready for review (if was draft)
+✓ Updated orchestrator state
+
+Next Steps:
+1. Smoke test the feature
+2. Review and approve PR
+3. Merge when ready
+```
+
+## Cookbook
+
+<If: worktree-validator finds failing tests>
+<Then: report as blocker; suggest fixing tests before promoting.>
+
+<If: pr-status-checker finds failing CI>
+<Then: warn user but don't block; they may want to fix CI first.>
+
+<If: orchestrator-sync-agent finds mismatched state>
+<Then: log warning but proceed; state will be updated during promotion.>
+
+<If: multiple worktrees for same feature>
+<Then: promote them all together; agents should validate each.>
+
+<If: --worktree flag used but no worktree exists>
+<Then: just checkout the branch if it exists on remote.>
 
 ## Notes
 
-- If the worktree has uncommitted changes, always commit them before removing
-- If no worktree exists but a matching branch does (local or remote), just check it out
-- If nothing matches, inform the user clearly
-- Works from any machine -- adapts SSH commands based on hostname
+- Worktree state validation prevents promoting broken code
+- PR status checking ensures proper GitHub workflow
+- Orchestrator sync keeps build automation up to date
+- Parallel validation agents complete in ~10-15 seconds vs 30-60 sequential

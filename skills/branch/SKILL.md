@@ -39,10 +39,11 @@ based on the latest remote base branch (main/master).
    - Run `git fetch origin <BASE_BRANCH>`.
 
 5. **Create and switch to the new branch.**
-   - Run `git checkout -b <BRANCH_NAME> origin/<BASE_BRANCH>`.
+   - Option 1: Run `git checkout -b <BRANCH_NAME> origin/<BASE_BRANCH>`.
+   - Option 2: Use `git_createBranch({ name: BRANCH_NAME, base: BASE_BRANCH })` tool.
 
 6. **Confirm success.**
-   - Run `git branch --show-current` to verify.
+   - Use `git_branch` tool or run `git branch --show-current` to verify.
    - Report the branch name and that it is ready for implementation.
 
 # Workflow

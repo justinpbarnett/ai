@@ -2,119 +2,165 @@
 name: decompose
 description: >
   Analyzes a feature spec and decomposes it into smaller, focused sub-tasks
-  when the feature is too large for a single agent. Produces a task graph
-  with mini-specs for each sub-task. Use when a user wants to break down
-  a large feature, decompose a spec, split a plan into subtasks, or when
-  a spec is too big to implement in one pass. Triggers on "decompose this
-  spec", "break this down", "split into subtasks", "this is too big".
-  Do NOT use for implementing features (use the implement skill).
-  Do NOT use for creating specs (use the spec skill).
+  using multiple parallel analysis agents. Each agent examines a different
+  dimension: data flow, UI components, API surface, testing needs, and 
+  dependencies. Produces a task graph with mini-specs for each sub-task.
+  Use when a user wants to break down a large feature, decompose a spec, 
+  split into subtasks, or when a spec is too big to implement in one pass.
+  Triggers on "decompose this spec", "break this down", "split into subtasks",
+  "this is too big". Do NOT use for implementing features (use implement skill).
+  Do NOT use for creating specs (use spec skill).
 ---
 
-# Purpose
+# Decompose (Multi-Agent)
 
-Analyzes a feature spec and determines whether it should be decomposed into smaller sub-tasks. For small features, outputs a single-task graph. For large features, breaks the work into focused sub-tasks with mini-specs.
+Uses parallel specialist agents to analyze a feature from multiple angles, then synthesizes their findings into a comprehensive task graph.
 
 ## Variables
 
-- `argument`  -- Two space-separated values: `{spec_file_path} {task_id}` (e.g., `specs/feat-user-auth.md AUTH-042`). If no task_id is provided, derive one from the spec filename.
+- `argument` -- Two space-separated values: `{spec_file_path} {task_id}` (e.g., `specs/feat-user-auth.md AUTH-042`). If no task_id provided, derive one from the spec filename.
 
 ## Instructions
 
 ### Step 1: Read the Spec
 
-Read the full feature spec file. Identify:
+Read the full feature spec file. Identify the high-level goal and implementation steps.
 
-1. **Implementation steps**  -- The numbered steps or tasks
-2. **Files touched**  -- All files listed in "Relevant Files"
-3. **New files**  -- Files that need to be created
-4. **Dependencies between steps**  -- Which steps depend on which
+### Step 2: Launch Parallel Analysis Agents
 
-### Step 2: Evaluate Complexity
+Spawn 4-5 specialist agents to analyze different dimensions of the feature:
 
-Decide whether decomposition is needed. If the spec would take more than one focused session to implement (roughly: many implementation steps across many files with distinct concerns), decompose it. If the work is cohesive and manageable, keep it as a single task.
+```
+@data-flow-analyzer
+Analyze data models, state management, and persistence needs:
+- New data models or schema changes needed
+- State management approach (local, global, server)
+- Database migrations required
+- Data validation and transformation layers
+- API contracts for data operations
 
-### Step 3a: Single Task (No Decomposition)
+Report: data_models, state_approach, migrations_needed, api_contracts
+```
 
-If the feature is small enough for a single agent, output a task graph JSON with `is_decomposed: false` pointing to the original spec file. No mini-specs are created.
+```
+@ui-component-analyzer
+Analyze UI structure and component needs:
+- Pages/screens required
+- Reusable components needed
+- Component hierarchy and props
+- State lifting or context needs
+- Styling approach consistency
 
-### Step 3b: Decompose into Sub-Tasks
+Report: pages, components, component_hierarchy, styling_approach
+```
 
-If the feature needs decomposition, apply these principles to the task boundaries:
+```
+@api-surface-analyzer
+Analyze API endpoints and external interfaces:
+- New REST/GraphQL endpoints needed
+- Request/response schemas
+- Authentication/authorization requirements
+- Rate limiting or caching considerations
+- Third-party integrations
 
-- Reduce the layers a reader has to trace -- keep sub-task interfaces simple and direct
-- Reduce the state a reader has to hold in their head -- each sub-task should be self-contained
+Report: endpoints, schemas, auth_requirements, integrations
+```
 
-1. **Group related steps** into focused sub-tasks:
-   - **Data model + migration** → early task (stage 1), other tasks depend on it
-   - **Service/business logic** → separate task per service, depends on data model
-   - **Route/API endpoints** → depends on services
-   - **Components/Pages** → can parallelize (same stage if independent)
-   - **Tests** → bundled with the thing they test
-   - **Seed/fixture data** → separate late task
+```
+@testing-strategy-analyzer
+Analyze testing approach and coverage needs:
+- Unit tests for business logic
+- Integration tests for APIs
+- E2E tests for critical flows
+- Component tests for UI
+- Edge cases and error scenarios
 
-2. **Assign stages**  -- Stage 1 has no dependencies. Stage N depends on prior stages.
+Report: test_levels, coverage_areas, critical_paths, edge_cases
+```
 
-3. **Create mini-specs** at `specs/subtasks/{task_id}/{sub_task_id}.md`  -- each containing only the scope, steps, relevant files, and validation for that sub-task. Reference the parent spec for full context.
+```
+@dependency-analyzer
+Analyze dependencies and sequencing:
+- What must be built first (foundations)
+- What can be built in parallel
+- External dependencies (APIs, libraries, teams)
+- Blocking factors or risks
+- Integration points between components
 
-4. **Output the task graph** as JSON to stdout.
+Report: dependencies, parallel_groups, blockers, integration_points
+```
+
+### Step 3: Synthesize Task Graph
+
+Combine all analyzer reports to build the task graph:
+
+1. **Group related work** into focused sub-tasks:
+   - **Foundation** (Stage 1): Data models, migrations, core APIs
+   - **Services** (Stage 2): Business logic, integrations
+   - **UI** (Stage 3): Components, pages (can parallelize if independent)
+   - **Integration** (Stage 4): Wiring everything together
+   - **Testing** (Stage 5): Comprehensive test coverage
+
+2. **Assign stages** based on dependencies:
+   - Stage 1: No dependencies (data layer)
+   - Stage 2: Depends on Stage 1 (services)
+   - Stage 3: Can run parallel, may depend on Stage 2
+   - Stage 4: Depends on all prior stages
+   - Stage 5: Final verification
+
+3. **Create mini-specs** at `specs/subtasks/{task_id}/{sub_task_id}.md`
 
 ### Step 4: Output Task Graph JSON
-
-Output clean, parseable JSON as the final output:
 
 ```json
 {
   "parent_spec": "{spec_file_path}",
   "task_id": "{task_id}",
   "is_decomposed": true,
+  "analysis_summary": {
+    "complexity": "high/medium/low",
+    "estimated_sprints": 3,
+    "risk_areas": ["list from analyzers"]
+  },
   "tasks": [
     {
       "id": "task-1-data-model",
-      "title": "Add data model and migration",
+      "title": "Add user data model and migration",
       "stage": 1,
       "spec_file": "specs/subtasks/{task_id}/task-1-data-model.md",
       "depends_on": [],
       "files_owned": ["src/models/user.go", "migrations/001_add_users.sql"],
-      "status": "pending"
+      "status": "pending",
+      "analysis_source": "data-flow-analyzer"
     }
   ]
 }
 ```
 
-## Workflow
-
-1. **Read**  -- Parse the spec file path and task ID
-2. **Analyze**  -- Evaluate complexity
-3. **Decide**  -- Single task or decompose
-4. **Write**  -- Create mini-spec files if decomposing
-5. **Output**  -- Print task graph JSON
-
 ## Cookbook
 
-<If: spec has cohesive, manageable scope>
-<Then: output single-task graph with is_decomposed: false. Do not create mini-specs.>
+<If: feature is small enough for single task>
+<Then: output single-task graph with is_decomposed: false. Don't create mini-specs.>
 
-<If: steps have clear data → service → route → UI layering>
-<Then: decompose by layer, with each layer in a successive stage.>
+<If: analyzers disagree on complexity>
+<Then: prefer the most conservative (highest complexity) assessment.>
 
-<If: multiple independent UI components or pages>
+<If: data-flow and ui-component both need the same files>
+<Then: assign them to different stages to avoid conflicts.>
+
+<If: feature has clear layering (data → service → route → UI)>
+<Then: decompose by layer, each in successive stages.>
+
+<If: multiple independent UI components>
 <Then: assign them the same stage so they can run in parallel.>
 
-<If: spec is ambiguous about step boundaries>
-<Then: prefer larger sub-tasks over smaller ones. 3-5 sub-tasks is ideal. Avoid more than 8.>
-
 <If: decomposing for agent team execution>
-<Then: include a files_owned array in each task listing every file that task will create or modify. Verify that no two tasks in the same stage share any files_owned entries. If overlap is unavoidable, move one task to a later stage.>
-
-<If: all steps are tightly coupled and cannot be separated>
-<Then: output single-task graph even if the feature is large. Note this in the output.>
+<Then: verify no two tasks in same stage share files_owned entries.>
 
 ## Validation
 
 - Task graph JSON is valid and parseable
-- All `spec_file` paths point to files that exist
+- All spec_file paths will exist after creation
 - Stage numbering starts at 1
-- `depends_on` references are valid task IDs
 - No circular dependencies
-- No two tasks in the same stage share entries in `files_owned`
+- Analysis reports are cited in task metadata

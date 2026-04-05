@@ -35,6 +35,16 @@ State intent before starting:
 Build: <spec summary>
 ```
 
+### Step 0.5: Pre-flight
+
+Before invoking any agent, verify the environment is ready:
+
+1. Run `git status` to confirm this is a valid git repo. Stop with a clear error if it is not.
+2. Unless `--no-pr` is set, run `gh auth status`. Stop with a clear error if not authenticated.
+3. Check your available tools for `mcp__plugin_playwright` entries. Note whether Playwright MCP is available; pass this to the evaluator in every sprint.
+
+If any check fails, stop immediately and report which check failed and what to fix. Do not proceed to Step 1.
+
 ### Step 1: Git setup
 
 **Default:** derive a branch name from the spec (e.g., `feat/auth-system`). Invoke `/branch`.

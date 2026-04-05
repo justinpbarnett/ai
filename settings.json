@@ -6,7 +6,6 @@
     "CLAUDE_CODE_NO_FLICKER": "1",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
   },
-  "autoCompactWindow": 200000,
   "attribution": {
     "commit": "",
     "pr": ""
@@ -146,7 +145,8 @@
       }
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "medium",
+  "autoCompactWindow": 200000,
   "voiceEnabled": true,
   "skipDangerousModePermissionPrompt": true
 }

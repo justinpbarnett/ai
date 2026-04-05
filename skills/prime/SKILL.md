@@ -1,10 +1,12 @@
 ---
 name: prime
 description: >
-  Quick project orientation using git tools. Surfaces real-time git status and 
+  Quick project orientation using git tools. Surfaces real-time git status and
   recent activity to supplement the existing AGENTS.md/CLAUDE.md context. Uses
   git_status, git_log, and git_branch tools for fast, deterministic results.
-  Triggers: "prime", "get context", "catch me up", "what changed", "what's new".
+  Triggers on explicit invocations only: "prime", "/prime".
+  Do NOT trigger for: "get context", "catch me up", "what changed", "what's new",
+  or any general curiosity phrasing.
 ---
 
 # Prime
@@ -13,8 +15,9 @@ Fast real-time status check using git tools. Shows current branch, recent commit
 
 ## When to Use
 
-At the start of a session to see what's live since the context files were written:
-- "prime", "catch me up", "what's new", "what changed"
+At the start of a session to see what's live since the context files were written. Explicit invocations only: "prime" or "/prime".
+
+Do NOT trigger for: "catch me up", "what's new", "what changed", "get context", "orient yourself", or similar general phrases. Those are ordinary questions, not skill invocations.
 
 ## What It Does
 

@@ -44,6 +44,17 @@ install_opencode() {
     link "$REPO_DIR/harness/opencode/opencode.json"  "$target/opencode.json"
 }
 
+install_codex() {
+    local target="$HOME/.codex"
+    echo "  Target: $target"
+    mkdir -p "$target"
+
+    link "$REPO_DIR/skills"                          "$target/skills"
+    link "$REPO_DIR/agents"                          "$target/agents"
+    link "$REPO_DIR/AGENTS.md"                       "$target/AGENTS.md"
+    link "$REPO_DIR/harness/codex/config.toml"       "$target/config.toml"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +93,7 @@ usage() {
     echo "  claude     Claude Code (~/.claude/)"
     echo "  forge      ForgeCode   (~/forge/)"
     echo "  opencode   OpenCode    (~/.config/opencode/)"
+    echo "  codex      Codex CLI   (~/.codex/)"
     echo "  all        All harnesses"
     echo ""
     echo "Examples:"
@@ -91,7 +103,7 @@ usage() {
     echo "  $0                 # Interactive: select harnesses"
 }
 
-ALL_HARNESSES=(claude forge opencode)
+ALL_HARNESSES=(claude forge opencode codex)
 
 select_interactive() {
     echo "Which harnesses do you want to install?"
@@ -142,7 +154,7 @@ fi
 
 for harness in "${SELECTED[@]}"; do
     case "$harness" in
-        claude|forge|opencode)
+        claude|forge|opencode|codex)
             echo "Installing $harness..."
             "install_$harness"
             echo ""

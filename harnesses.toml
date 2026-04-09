@@ -64,17 +64,36 @@ commands    = "commands"          # OpenCode-specific slash commands
 "opencode.json" = "harness/opencode/opencode.json"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Codex CLI (OpenAI)
+# Docs: https://developers.openai.com/codex
+# ─────────────────────────────────────────────────────────────────────────────
+[codex]
+target = "~/.codex"
+supports_hooks = true             # Has hook system
+supports_plugins = true           # Has plugin support
+supports_rules = true             # Supports .codex/rules/ directory
+guidelines_file = "AGENTS.md"    # Codex reads AGENTS.md natively
+config_format = "toml"           # config.toml
+
+[codex.symlinks]
+skills      = "skills"
+agents      = "agents"
+"AGENTS.md" = "AGENTS.md"
+"config.toml" = "harness/codex/config.toml"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Agent format compatibility notes
 # ─────────────────────────────────────────────────────────────────────────────
-# All three harnesses use markdown files with YAML frontmatter for agents.
+# All four harnesses use markdown files with YAML frontmatter for agents.
 # However, the frontmatter keys differ:
 #
 #   Claude Code:  name, description, tools (comma-separated caps), model, maxTurns
 #   ForgeCode:    id, title, description, tools (list), model, provider, max_turns, temperature, ...
 #   OpenCode:     description, mode, model, tools (object), temperature, steps, ...
+#   Codex CLI:    name, description, tools, model (shares Claude Code format)
 #
 # Skills use identical SKILL.md format across all three. No conversion needed.
 #
 # The install script handles agent format differences by maintaining
 # harness-specific agent dirs in harness/<name>/agents/ when the shared
-# agents don't work as-is.
+# agents don't work as-is. Codex CLI shares the same AGENTS.md convention.

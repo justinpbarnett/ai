@@ -2,7 +2,7 @@
 
 Portable configuration for AI coding harnesses. One repo, one source of truth for skills, agents, hooks, and rules that sync across machines and tools.
 
-Supports: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ForgeCode](https://forgecode.dev), [OpenCode](https://opencode.ai)
+Supports: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [ForgeCode](https://forgecode.dev), [OpenCode](https://opencode.ai), [Codex CLI](https://developers.openai.com/codex)
 
 ## Install
 
@@ -39,6 +39,7 @@ Removes symlinks and restores backups if they exist.
 | Claude Code | `~/.claude/` | skills, agents, hooks, rules, plugins, CLAUDE.md, settings.json |
 | ForgeCode | `~/forge/` | skills, agents, AGENTS.md, .forge.toml |
 | OpenCode | `~/.config/opencode/` | skills, agents, AGENTS.md, opencode.json |
+| Codex CLI | `~/.codex/` | skills, agents, AGENTS.md, config.toml |
 
 ## Structure
 
@@ -60,6 +61,8 @@ Removes symlinks and restores backups if they exist.
       .forge.toml            # ForgeCode config (limits, sampling, compaction)
     opencode/
       opencode.json          # OpenCode config (provider, default agent)
+    codex/
+      config.toml            # Codex CLI config (model)
   runner/                    # Standalone Python CLI for autonomous agent loops
   specs/                     # Feature specs
 ```

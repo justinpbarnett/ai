@@ -35,6 +35,15 @@ uninstall_opencode() {
     unlink_item "$target/opencode.json"
 }
 
+uninstall_codex() {
+    local target="$HOME/.codex"
+    echo "  Target: $target"
+    unlink_item "$target/skills"
+    unlink_item "$target/agents"
+    unlink_item "$target/AGENTS.md"
+    unlink_item "$target/config.toml"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,10 +78,11 @@ usage() {
     echo "  claude     Claude Code (~/.claude/)"
     echo "  forge      ForgeCode   (~/forge/)"
     echo "  opencode   OpenCode    (~/.config/opencode/)"
+    echo "  codex      Codex CLI   (~/.codex/)"
     echo "  all        All harnesses"
 }
 
-ALL_HARNESSES=(claude forge opencode)
+ALL_HARNESSES=(claude forge opencode codex)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
@@ -98,7 +108,7 @@ fi
 
 for harness in "${SELECTED[@]}"; do
     case "$harness" in
-        claude|forge|opencode)
+        claude|forge|opencode|codex)
             echo "Uninstalling $harness..."
             "uninstall_$harness"
             echo ""

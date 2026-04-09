@@ -1,4 +1,5 @@
 ---
+id: research
 name: research
 description: >
   Deep research agent for investigating codebases, libraries, APIs, and
@@ -6,7 +7,13 @@ description: >
   how something works, find patterns across a codebase, research a library's
   API, or gather context before making changes. Runs autonomously and returns
   a structured brief.
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - WebFetch
+  - WebSearch
 model: sonnet
 maxTurns: 30
 ---

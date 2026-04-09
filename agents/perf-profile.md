@@ -1,4 +1,5 @@
 ---
+id: perf-profile
 name: perf-profile
 description: >
   Analyzes code for performance issues -- identifies hot paths, unnecessary
@@ -6,7 +7,11 @@ description: >
   opportunities. Can run benchmarks and profile specific code paths. Use
   when investigating slow performance, optimizing critical paths, or
   reviewing code for performance regressions.
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 maxTurns: 20
 ---

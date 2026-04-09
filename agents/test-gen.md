@@ -1,4 +1,5 @@
 ---
+id: test-gen
 name: test-gen
 description: >
   Generates test cases for code by analyzing implementations, studying existing
@@ -6,7 +7,13 @@ description: >
   Use when you need tests written for new or changed code, want to improve
   test coverage, or need edge case analysis. Supports Go (go test), TypeScript
   (Vitest/Jest), Python (pytest), and Playwright E2E tests.
-tools: Read, Write, Edit, Grep, Glob, Bash
+tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 maxTurns: 25
 ---

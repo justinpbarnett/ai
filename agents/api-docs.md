@@ -1,4 +1,5 @@
 ---
+id: api-docs
 name: api-docs
 description: >
   Generates API documentation from route handlers, controllers, and endpoint
@@ -6,7 +7,11 @@ description: >
   response schemas, authentication, and examples. Supports Next.js API routes,
   Express, Gin, Echo, FastAPI, Django REST, and Rails. Use when you need API
   docs generated, want to document endpoints, or need an API reference.
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: haiku
 maxTurns: 20
 ---

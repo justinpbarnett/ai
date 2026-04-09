@@ -1,4 +1,5 @@
 ---
+id: deps
 name: deps
 description: >
   Audits project dependencies for updates, security vulnerabilities, and
@@ -6,7 +7,13 @@ description: >
   outdated packages, known CVEs, and breaking changes. Use when you want to
   check if dependencies are up to date, audit for security issues, or plan
   a dependency upgrade.
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - WebFetch
+  - WebSearch
 model: haiku
 maxTurns: 20
 ---

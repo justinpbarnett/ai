@@ -1,4 +1,5 @@
 ---
+id: migrate
 name: migrate
 description: >
   Handles database migration workflows -- generating migration files, validating
@@ -6,7 +7,13 @@ description: >
   Drizzle, Prisma, Django, Alembic, GORM, and raw SQL migrations. Use when you
   need to create a migration, review a migration for safety, or run pending
   migrations.
-tools: Read, Write, Edit, Grep, Glob, Bash
+tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 maxTurns: 20
 ---

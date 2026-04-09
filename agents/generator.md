@@ -1,10 +1,17 @@
 ---
+id: generator
 name: generator
 description: >
   Implements a single sprint from a structured plan. Receives a sprint contract
   (scope + success criteria) and builds exactly what is specified. Used as the
   generator phase of the /build harness. Commits after each sprint.
-tools: Read, Write, Edit, Bash, Glob, Grep
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
 model: sonnet
 maxTurns: 50
 ---

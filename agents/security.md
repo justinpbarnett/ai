@@ -1,4 +1,5 @@
 ---
+id: security
 name: security
 description: >
   Scans code for security vulnerabilities including OWASP top 10 patterns,
@@ -6,7 +7,11 @@ description: >
   configurations. Use when you want a security review of code changes, a
   full codebase audit, or to check for common vulnerability patterns before
   shipping.
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 maxTurns: 25
 ---

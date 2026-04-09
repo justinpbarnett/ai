@@ -1,11 +1,16 @@
 ---
+id: changelog
 name: changelog
 description: >
   Generates release notes and changelogs from git history. Analyzes commits
   between tags or branches, groups by conventional commit type, and produces
   formatted release notes. Use when preparing a release, generating a
   changelog, or summarizing what changed between versions.
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: haiku
 maxTurns: 15
 ---

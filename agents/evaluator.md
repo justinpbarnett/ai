@@ -1,11 +1,16 @@
 ---
+id: evaluator
 name: evaluator
 description: >
   Evaluates a completed sprint against its contract (success criteria). Uses code
   inspection, bash commands, and Playwright MCP for web projects when available.
   Returns PASS or FAIL with specific, actionable feedback. Used as the evaluator
   phase of the /build harness. Never modifies files.
-tools: Read, Bash, Glob, Grep
+tools:
+  - Read
+  - Bash
+  - Glob
+  - Grep
 model: sonnet
 maxTurns: 25
 ---

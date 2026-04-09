@@ -1,11 +1,16 @@
 ---
+id: planner
 name: planner
 description: >
   Expands a one-sentence or paragraph spec into a structured implementation plan
   with sprint contracts. Each sprint defines exactly what to build and testable
   success criteria the evaluator can check. Used as the first phase of the /build
   harness. Read-only -- never modifies files.
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 maxTurns: 20
 ---

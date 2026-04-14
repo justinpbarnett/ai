@@ -8,12 +8,12 @@ description: >
   check if dependencies are up to date, audit for security issues, or plan
   a dependency upgrade.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - WebFetch
-  - WebSearch
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
+  WebFetch: true
+  WebSearch: true
 model: haiku
 maxTurns: 20
 ---

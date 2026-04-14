@@ -8,12 +8,12 @@ description: >
   test coverage, or need edge case analysis. Supports Go (go test), TypeScript
   (Vitest/Jest), Python (pytest), and Playwright E2E tests.
 tools:
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Write: true
+  Edit: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: sonnet
 maxTurns: 25
 ---

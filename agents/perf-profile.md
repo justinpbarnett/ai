@@ -8,10 +8,10 @@ description: >
   when investigating slow performance, optimizing critical paths, or
   reviewing code for performance regressions.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: sonnet
 maxTurns: 20
 ---

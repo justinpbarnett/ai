@@ -8,12 +8,12 @@ description: >
   need to create a migration, review a migration for safety, or run pending
   migrations.
 tools:
-  - Read
-  - Write
-  - Edit
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Write: true
+  Edit: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: sonnet
 maxTurns: 20
 ---

@@ -6,12 +6,12 @@ description: >
   (scope + success criteria) and builds exactly what is specified. Used as the
   generator phase of the /build harness. Commits after each sprint.
 tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+  Read: true
+  Write: true
+  Edit: true
+  Bash: true
+  Glob: true
+  Grep: true
 model: sonnet
 maxTurns: 50
 ---

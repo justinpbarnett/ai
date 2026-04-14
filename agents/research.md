@@ -8,12 +8,12 @@ description: >
   API, or gather context before making changes. Runs autonomously and returns
   a structured brief.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - WebFetch
-  - WebSearch
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
+  WebFetch: true
+  WebSearch: true
 model: sonnet
 maxTurns: 30
 ---

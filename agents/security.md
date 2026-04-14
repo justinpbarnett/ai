@@ -8,10 +8,10 @@ description: >
   full codebase audit, or to check for common vulnerability patterns before
   shipping.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: sonnet
 maxTurns: 25
 ---

@@ -8,10 +8,10 @@ description: >
   Express, Gin, Echo, FastAPI, Django REST, and Rails. Use when you need API
   docs generated, want to document endpoints, or need an API reference.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: haiku
 maxTurns: 20
 ---

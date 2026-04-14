@@ -7,10 +7,10 @@ description: >
   Returns PASS or FAIL with specific, actionable feedback. Used as the evaluator
   phase of the /build harness. Never modifies files.
 tools:
-  - Read
-  - Bash
-  - Glob
-  - Grep
+  Read: true
+  Bash: true
+  Glob: true
+  Grep: true
 model: sonnet
 maxTurns: 25
 ---

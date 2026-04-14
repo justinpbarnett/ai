@@ -7,10 +7,10 @@ description: >
   success criteria the evaluator can check. Used as the first phase of the /build
   harness. Read-only -- never modifies files.
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
+  Read: true
+  Grep: true
+  Glob: true
+  Bash: true
 model: sonnet
 maxTurns: 20
 ---

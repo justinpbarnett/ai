@@ -24,6 +24,14 @@ const COMMAND_PREFIX = "just-";
 const AUTO_REFRESH = true;
 const WATCH_DEBOUNCE_MS = 500;
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "extensions", "just-commands", "config.json");
+const JUST_JSON_DUMP_CANDIDATES = [
+	{
+		label: "--dump-format json --dump",
+		args: ["--dump-format", "json", "--dump"],
+		helpTokens: ["--dump-format", "--dump"],
+	},
+	{ label: "--json", args: ["--json"], helpTokens: ["--json"] },
+] as const;
 
 const BUILTIN_RESERVED = new Set([
 	"model",
@@ -175,6 +183,7 @@ export default function justCommandsExtension(pi: ExtensionAPI) {
 	};
 
 	const registeredRecipeCommandNames = new Set<string>();
+	let preferredJustJsonDumpArgs: string[] | undefined;
 
 	async function loadConfig(): Promise<JustCommandsConfig> {
 		try {
@@ -392,6 +401,72 @@ export default function justCommandsExtension(pi: ExtensionAPI) {
 		return paths;
 	}
 
+	function isUnsupportedJustJsonDumpError(output: string): boolean {
+		return [
+			/unrecognized option/i,
+			/unknown option/i,
+			/no such option/i,
+			/invalid value .*dump-format/i,
+			/found argument .* wasn't expected/i,
+			/unexpected argument/i,
+		].some((pattern) => pattern.test(output));
+	}
+
+	async function getJustJsonDumpCandidates(): Promise<readonly (typeof JUST_JSON_DUMP_CANDIDATES)[number][]> {
+		if (preferredJustJsonDumpArgs) {
+			const preferred = JUST_JSON_DUMP_CANDIDATES.find(
+				(candidate) =>
+					candidate.args.length === preferredJustJsonDumpArgs?.length &&
+					candidate.args.every((arg, index) => arg === preferredJustJsonDumpArgs?.[index]),
+			);
+			if (preferred) {
+				return [preferred, ...JUST_JSON_DUMP_CANDIDATES.filter((candidate) => candidate !== preferred)];
+			}
+		}
+
+		try {
+			const help = await pi.exec("just", ["--help"]);
+			if (help.code === 0) {
+				const supported = JUST_JSON_DUMP_CANDIDATES.filter((candidate) =>
+					candidate.helpTokens.every((token) => help.stdout.includes(token)),
+				);
+				if (supported.length > 0) return supported;
+			}
+		} catch {
+			// Fall back to trying known invocations directly.
+		}
+
+		return JUST_JSON_DUMP_CANDIDATES;
+	}
+
+	async function dumpJustfileJson(justfilePath: string, workingDirectory: string) {
+		const baseArgs = ["--justfile", justfilePath, "--working-directory", workingDirectory];
+		const candidates = await getJustJsonDumpCandidates();
+		const unsupported: string[] = [];
+
+		for (const candidate of candidates) {
+			const result = await pi.exec("just", [...baseArgs, ...candidate.args]);
+			if (result.code === 0) {
+				preferredJustJsonDumpArgs = [...candidate.args];
+				return result;
+			}
+
+			const error = (result.stderr || result.stdout || "Failed to inspect justfile").trim();
+			if (isUnsupportedJustJsonDumpError(error)) {
+				unsupported.push(candidate.label);
+				continue;
+			}
+
+			return result;
+		}
+
+		const tried =
+			unsupported.length > 0
+				? unsupported.join(", ")
+				: JUST_JSON_DUMP_CANDIDATES.map((candidate) => candidate.label).join(", ");
+		throw new Error(`Installed just does not support a JSON dump mode for justfile scanning. Tried: ${tried}`);
+	}
+
 	async function discoverRegistry(cwd: string): Promise<RegistryState> {
 		const searchDirs = await buildSearchDirs(cwd);
 		const justfilePath = await findNearestJustfile(searchDirs);
@@ -406,7 +481,7 @@ export default function justCommandsExtension(pi: ExtensionAPI) {
 
 		const workingDirectory = dirname(justfilePath);
 		try {
-			const result = await pi.exec("just", ["--justfile", justfilePath, "--working-directory", workingDirectory, "--json"]);
+			const result = await dumpJustfileJson(justfilePath, workingDirectory);
 			if (result.code !== 0) {
 				const error = (result.stderr || result.stdout || "Failed to inspect justfile").trim();
 				return {

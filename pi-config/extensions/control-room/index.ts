@@ -174,12 +174,11 @@ export default function controlRoom(pi: ExtensionAPI) {
 							(currentModel.provider === "claude-bridge" ||
 								(ctx.modelRegistry.isUsingOAuth(currentModel) && currentModel.provider !== "anthropic")),
 					);
-					const spendLabel =
-						sessionSpend > 0
+					const spendLabel = isSubscriptionModel
+						? theme.fg("muted", "sub")
+						: sessionSpend > 0
 							? theme.fg("muted", formatSessionSpend(sessionSpend))
-							: isSubscriptionModel
-								? theme.fg("muted", "sub")
-								: "";
+							: "";
 					const thinkingLabel =
 						thinkingLevel !== "off" ? formatFooterHint(theme, "think", theme.fg(getThinkingToken(thinkingLevel), thinkingLevel)) : "";
 					const externalStatuses = Array.from(footerData.getExtensionStatuses().entries())

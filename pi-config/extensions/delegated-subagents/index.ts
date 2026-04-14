@@ -40,15 +40,15 @@ type AgentLimits = {
 };
 
 const DEFAULT_AGENT_LIMITS: Record<string, AgentLimits> = {
-	scout: { maxTurns: 6, maxToolCalls: 8, maxDurationSeconds: 60 },
-	planner: { maxTurns: 8, maxToolCalls: 10, maxDurationSeconds: 90 },
-	researcher: { maxTurns: 14, maxToolCalls: 18, maxDurationSeconds: 180 },
-	verifier: { maxTurns: 12, maxToolCalls: 18, maxDurationSeconds: 420 },
-	reviewer: { maxTurns: 8, maxToolCalls: 10, maxDurationSeconds: 90 },
-	worker: { maxTurns: 16, maxToolCalls: 24, maxDurationSeconds: 300 },
+	scout: { maxTurns: 8, maxToolCalls: 14, maxDurationSeconds: 180 },
+	planner: { maxTurns: 10, maxToolCalls: 14, maxDurationSeconds: 180 },
+	researcher: { maxTurns: 18, maxToolCalls: 40, maxDurationSeconds: 600 },
+	verifier: { maxTurns: 16, maxToolCalls: 24, maxDurationSeconds: 600 },
+	reviewer: { maxTurns: 10, maxToolCalls: 14, maxDurationSeconds: 180 },
+	worker: { maxTurns: 20, maxToolCalls: 32, maxDurationSeconds: 600 },
 };
 
-const FALLBACK_AGENT_LIMITS: AgentLimits = { maxTurns: 10, maxToolCalls: 12, maxDurationSeconds: 120 };
+const FALLBACK_AGENT_LIMITS: AgentLimits = { maxTurns: 12, maxToolCalls: 16, maxDurationSeconds: 180 };
 
 function getCurrentModelArg(ctx: any): string | undefined {
 	return ctx.model?.provider && ctx.model?.id ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
@@ -60,7 +60,8 @@ function buildDelegationInstructions() {
 		"You are the main conversational/orchestrator agent.",
 		"Do not claim to have personally read files, run commands, edited code, searched the web, or executed verification.",
 		"For any repo work, shell work, code changes, web/doc research, testing, or verification, use the subagent tool.",
-		"Prefer self-contained delegated tasks over micromanaging one command at a time.",
+		"Prefer self-contained delegated tasks, but keep them single-purpose and bounded.",
+		"Break broad requests into a few atomic subagent tasks when diagnosis, research, implementation, and verification are separable.",
 		"Use roles intentionally:",
 		"- scout: always cheap and quick for fast repo reconnaissance only",
 		"- planner: implementation planning only",
@@ -70,9 +71,11 @@ function buildDelegationInstructions() {
 		"- reviewer: read-only review and risk assessment",
 		"For simple repo-summary questions, do one scout pass first.",
 		"Do not run overlapping scout tasks for the same summary question.",
+		"Do not use scout for debugging, fixing errors, config/settings issues, or multi-step investigations.",
 		"If the task is deep, exhaustive, multi-phase, or needs external docs/current info, use researcher instead of scout.",
 		"Researcher should start from local repo evidence and use web tools only when local evidence is insufficient or current/external docs are required.",
-		"Every subagent call has turn, tool-call, and time budgets. Start small and only expand if there is a concrete reason.",
+		"Every subagent call has turn, tool-call, and time budgets. If a task is obviously larger than the role default, set a larger explicit budget once up front instead of relaunching the same task repeatedly.",
+		"Do not use repeated escalation ladders for the same unchanged task; either decompose it or pick the correct role and budget once.",
 		"Use parallel tasks when independent work can happen concurrently.",
 		"Use chain mode when one agent's output should feed the next.",
 		"After subagents return, synthesize their findings for the user and decide next steps.",
@@ -157,6 +160,14 @@ function formatLimitStats(result: {
 function looksLikeDeepAnalysisTask(task: string): boolean {
 	return /\b(in[ -]?depth|deep|exhaustive|comprehensive|full architecture|full analysis|trace all|thorough|detailed analysis|broad investigation|multi-phase)\b/i.test(
 		task,
+	);
+}
+
+function looksLikeDebugOrExecutionTask(task: string): boolean {
+	return (
+		/\b(fix|debug|diagnos(?:e|is|ing)|investigat(?:e|ion)|troubleshoot|root cause|repro(?:duce|duction)?)\b/i.test(task) ||
+		/\b(error|failure|failing|broken|bug|regression|stack trace|exception)\b/i.test(task) ||
+		(/\b(config|settings)\b/i.test(task) && /\b(problem|issue|fix|error|broken|failing)\b/i.test(task))
 	);
 }
 
@@ -532,12 +543,12 @@ async function runSingleAgent(
 						if (currentResult.usage.turns > currentResult.maxTurns) {
 							stopProc(
 								"error",
-								`Budget exceeded: turns ${currentResult.usage.turns}/${currentResult.maxTurns}. Use researcher for deeper analysis.`,
+								`Budget exceeded: turns ${currentResult.usage.turns}/${currentResult.maxTurns}. Do not relaunch the same task unchanged; either decompose it or retry once with a larger explicit budget if this role is still the right fit.`,
 							);
 						} else if (currentResult.toolCallsUsed > currentResult.maxToolCalls) {
 							stopProc(
 								"error",
-								`Budget exceeded: tool calls ${currentResult.toolCallsUsed}/${currentResult.maxToolCalls}. Use researcher or worker if the task truly needs more depth.`,
+								`Budget exceeded: tool calls ${currentResult.toolCallsUsed}/${currentResult.maxToolCalls}. Do not relaunch the same task unchanged; either decompose it or retry once with a larger explicit budget if this role is still the right fit.`,
 							);
 						}
 					}
@@ -586,7 +597,7 @@ async function runSingleAgent(
 			budgetTimer = setTimeout(() => {
 				stopProc(
 					"error",
-					`Budget exceeded: duration ${formatDurationMs(Date.now() - startedAt)}/${currentResult.maxDurationSeconds}s. Use researcher or worker if the task truly needs more depth.`,
+					`Budget exceeded: duration ${formatDurationMs(Date.now() - startedAt)}/${currentResult.maxDurationSeconds}s. Do not relaunch the same task unchanged; either decompose it or retry once with a larger explicit budget if this role is still the right fit.`,
 				);
 			}, currentResult.maxDurationSeconds * 1000);
 			budgetTimer.unref?.();
@@ -689,6 +700,9 @@ function validateRequestedTasks(mode: "single" | "parallel" | "chain", requests:
 		} catch (error) {
 			return `Invalid budget for ${request.agent}: ${(error as Error).message}.`;
 		}
+		if (request.agent === "scout" && looksLikeDebugOrExecutionTask(request.task)) {
+			return `Scout is not for debugging, fixes, or config/settings issue investigation. Use researcher for diagnosis or worker for execution-oriented troubleshooting instead.`;
+		}
 		if (request.agent === "scout" && looksLikeDeepAnalysisTask(request.task)) {
 			return `Scout is reserved for cheap, quick reconnaissance. Use researcher for in-depth analysis instead.`;
 		}
@@ -763,17 +777,21 @@ export default function (pi: ExtensionAPI) {
 			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
 			"Each subagent run is budgeted by turns, tool calls, and time.",
 		].join(" "),
-		promptSnippet: "Delegate repo work, verification, and code changes to isolated agents. Use scout for quick recon, verifier for proof, and researcher for deep analysis.",
+		promptSnippet:
+			"Delegate repo work, verification, and code changes to isolated agents. Use scout only for quick recon, verifier for proof, and researcher/worker for deeper investigation or execution.",
 		promptGuidelines: [
 			"Use this tool for any real work instead of claiming you ran commands or inspected files yourself.",
+			"Keep delegated tasks single-purpose and bounded; split diagnosis, implementation, and verification when they are distinct.",
 			"Scout is for cheap, quick reconnaissance only. Use researcher for in-depth analysis or external docs.",
+			"Do not use scout for debugging, error investigation, fixes, or config/settings issues.",
 			"Researcher is repo-first: use web-search/scrape only when local evidence is insufficient or current/external docs are required.",
 			"Use verifier for tests, repro checks, build/typecheck/lint runs, and acceptance validation.",
 			"When delegating to verifier, include the original spec or acceptance criteria and ask for proof.",
 			"Do not use web tools for simple repo-only questions.",
 			"For simple repo summaries, start with one scout pass and synthesize before launching more agents.",
 			"Do not send overlapping scout tasks in parallel.",
-			"Prefer self-contained delegated tasks over tiny one-command requests.",
+			"Prefer self-contained delegated tasks over tiny one-command requests, but do not bundle unrelated phases together.",
+			"If the task obviously exceeds the default budget for the right role, pass explicit maxTurns/maxToolCalls/maxDurationSeconds once up front instead of retrying repeatedly.",
 			"Use parallel tasks only when scopes are clearly independent.",
 		],
 		parameters: SubagentParams,

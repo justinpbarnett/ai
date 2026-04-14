@@ -1,7 +1,6 @@
 {
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
     "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "15000",
     "CLAUDE_CODE_NO_FLICKER": "1",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
@@ -23,17 +22,6 @@
             "command": "~/.claude/hooks/validate-commit.sh",
             "timeout": 10,
             "statusMessage": "Validating commit message..."
-          }
-        ]
-      },
-      {
-        "matcher": "Grep|Glob|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"~/.claude/hooks/gitnexus/gitnexus-hook.cjs\"",
-            "timeout": 10,
-            "statusMessage": "Enriching with GitNexus graph context..."
           }
         ]
       }
@@ -80,17 +68,6 @@
             "type": "command",
             "command": "~/dev/workshop/data/sentinel/scripts/sentinel-log.sh",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"~/.claude/hooks/gitnexus/gitnexus-hook.cjs\"",
-            "timeout": 10,
-            "statusMessage": "Checking GitNexus index freshness..."
           }
         ]
       }

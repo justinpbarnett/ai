@@ -96,7 +96,6 @@ Removes symlinks and restores backups if they exist.
 | Docs | document, document-release, download-docs |
 | Safety | guard, freeze, unfreeze, careful |
 | Git | prime, retro |
-| GitNexus | gitnexus-guide, gitnexus-exploring, gitnexus-debugging, gitnexus-impact-analysis, gitnexus-refactoring, gitnexus-pr-review, gitnexus-cli |
 | Platform | unity-mcp-skill, omarchy |
 
 ## Agents (11)
@@ -115,18 +114,16 @@ Removes symlinks and restores backups if they exist.
 | changelog | haiku | Release notes from git history (read-only) |
 | api-docs | haiku | API reference from route handlers (read-only) |
 
-## Hooks (10, Claude Code only)
+## Hooks (8, Claude Code only)
 
 | Event | Hook | Purpose |
 |-------|------|---------|
 | PreToolUse | validate-commit.sh | Conventional commits, no AI mentions |
-| PreToolUse | gitnexus-hook.cjs | Graph context augmentation |
 | PostToolUse | auto-format.sh | gofmt/ruff/prettier |
 | PostToolUse | check-emdash.sh | Catch emdash characters |
 | PostToolUse | post-edit-lint.sh | go vet/ruff/eslint |
 | PostToolUse | track-commits.sh | Log commits to project memory |
 | PostToolUse | post-commit-check.sh | Run test suite after commits |
-| PostToolUse | gitnexus-hook.cjs | Index staleness check |
 | TeammateIdle | teammate-idle-lint.sh | Lint changed files |
 | TaskCompleted | track-tasks.sh | Log agent task completions |
 

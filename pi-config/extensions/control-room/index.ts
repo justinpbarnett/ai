@@ -2,12 +2,8 @@ import { basename } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-type Activity = "ready" | "thinking";
-
 type FooterState = {
 	repoName: string;
-	turnCount: number;
-	activity: Activity;
 	enabled: boolean;
 };
 
@@ -29,10 +25,6 @@ function getThinkingToken(level: string): string {
 		default:
 			return "thinkingOff";
 	}
-}
-
-function getActivityToken(activity: Activity): string {
-	return activity === "thinking" ? "accent" : "text";
 }
 
 function sanitizeInlineText(text: string): string {
@@ -88,11 +80,56 @@ function formatSessionSpend(amount: number): string {
 	return `$${amount.toFixed(2)}`;
 }
 
+function parseModelRef(modelRef: string | undefined): { provider: string; id: string } | undefined {
+	if (!modelRef) return undefined;
+	const slash = modelRef.indexOf("/");
+	if (slash <= 0 || slash >= modelRef.length - 1) return undefined;
+	return {
+		provider: modelRef.slice(0, slash),
+		id: modelRef.slice(slash + 1),
+	};
+}
+
+function estimateSubagentSpend(
+	details: { results?: Array<{ usage?: any; model?: string }> } | undefined,
+	ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1],
+): number {
+	if (!details?.results || details.results.length === 0) return 0;
+	let total = 0;
+	for (const result of details.results) {
+		const explicitCost = result.usage?.cost;
+		if (typeof explicitCost === "number" && explicitCost > 0) {
+			total += explicitCost;
+			continue;
+		}
+		const modelRef = parseModelRef(result.model);
+		if (!modelRef) continue;
+		const model = ctx.modelRegistry.find(modelRef.provider, modelRef.id);
+		total += estimateUsageCost(result.usage, model);
+	}
+	return total;
+}
+
+function getSessionSpend(ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]): number {
+	let total = 0;
+	for (const entry of ctx.sessionManager.getEntries()) {
+		if (entry.type !== "message") continue;
+		const message = entry.message as any;
+		if (message.role === "assistant") {
+			const model = ctx.modelRegistry.find(message.provider, message.model);
+			total += estimateUsageCost(message.usage, model);
+			continue;
+		}
+		if (message.role === "toolResult" && message.toolName === "subagent") {
+			total += estimateSubagentSpend(message.details, ctx);
+		}
+	}
+	return total;
+}
+
 export default function controlRoom(pi: ExtensionAPI) {
 	const state: FooterState = {
 		repoName: basename(process.cwd()),
-		turnCount: 0,
-		activity: "ready",
 		enabled: true,
 	};
 
@@ -108,9 +145,9 @@ export default function controlRoom(pi: ExtensionAPI) {
 
 	function mountFooter(ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]) {
 		if (!ctx.hasUI) return;
+		ctx.ui.setStatus(STATUS_ID, undefined);
 		if (!state.enabled) {
 			ctx.ui.setFooter(undefined);
-			ctx.ui.setStatus(STATUS_ID, undefined);
 			return;
 		}
 
@@ -130,25 +167,19 @@ export default function controlRoom(pi: ExtensionAPI) {
 							: theme.fg("text", currentModel.id)
 						: theme.fg("muted", "no-model");
 
-					let sessionSpend = 0;
-					for (const entry of ctx.sessionManager.getEntries()) {
-						if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-						const assistant = entry.message as any;
-						const model = ctx.modelRegistry.find(assistant.provider, assistant.model);
-						sessionSpend += estimateUsageCost(assistant.usage, model);
-					}
+					const sessionSpend = getSessionSpend(ctx);
 
 					const isSubscriptionModel = Boolean(
 						currentModel &&
 							(currentModel.provider === "claude-bridge" ||
 								(ctx.modelRegistry.isUsingOAuth(currentModel) && currentModel.provider !== "anthropic")),
 					);
-					const spendLabel = isSubscriptionModel
-						? theme.fg("muted", "sub")
-						: sessionSpend > 0
+					const spendLabel =
+						sessionSpend > 0
 							? theme.fg("muted", formatSessionSpend(sessionSpend))
-							: "";
-					const activityLabel = state.activity === "thinking" ? theme.fg("accent", "thinking") : "";
+							: isSubscriptionModel
+								? theme.fg("muted", "sub")
+								: "";
 					const thinkingLabel =
 						thinkingLevel !== "off" ? formatFooterHint(theme, "think", theme.fg(getThinkingToken(thinkingLevel), thinkingLevel)) : "";
 					const externalStatuses = Array.from(footerData.getExtensionStatuses().entries())
@@ -160,7 +191,6 @@ export default function controlRoom(pi: ExtensionAPI) {
 						theme.fg("accent", state.repoName),
 						branch === "no git" ? theme.fg("dim", branch) : theme.fg("muted", branch),
 						modelLabel,
-						activityLabel,
 						thinkingLabel,
 						spendLabel,
 						...externalStatuses,
@@ -171,39 +201,14 @@ export default function controlRoom(pi: ExtensionAPI) {
 		});
 	}
 
-	function syncStatus(ctx: Parameters<Parameters<ExtensionAPI["on"]>[1]>[1]) {
-		if (!ctx.hasUI || !state.enabled) return;
-		const theme = ctx.ui.theme;
-		ctx.ui.setStatus(
-			STATUS_ID,
-			state.activity === "thinking"
-				? `${theme.fg(getActivityToken(state.activity), state.activity)} ${theme.fg("dim", `turn ${state.turnCount}`)}`
-				: theme.fg("dim", `turn ${state.turnCount}`),
-		);
-	}
-
 	pi.on("session_start", async (_event, ctx) => {
 		await refreshProjectState(ctx);
-		state.activity = "ready";
 		mountFooter(ctx);
-		syncStatus(ctx);
-	});
-
-	pi.on("turn_start", async (_event, ctx) => {
-		state.turnCount += 1;
-		state.activity = "thinking";
-		syncStatus(ctx);
-	});
-
-	pi.on("turn_end", async (_event, ctx) => {
-		state.activity = "ready";
-		syncStatus(ctx);
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
 		if (!ctx.hasUI || !state.enabled) return;
 		mountFooter(ctx);
-		syncStatus(ctx);
 	});
 
 	pi.registerCommand("control-room", {
@@ -212,7 +217,6 @@ export default function controlRoom(pi: ExtensionAPI) {
 			state.enabled = !state.enabled;
 			mountFooter(ctx);
 			if (state.enabled) {
-				syncStatus(ctx);
 				ctx.ui.notify("Global control room enabled", "info");
 			} else {
 				ctx.ui.notify("Global control room disabled", "info");

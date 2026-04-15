@@ -2,19 +2,46 @@ import { spawn } from "node:child_process";
 import { promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
+import { Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 const WORKER_BYPASS_ENV = "PI_SUBAGENT_WORKER";
 const SESSION_BYPASS_ENV = "PI_SUBAGENT_DISABLE";
 const STATUS_ID = "delegated-subagents";
+const WIDGET_ID = "delegated-subagents-monitor";
+const RUN_ENTRY_TYPE = "delegated-subagents-run";
 const AGENTS_DIR = path.join(process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent"), "agents");
 
 const WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const MAX_PARALLEL = 4;
 const HARD_MAX_PARALLEL = 8;
 const WORKER_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_RUN_HISTORY = 24;
+const MAX_TIMELINE_ENTRIES = 18;
+const MAX_LIVE_TEXT_CHARS = 4000;
+const LIVE_UPDATE_INTERVAL_MS = 150;
+const RECENT_WIDGET_WINDOW_MS = 10 * 60 * 1000;
+const MAX_PERSISTED_TIMELINE_ENTRIES = 8;
+const MAX_PERSISTED_OUTPUT_CHARS = 6000;
+const MAX_PERSISTED_TASK_CHARS = 600;
+
+type UiContext = ExtensionContext | ExtensionCommandContext;
+
+type WorkerTimelineKind = "status" | "tool" | "output" | "error";
+type WorkerTimelineStatus = "running" | "ok" | "err";
+
+type WorkerTimelineEntry = {
+	timestamp: number;
+	kind: WorkerTimelineKind;
+	text: string;
+	detail?: string;
+	status?: WorkerTimelineStatus;
+};
 
 type WorkerTask = {
 	label?: string;
@@ -33,6 +60,7 @@ type WorkerSpec = {
 };
 
 type WorkerResult = {
+	runId: string;
 	label: string;
 	worker: string;
 	task: string;
@@ -41,11 +69,49 @@ type WorkerResult = {
 	output: string;
 	error?: string;
 	durationMs: number;
+	liveText: string;
+	activeTool?: string;
+	lastEvent?: string;
+	timeline: WorkerTimelineEntry[];
+	startedAt: number;
+	updatedAt: number;
+	finishedAt?: number;
 };
 
 type ToolDetails = {
 	mode: "single" | "parallel";
 	results: WorkerResult[];
+};
+
+type PersistedWorkerRun = {
+	version: 1;
+	runId: string;
+	label: string;
+	worker: string;
+	task: string;
+	cwd: string;
+	exitCode: number;
+	output: string;
+	error?: string;
+	durationMs: number;
+	lastEvent?: string;
+	timeline: WorkerTimelineEntry[];
+	startedAt: number;
+	updatedAt: number;
+	finishedAt?: number;
+};
+
+type MonitorState = {
+	runs: WorkerResult[];
+	runCounter: number;
+	listeners: Set<() => void>;
+	ctx?: UiContext;
+};
+
+const monitorState: MonitorState = {
+	runs: [],
+	runCounter: 0,
+	listeners: new Set(),
 };
 
 const TaskSchema = Type.Object({
@@ -118,13 +184,42 @@ function getPiInvocation() {
 	};
 }
 
-function extractAssistantText(message: any): string {
-	if (!message || !Array.isArray(message.content)) return "";
-	return message.content
-		.filter((part: any) => part?.type === "text" && typeof part.text === "string")
-		.map((part: any) => part.text)
+function rememberUiContext(ctx: UiContext) {
+	monitorState.ctx = ctx;
+}
+
+function subscribeMonitor(listener: () => void) {
+	monitorState.listeners.add(listener);
+	return () => {
+		monitorState.listeners.delete(listener);
+	};
+}
+
+function extractTextFromParts(parts: any[] | undefined): string {
+	if (!Array.isArray(parts)) return "";
+	return parts
+		.filter((part) => part?.type === "text" && typeof part.text === "string")
+		.map((part) => part.text)
 		.join("\n")
 		.trim();
+}
+
+function extractAssistantText(message: any): string {
+	return extractTextFromParts(message?.content);
+}
+
+function extractToolResultText(value: any): string {
+	if (!value) return "";
+	if (Array.isArray(value.content)) return extractTextFromParts(value.content);
+	if (Array.isArray(value.result?.content)) return extractTextFromParts(value.result.content);
+	if (typeof value.text === "string") return value.text.trim();
+	return "";
+}
+
+function appendCappedText(base: string, delta: string, maxChars: number) {
+	const next = `${base}${delta}`;
+	if (next.length <= maxChars) return next;
+	return next.slice(next.length - maxChars);
 }
 
 function preview(text: string, max = 120): string {
@@ -133,12 +228,87 @@ function preview(text: string, max = 120): string {
 	return singleLine.length > max ? `${singleLine.slice(0, max)}...` : singleLine;
 }
 
+function truncateText(text: string, max: number): string {
+	if (text.length <= max) return text;
+	return `${text.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function wrapPlainText(text: string, maxWidth: number, maxLines: number): string[] {
+	const width = Math.max(12, maxWidth);
+	const sourceLines = text.replace(/\r/g, "").split("\n");
+	const lines: string[] = [];
+	let truncated = false;
+
+	for (const sourceLine of sourceLines) {
+		if (sourceLine.length === 0) {
+			lines.push("");
+			if (lines.length >= maxLines) {
+				truncated = true;
+				break;
+			}
+			continue;
+		}
+
+		let remaining = sourceLine;
+		while (remaining.length > width) {
+			let cut = remaining.lastIndexOf(" ", width);
+			if (cut < Math.floor(width * 0.5)) cut = width;
+			lines.push(remaining.slice(0, cut).trimEnd());
+			remaining = remaining.slice(cut).trimStart();
+			if (lines.length >= maxLines) {
+				truncated = true;
+				break;
+			}
+		}
+		if (truncated) break;
+		lines.push(remaining);
+		if (lines.length >= maxLines) {
+			truncated = true;
+			break;
+		}
+	}
+
+	if (truncated && lines.length > 0) {
+		const last = lines[Math.min(lines.length, maxLines) - 1];
+		lines[Math.min(lines.length, maxLines) - 1] = last.length >= width ? `${last.slice(0, width - 1)}...` : `${last}...`;
+	}
+
+	return lines.slice(0, maxLines);
+}
+
+function shortenPath(rawPath: string): string {
+	if (!rawPath) return ".";
+	const home = os.homedir();
+	return rawPath.startsWith(home) ? `~${rawPath.slice(home.length)}` : rawPath;
+}
+
+function formatPathLabel(rawPath: string, max = 52): string {
+	const shortPath = shortenPath(rawPath);
+	if (shortPath.length <= max) return shortPath;
+	return `...${shortPath.slice(shortPath.length - max + 3)}`;
+}
+
 function formatDuration(durationMs: number): string {
 	const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
 	if (totalSeconds < 60) return `${totalSeconds}s`;
 	const minutes = Math.floor(totalSeconds / 60);
 	const seconds = totalSeconds % 60;
 	return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
+}
+
+function formatClock(timestamp: number): string {
+	return new Date(timestamp).toLocaleTimeString("en-US", {
+		hour12: false,
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+}
+
+function formatAge(timestamp: number | undefined): string {
+	if (!timestamp) return "--";
+	const delta = Math.max(0, Date.now() - timestamp);
+	return formatDuration(delta);
 }
 
 function formatStatusSummary(results: WorkerResult[]): string {
@@ -152,9 +322,231 @@ function formatStatusSummary(results: WorkerResult[]): string {
 	return total === 1 ? "orch worker ok" : `orch ${total}/${total} ok`;
 }
 
-function setOrchestratorStatus(ctx: any, results: WorkerResult[] = []) {
-	if (!ctx.hasUI) return;
-	ctx.ui.setStatus(STATUS_ID, formatStatusSummary(results));
+function cloneTimelineEntry(entry: WorkerTimelineEntry): WorkerTimelineEntry {
+	return { ...entry };
+}
+
+function cloneWorkerResult(result: WorkerResult): WorkerResult {
+	return {
+		...result,
+		timeline: result.timeline.map(cloneTimelineEntry),
+	};
+}
+
+function sanitizeTimeline(entries: unknown): WorkerTimelineEntry[] {
+	if (!Array.isArray(entries)) return [];
+	return entries
+		.map((entry): WorkerTimelineEntry | undefined => {
+			if (!entry || typeof entry !== "object") return undefined;
+			const candidate = entry as Partial<WorkerTimelineEntry>;
+			if (typeof candidate.timestamp !== "number" || typeof candidate.text !== "string" || typeof candidate.kind !== "string") return undefined;
+			if (!["status", "tool", "output", "error"].includes(candidate.kind)) return undefined;
+			const status =
+				typeof candidate.status === "string" && ["running", "ok", "err"].includes(candidate.status)
+					? (candidate.status as WorkerTimelineStatus)
+					: undefined;
+			return {
+				timestamp: candidate.timestamp,
+				kind: candidate.kind as WorkerTimelineKind,
+				text: candidate.text,
+				detail: typeof candidate.detail === "string" ? candidate.detail : undefined,
+				status,
+			};
+		})
+		.filter((entry): entry is WorkerTimelineEntry => Boolean(entry))
+		.slice(-MAX_TIMELINE_ENTRIES);
+}
+
+function toPersistedRun(result: WorkerResult): PersistedWorkerRun {
+	return {
+		version: 1,
+		runId: result.runId,
+		label: result.label,
+		worker: result.worker,
+		task: truncateText(result.task, MAX_PERSISTED_TASK_CHARS),
+		cwd: result.cwd,
+		exitCode: result.exitCode,
+		output: truncateText(result.output || result.liveText || "", MAX_PERSISTED_OUTPUT_CHARS),
+		error: result.error ? truncateText(result.error, MAX_PERSISTED_OUTPUT_CHARS) : undefined,
+		durationMs: result.durationMs,
+		lastEvent: result.lastEvent ? truncateText(result.lastEvent, 240) : undefined,
+		timeline: result.timeline.slice(-MAX_PERSISTED_TIMELINE_ENTRIES).map(cloneTimelineEntry),
+		startedAt: result.startedAt,
+		updatedAt: result.updatedAt,
+		finishedAt: result.finishedAt,
+	};
+}
+
+function fromPersistedRun(data: unknown): WorkerResult | undefined {
+	if (!data || typeof data !== "object") return undefined;
+	const candidate = data as Partial<PersistedWorkerRun>;
+	if (
+		typeof candidate.runId !== "string" ||
+		typeof candidate.label !== "string" ||
+		typeof candidate.worker !== "string" ||
+		typeof candidate.task !== "string" ||
+		typeof candidate.cwd !== "string" ||
+		typeof candidate.exitCode !== "number" ||
+		typeof candidate.output !== "string" ||
+		typeof candidate.durationMs !== "number" ||
+		typeof candidate.startedAt !== "number" ||
+		typeof candidate.updatedAt !== "number"
+	) {
+		return undefined;
+	}
+
+	const timeline = sanitizeTimeline(candidate.timeline);
+	return {
+		runId: candidate.runId,
+		label: candidate.label,
+		worker: candidate.worker,
+		task: candidate.task,
+		cwd: candidate.cwd,
+		exitCode: candidate.exitCode,
+		output: candidate.output,
+		error: typeof candidate.error === "string" ? candidate.error : undefined,
+		durationMs: candidate.durationMs,
+		liveText: candidate.output,
+		activeTool: undefined,
+		lastEvent:
+			typeof candidate.lastEvent === "string"
+				? candidate.lastEvent
+				: timeline.length > 0
+					? timeline[timeline.length - 1].detail
+						? `${timeline[timeline.length - 1].text} | ${timeline[timeline.length - 1].detail}`
+						: timeline[timeline.length - 1].text
+					: undefined,
+		timeline,
+		startedAt: candidate.startedAt,
+		updatedAt: candidate.updatedAt,
+		finishedAt: typeof candidate.finishedAt === "number" ? candidate.finishedAt : undefined,
+	};
+}
+
+function sortMonitorRuns() {
+	monitorState.runs.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function pruneMonitorRuns() {
+	if (monitorState.runs.length > MAX_RUN_HISTORY) {
+		monitorState.runs = monitorState.runs.slice(0, MAX_RUN_HISTORY);
+	}
+}
+
+function getSortedRuns() {
+	sortMonitorRuns();
+	return monitorState.runs;
+}
+
+function getActiveRuns() {
+	return getSortedRuns().filter((result) => result.exitCode === -1);
+}
+
+function getLatestCompletedRun() {
+	return getSortedRuns().find((result) => result.exitCode !== -1);
+}
+
+function getStatusRuns() {
+	const active = getActiveRuns();
+	if (active.length > 0) return active;
+	const latest = getLatestCompletedRun();
+	return latest ? [latest] : [];
+}
+
+function createWorkerResult(task: WorkerTask, worker: WorkerSpec, index: number, defaultCwd: string): WorkerResult {
+	const now = Date.now();
+	const label = task.label?.trim() || `worker-${index + 1}`;
+	const cwd = task.cwd || defaultCwd;
+	return {
+		runId: `run-${now}-${++monitorState.runCounter}`,
+		label,
+		worker: worker.name,
+		task: task.task,
+		cwd,
+		exitCode: -1,
+		output: "",
+		error: undefined,
+		durationMs: 0,
+		liveText: "",
+		activeTool: undefined,
+		lastEvent: "starting",
+		timeline: [
+			{
+				timestamp: now,
+				kind: "status",
+				text: "worker started",
+				detail: preview(task.task, 120),
+				status: "running",
+			},
+		],
+		startedAt: now,
+		updatedAt: now,
+		finishedAt: undefined,
+	};
+}
+
+function upsertRun(result: WorkerResult) {
+	const next = cloneWorkerResult(result);
+	const index = monitorState.runs.findIndex((run) => run.runId === next.runId);
+	if (index === -1) monitorState.runs.unshift(next);
+	else monitorState.runs[index] = next;
+	sortMonitorRuns();
+	pruneMonitorRuns();
+}
+
+function addTimelineEntry(result: WorkerResult, entry: WorkerTimelineEntry) {
+	result.timeline.push(entry);
+	if (result.timeline.length > MAX_TIMELINE_ENTRIES) {
+		result.timeline.splice(0, result.timeline.length - MAX_TIMELINE_ENTRIES);
+	}
+	result.lastEvent = entry.detail ? `${entry.text} | ${entry.detail}` : entry.text;
+	result.updatedAt = entry.timestamp;
+}
+
+function formatToolInvocation(toolName: string, args: Record<string, any> | undefined): string {
+	const source = args || {};
+	const location = typeof source.path === "string" ? source.path : typeof source.file_path === "string" ? source.file_path : "";
+	switch (toolName) {
+		case "read": {
+			const start = typeof source.offset === "number" ? source.offset : undefined;
+			const limit = typeof source.limit === "number" ? source.limit : undefined;
+			const range =
+				start !== undefined ? `:${start}${limit !== undefined && limit > 0 ? `-${start + limit - 1}` : ""}` : "";
+			return `read ${formatPathLabel(location || ".", 42)}${range}`;
+		}
+		case "write":
+			return `write ${formatPathLabel(location || ".", 42)}`;
+		case "edit":
+			return `edit ${formatPathLabel(location || ".", 42)}`;
+		case "ls":
+			return `ls ${formatPathLabel((typeof source.path === "string" ? source.path : ".") || ".", 42)}`;
+		case "find":
+			return `find ${preview(typeof source.pattern === "string" ? source.pattern : "*", 24)} in ${formatPathLabel((typeof source.path === "string" ? source.path : ".") || ".", 28)}`;
+		case "grep":
+			return `grep ${preview(typeof source.pattern === "string" ? source.pattern : "", 24)} in ${formatPathLabel((typeof source.path === "string" ? source.path : ".") || ".", 28)}`;
+		case "bash":
+			return `bash ${preview(typeof source.command === "string" ? source.command : "", 60)}`;
+		case "web-search":
+			return `web ${preview(typeof source.q === "string" ? source.q : typeof source.query === "string" ? source.query : "", 56)}`;
+		case "scrape":
+			return `scrape ${preview(typeof source.url === "string" ? source.url : "", 56)}`;
+		default:
+			return `${toolName} ${preview(JSON.stringify(source), 60)}`;
+	}
+}
+
+function formatToolOutcome(result: any, isError: boolean): string {
+	const text = extractToolResultText(result);
+	if (isError) return preview(text || "tool failed", 120);
+	return preview(text || "tool completed", 120);
+}
+
+function summarizeRun(result: WorkerResult, max = 96): string {
+	if (result.exitCode === -1) {
+		return preview(result.activeTool || result.liveText || result.lastEvent || "running", max);
+	}
+	if (result.error) return preview(result.error, max);
+	return preview(result.output || result.liveText || result.lastEvent || "(no output)", max);
 }
 
 function renderWorkerStatusToken(theme: any, result: WorkerResult) {
@@ -173,6 +565,261 @@ function renderWorkerSummary(theme: any, result: WorkerResult): string {
 		theme.fg("border", "│"),
 		theme.fg("dim", formatDuration(result.durationMs)),
 	].filter(Boolean).join(" ");
+}
+
+function buildWidgetLines(ctx: UiContext, width: number): string[] {
+	const theme = ctx.ui.theme;
+	const active = getActiveRuns();
+	const latest = getLatestCompletedRun();
+	const showLatest = latest && Date.now() - (latest.finishedAt || latest.updatedAt) <= RECENT_WIDGET_WINDOW_MS ? latest : undefined;
+
+	const lines = [
+		`${theme.fg("toolTitle", theme.bold("ORCH MONITOR"))}${theme.fg("border", " ─ ")}${theme.fg("accent", active.length > 0 ? `${active.length} live` : showLatest ? "recent" : "idle")} ${theme.fg("dim", "/subagents")}`,
+	];
+
+	if (active.length > 0) {
+		for (const run of active.slice(0, 2)) {
+			lines.push(`${renderWorkerStatusToken(theme, run)} ${theme.fg("accent", run.label)} ${theme.fg("border", "│")} ${theme.fg("dim", summarizeRun(run, 72))}`);
+		}
+		if (active.length > 2) {
+			lines.push(theme.fg("muted", `... +${active.length - 2} more running`));
+		}
+	} else if (showLatest) {
+		lines.push(`${renderWorkerStatusToken(theme, showLatest)} ${theme.fg("accent", showLatest.label)} ${theme.fg("border", "│")} ${theme.fg("dim", summarizeRun(showLatest, 72))}`);
+		lines.push(theme.fg("muted", `finished ${formatAge(showLatest.finishedAt)} ago`));
+	}
+
+	return lines.map((line) => truncateToWidth(line, width));
+}
+
+function mountMonitorWidget(ctx: UiContext) {
+	if (!ctx.hasUI) return;
+	const active = getActiveRuns();
+	const latest = getLatestCompletedRun();
+	const showLatest = latest && Date.now() - (latest.finishedAt || latest.updatedAt) <= RECENT_WIDGET_WINDOW_MS;
+	if (active.length === 0 && !showLatest) {
+		ctx.ui.setWidget(WIDGET_ID, undefined);
+		return;
+	}
+
+	ctx.ui.setWidget(
+		WIDGET_ID,
+		() => ({
+			render(width: number) {
+				return buildWidgetLines(ctx, width);
+			},
+			invalidate() {},
+		}),
+		{ placement: "belowEditor" },
+	);
+}
+
+function setOrchestratorStatus(ctx: UiContext) {
+	if (!ctx.hasUI) return;
+	ctx.ui.setStatus(STATUS_ID, formatStatusSummary(getStatusRuns()));
+}
+
+function refreshMonitorChrome() {
+	const ctx = monitorState.ctx;
+	if (!ctx?.hasUI) return;
+	setOrchestratorStatus(ctx);
+	mountMonitorWidget(ctx);
+}
+
+function notifyMonitorListeners() {
+	for (const listener of monitorState.listeners) listener();
+}
+
+function publishMonitor() {
+	refreshMonitorChrome();
+	notifyMonitorListeners();
+}
+
+function restorePersistedRuns(ctx: ExtensionContext) {
+	const restored = new Map<string, WorkerResult>();
+	for (const entry of ctx.sessionManager.getBranch()) {
+		if (entry.type !== "custom" || entry.customType !== RUN_ENTRY_TYPE) continue;
+		const run = fromPersistedRun(entry.data);
+		if (!run) continue;
+		restored.set(run.runId, run);
+	}
+	monitorState.runs = Array.from(restored.values())
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+		.slice(0, MAX_RUN_HISTORY);
+}
+
+function persistCompletedRun(pi: ExtensionAPI, result: WorkerResult) {
+	if (result.exitCode === -1) return;
+	pi.appendEntry<PersistedWorkerRun>(RUN_ENTRY_TYPE, toPersistedRun(result));
+}
+
+function renderTimelineLine(theme: any, entry: WorkerTimelineEntry, width: number): string {
+	const statusColor =
+		entry.status === "err" ? "error" : entry.status === "ok" ? "success" : entry.kind === "tool" ? "warning" : "muted";
+	const line = `${theme.fg("dim", formatClock(entry.timestamp))} ${theme.fg("border", "│")} ${theme.fg(statusColor, entry.text)}${entry.detail ? `${theme.fg("border", " │ ")}${theme.fg("dim", entry.detail)}` : ""}`;
+	return truncateToWidth(line, width);
+}
+
+function buildListPanelLines(theme: any, width: number, runs: WorkerResult[], selectedRunId: string | undefined): string[] {
+	const lines: string[] = [];
+	lines.push(truncateToWidth(`${theme.fg("toolTitle", theme.bold("ORCH MONITOR"))} ${theme.fg("muted", "// current and recent worker runs")}`, width));
+	lines.push(truncateToWidth(`${theme.fg("muted", "running")} ${theme.fg("text", String(runs.filter((run) => run.exitCode === -1).length))}   ${theme.fg("muted", "history")} ${theme.fg("text", String(runs.length))}`, width));
+	lines.push("");
+
+	if (runs.length === 0) {
+		lines.push(truncateToWidth(theme.fg("dim", "No worker runs yet."), width));
+		lines.push("");
+		lines.push(truncateToWidth(theme.fg("dim", "Esc closes"), width));
+		return lines;
+	}
+
+	const visible = runs.slice(0, 10);
+	for (const run of visible) {
+		const selected = run.runId === selectedRunId;
+		const marker = selected ? theme.fg("accent", "›") : theme.fg("dim", " ");
+		const workerTag = run.label !== run.worker ? `${run.label} (${run.worker})` : run.label;
+		const summary = summarizeRun(run, 72);
+		lines.push(
+			truncateToWidth(
+				`${marker} ${renderWorkerStatusToken(theme, run)} ${theme.fg("accent", workerTag)} ${theme.fg("border", "│")} ${theme.fg("muted", formatDuration(run.durationMs))} ${theme.fg("border", "│")} ${theme.fg("dim", summary)}`,
+				width,
+			),
+		);
+	}
+	if (runs.length > visible.length) {
+		lines.push(truncateToWidth(theme.fg("muted", `... +${runs.length - visible.length} more runs`), width));
+	}
+
+	lines.push("");
+	lines.push(truncateToWidth(theme.fg("dim", "Up/Down select · Enter drill · Esc close"), width));
+	return lines;
+}
+
+function buildDetailPanelLines(theme: any, width: number, run: WorkerResult): string[] {
+	const lines: string[] = [];
+	const statusWord = run.exitCode === -1 ? "running" : run.exitCode === 0 ? "completed" : "failed";
+	const source = run.error || run.output || run.liveText || "(no output yet)";
+	const bodyLines = wrapPlainText(source, Math.max(18, width - 4), 5);
+
+	lines.push(truncateToWidth(`${theme.fg("toolTitle", theme.bold("WORKER DETAIL"))} ${theme.fg("muted", "// timeline and output")}`, width));
+	lines.push(
+		truncateToWidth(
+			`${renderWorkerStatusToken(theme, run)} ${theme.fg("accent", run.label)} ${run.label !== run.worker ? theme.fg("muted", `(${run.worker})`) : ""} ${theme.fg("border", "│")} ${theme.fg("text", statusWord)} ${theme.fg("border", "│")} ${theme.fg("dim", formatDuration(run.durationMs))}`,
+			width,
+		),
+	);
+	lines.push(truncateToWidth(`${theme.fg("muted", "cwd")} ${theme.fg("text", formatPathLabel(run.cwd, Math.max(24, width - 10)))}`, width));
+	lines.push(truncateToWidth(`${theme.fg("muted", "task")} ${theme.fg("text", preview(run.task, Math.max(32, width - 10)))}`, width));
+	if (run.activeTool) {
+		lines.push(truncateToWidth(`${theme.fg("muted", "active")} ${theme.fg("warning", run.activeTool)}`, width));
+	}
+	lines.push("");
+	lines.push(truncateToWidth(theme.fg("muted", "timeline"), width));
+	for (const entry of run.timeline.slice(-8)) {
+		lines.push(renderTimelineLine(theme, entry, width));
+	}
+	lines.push("");
+	lines.push(truncateToWidth(theme.fg("muted", run.exitCode === -1 ? "live text" : run.error ? "error" : "final output"), width));
+	for (const line of bodyLines) {
+		lines.push(truncateToWidth(`  ${theme.fg(run.error ? "error" : "text", line)}`, width));
+	}
+	lines.push("");
+	lines.push(truncateToWidth(theme.fg("dim", "Left/Esc back · Up/Down switch worker"), width));
+	return lines;
+}
+
+async function showMonitorOverlay(ctx: UiContext) {
+	if (!ctx.hasUI) return;
+
+	let mode: "list" | "detail" = "list";
+	let selectedRunId = getSortedRuns()[0]?.runId;
+
+	function resolveSelection(runs: WorkerResult[]) {
+		if (runs.length === 0) {
+			selectedRunId = undefined;
+			return undefined;
+		}
+		if (!selectedRunId || !runs.some((run) => run.runId === selectedRunId)) {
+			selectedRunId = runs[0].runId;
+		}
+		return runs.find((run) => run.runId === selectedRunId);
+	}
+
+	await ctx.ui.custom(
+		(tui, theme, _keybindings, done) => {
+			const unsubscribe = subscribeMonitor(() => {
+				resolveSelection(getSortedRuns());
+				tui.requestRender();
+			});
+
+			return {
+				dispose() {
+					unsubscribe();
+				},
+				invalidate() {},
+				render(width: number) {
+					const runs = getSortedRuns();
+					const selected = resolveSelection(runs);
+					if (mode === "detail" && selected) return buildDetailPanelLines(theme, width, selected);
+					return buildListPanelLines(theme, width, runs, selectedRunId);
+				},
+				handleInput(data: string) {
+					const runs = getSortedRuns();
+					const selected = resolveSelection(runs);
+					const index = selected ? runs.findIndex((run) => run.runId === selected.runId) : -1;
+
+					if (mode === "detail") {
+						if (matchesKey(data, Key.left) || matchesKey(data, Key.escape) || matchesKey(data, Key.backspace)) {
+							mode = "list";
+							tui.requestRender();
+							return;
+						}
+						if (matchesKey(data, Key.up) && index > 0) {
+							selectedRunId = runs[index - 1].runId;
+							tui.requestRender();
+							return;
+						}
+						if (matchesKey(data, Key.down) && index >= 0 && index < runs.length - 1) {
+							selectedRunId = runs[index + 1].runId;
+							tui.requestRender();
+							return;
+						}
+						return;
+					}
+
+					if (matchesKey(data, Key.escape)) {
+						done(undefined);
+						return;
+					}
+					if (matchesKey(data, Key.up) && index > 0) {
+						selectedRunId = runs[index - 1].runId;
+						tui.requestRender();
+						return;
+					}
+					if (matchesKey(data, Key.down) && index >= 0 && index < runs.length - 1) {
+						selectedRunId = runs[index + 1].runId;
+						tui.requestRender();
+						return;
+					}
+					if ((matchesKey(data, Key.enter) || matchesKey(data, Key.right)) && selected) {
+						mode = "detail";
+						tui.requestRender();
+					}
+				},
+			};
+		},
+		{
+			overlay: true,
+			overlayOptions: {
+				anchor: "center",
+				width: 96,
+				minWidth: 72,
+				maxHeight: 24,
+				margin: 1,
+				offsetY: -1,
+			},
+		},
+	);
 }
 
 function parseFrontmatterFile(text: string): { meta: Record<string, string>; body: string } {
@@ -263,28 +910,14 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 }
 
 async function runWorker(
-	task: WorkerTask,
+	result: WorkerResult,
 	worker: WorkerSpec,
-	index: number,
-	defaultCwd: string,
 	defaultModel: string | undefined,
 	defaultThinking: string | undefined,
 	signal: AbortSignal | undefined,
+	onProgress?: (partial: WorkerResult) => void,
 ): Promise<WorkerResult> {
-	const label = task.label?.trim() || `worker-${index + 1}`;
-	const cwd = task.cwd || defaultCwd;
-	const result: WorkerResult = {
-		label,
-		worker: worker.name,
-		task: task.task,
-		cwd,
-		exitCode: -1,
-		output: "",
-		error: undefined,
-		durationMs: 0,
-	};
-
-	const promptFile = await writeTempPrompt(buildWorkerPrompt(worker, cwd));
+	const promptFile = await writeTempPrompt(buildWorkerPrompt(worker, result.cwd));
 	const invocation = getPiInvocation();
 	const tools = worker.tools.length > 0 ? worker.tools : WORKER_TOOLS;
 	const model = worker.model || defaultModel;
@@ -302,17 +935,25 @@ async function runWorker(
 	];
 	if (model) args.push("--model", model);
 	if (thinking && thinking !== "off") args.push("--thinking", thinking);
-	args.push(task.task);
+	args.push(result.task);
 
-	const startedAt = Date.now();
-	const emit = () => {
+	const startedAt = result.startedAt;
+	const toolLabels = new Map<string, string>();
+	let lastEmitAt = 0;
+
+	const emit = (force = false) => {
 		result.durationMs = Date.now() - startedAt;
+		result.updatedAt = Date.now();
+		if (!onProgress) return;
+		if (!force && result.updatedAt - lastEmitAt < LIVE_UPDATE_INTERVAL_MS) return;
+		lastEmitAt = result.updatedAt;
+		onProgress(cloneWorkerResult(result));
 	};
 
 	try {
 		await new Promise<void>((resolve, reject) => {
 			const proc = spawn(invocation.command, args, {
-				cwd,
+				cwd: result.cwd,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 				env: {
@@ -340,7 +981,14 @@ async function runWorker(
 
 			const stop = (message: string) => {
 				if (!result.error) result.error = message;
-				emit();
+				addTimelineEntry(result, {
+					timestamp: Date.now(),
+					kind: "error",
+					text: "worker interrupted",
+					detail: preview(message, 120),
+					status: "err",
+				});
+				emit(true);
 				proc.kill("SIGTERM");
 				const killTimer = setTimeout(() => {
 					if (proc.exitCode === null) proc.kill("SIGKILL");
@@ -356,11 +1004,69 @@ async function runWorker(
 				} catch {
 					return;
 				}
-				if (event.type !== "message_end" || event.message?.role !== "assistant") return;
-				const text = extractAssistantText(event.message);
-				if (text) result.output = text;
-				if (event.message?.errorMessage) result.error = event.message.errorMessage;
-				emit();
+
+				if (event.type === "tool_execution_start") {
+					const label = formatToolInvocation(event.toolName, event.args);
+					toolLabels.set(event.toolCallId, label);
+					result.activeTool = label;
+					addTimelineEntry(result, {
+						timestamp: Date.now(),
+						kind: "tool",
+						text: label,
+						status: "running",
+					});
+					emit();
+					return;
+				}
+
+				if (event.type === "tool_execution_end") {
+					const label = toolLabels.get(event.toolCallId) || formatToolInvocation(event.toolName, undefined);
+					if (result.activeTool === label) result.activeTool = undefined;
+					addTimelineEntry(result, {
+						timestamp: Date.now(),
+						kind: event.isError ? "error" : "tool",
+						text: label,
+						detail: formatToolOutcome(event.result, Boolean(event.isError)),
+						status: event.isError ? "err" : "ok",
+					});
+					emit();
+					return;
+				}
+
+				if (event.type === "message_update" && event.message?.role === "assistant") {
+					const assistantEventType = event.assistantMessageEvent?.type;
+					if (assistantEventType === "text_delta" && typeof event.assistantMessageEvent?.delta === "string") {
+						result.liveText = appendCappedText(result.liveText, event.assistantMessageEvent.delta, MAX_LIVE_TEXT_CHARS);
+						emit();
+					}
+					return;
+				}
+
+				if (event.type === "message_end" && event.message?.role === "assistant") {
+					const text = extractAssistantText(event.message);
+					if (text) {
+						result.output = text;
+						result.liveText = text;
+						addTimelineEntry(result, {
+							timestamp: Date.now(),
+							kind: "output",
+							text: "assistant response",
+							detail: preview(text, 140),
+							status: "ok",
+						});
+					}
+					if (event.message?.errorMessage) {
+						result.error = event.message.errorMessage;
+						addTimelineEntry(result, {
+							timestamp: Date.now(),
+							kind: "error",
+							text: "assistant error",
+							detail: preview(event.message.errorMessage, 140),
+							status: "err",
+						});
+					}
+					emit(true);
+				}
 			};
 
 			proc.stdout.on("data", (chunk) => {
@@ -376,17 +1082,47 @@ async function runWorker(
 
 			proc.on("error", (error) => {
 				result.exitCode = 1;
-				if (!result.error) result.error = error.message;
+				result.error = result.error || error.message;
+				result.finishedAt = Date.now();
+				addTimelineEntry(result, {
+					timestamp: result.finishedAt,
+					kind: "error",
+					text: "worker process error",
+					detail: preview(result.error, 140),
+					status: "err",
+				});
+				emit(true);
 				finish(error);
 			});
 
 			proc.on("close", (code, closeSignal) => {
 				if (buffer.trim()) processLine(buffer);
 				result.durationMs = Date.now() - startedAt;
+				result.updatedAt = Date.now();
+				result.finishedAt = result.updatedAt;
 				result.exitCode = code ?? 0;
 				if (closeSignal && !result.error) result.error = `Worker exited via signal ${closeSignal}`;
 				if (result.exitCode !== 0 && !result.error) result.error = stderr.trim() || `Worker exited with code ${result.exitCode}`;
-				emit();
+
+				if (result.error) {
+					addTimelineEntry(result, {
+						timestamp: result.finishedAt,
+						kind: "error",
+						text: "worker failed",
+						detail: preview(result.error, 140),
+						status: "err",
+					});
+				} else {
+					addTimelineEntry(result, {
+						timestamp: result.finishedAt,
+						kind: "status",
+						text: "worker completed",
+						detail: preview(result.output || result.liveText || "(no output)", 140),
+						status: "ok",
+					});
+				}
+
+				emit(true);
 				finish();
 			});
 
@@ -414,7 +1150,7 @@ function summarizeParallel(results: WorkerResult[]) {
 	const lines = [`Parallel workers: ${succeeded}/${results.length} succeeded`];
 	if (done !== results.length) lines[0] += `, ${results.length - done} running`;
 	for (const result of results) {
-		lines.push(`- ${result.label}: ${preview(result.error || result.output)}`);
+		lines.push(`- ${result.label}: ${summarizeRun(result, 120)}`);
 	}
 	return lines.join("\n");
 }
@@ -423,8 +1159,16 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 	if (process.env[WORKER_BYPASS_ENV] === "1" || process.env[SESSION_BYPASS_ENV] === "1") return;
 
 	pi.on("session_start", async (_event, ctx) => {
+		rememberUiContext(ctx);
+		restorePersistedRuns(ctx);
 		pi.setActiveTools(["subagent"]);
 		setOrchestratorStatus(ctx);
+		mountMonitorWidget(ctx);
+	});
+
+	pi.on("model_select", async (_event, ctx) => {
+		rememberUiContext(ctx);
+		refreshMonitorChrome();
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -437,6 +1181,7 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 	pi.registerCommand("workers", {
 		description: "Show available global worker roles",
 		handler: async (_args, ctx) => {
+			rememberUiContext(ctx);
 			const roster = await loadWorkerRoster();
 			if (roster.length === 0) {
 				if (ctx.hasUI) ctx.ui.notify(`No workers found in ${AGENTS_DIR}`, "warning");
@@ -444,6 +1189,14 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 			}
 			const lines = roster.map((worker) => `${worker.name} - ${worker.description}`);
 			if (ctx.hasUI) ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("subagents", {
+		description: "Open live and recent worker monitor",
+		handler: async (_args, ctx) => {
+			rememberUiContext(ctx);
+			await showMonitorOverlay(ctx);
 		},
 	});
 
@@ -459,7 +1212,9 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 		],
 		parameters: ParamsSchema,
 
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			rememberUiContext(ctx);
+
 			const roster = await loadWorkerRoster();
 			if (roster.length === 0) {
 				return {
@@ -493,38 +1248,60 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+
 				const task: WorkerTask = {
 					label: params.label,
 					worker: worker.name,
 					task: params.task,
 					cwd: params.cwd,
 				};
-				const runningResult: WorkerResult = {
-					label: task.label?.trim() || "worker-1",
-					worker: worker.name,
-					task: task.task,
-					cwd: task.cwd || ctx.cwd,
-					exitCode: -1,
-					output: "",
-					error: undefined,
-					durationMs: 0,
+				const current = createWorkerResult(task, worker, 0, ctx.cwd);
+				upsertRun(current);
+				publishMonitor();
+
+				const emitSingleUpdate = () => {
+					onUpdate?.({
+						content: [
+							{
+								type: "text",
+								text: current.error ? `Worker failed: ${current.error}` : current.output || current.liveText || current.lastEvent || "(running...)",
+							},
+						],
+						details: { mode: "single", results: [cloneWorkerResult(current)] },
+					});
 				};
-				setOrchestratorStatus(ctx, [runningResult]);
+
+				emitSingleUpdate();
+
 				try {
-					const result = await runWorker(task, worker, 0, ctx.cwd, model, thinking, signal);
-					setOrchestratorStatus(ctx, [result]);
+					const result = await runWorker(current, worker, model, thinking, signal, (partial) => {
+						upsertRun(partial);
+						publishMonitor();
+						onUpdate?.({
+							content: [
+								{
+									type: "text",
+									text: partial.error ? `Worker failed: ${partial.error}` : partial.output || partial.liveText || partial.lastEvent || "(running...)",
+								},
+							],
+							details: { mode: "single", results: [cloneWorkerResult(partial)] },
+						});
+					});
+					upsertRun(result);
+					persistCompletedRun(pi, result);
+					publishMonitor();
 					return {
 						content: [{ type: "text", text: result.error ? `Worker failed: ${result.error}` : result.output || "(no output)" }],
-						details: { mode: "single", results: [result] } satisfies ToolDetails,
+						details: { mode: "single", results: [cloneWorkerResult(result)] } satisfies ToolDetails,
 						isError: result.exitCode !== 0,
 					};
 				} catch (error: any) {
-					setOrchestratorStatus(ctx);
+					publishMonitor();
 					throw error;
 				}
 			}
 
-			if (params.tasks.length > HARD_MAX_PARALLEL) {
+			if ((params.tasks as WorkerTask[]).length > HARD_MAX_PARALLEL) {
 				return {
 					content: [{ type: "text", text: `Too many parallel workers. Max is ${HARD_MAX_PARALLEL}.` }],
 					details: { mode: "parallel", results: [] } satisfies ToolDetails,
@@ -532,8 +1309,8 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 				};
 			}
 
-			const resolvedTasks: Array<{ task: WorkerTask; worker: WorkerSpec }> = [];
-			for (const item of params.tasks as WorkerTask[]) {
+			const resolvedTasks: Array<{ task: WorkerTask; worker: WorkerSpec; result: WorkerResult }> = [];
+			for (const [index, item] of (params.tasks as WorkerTask[]).entries()) {
 				const workerName = item.worker?.trim() || "worker";
 				const worker = getWorkerSpec(roster, workerName);
 				if (!worker) {
@@ -543,45 +1320,58 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				resolvedTasks.push({
-					task: {
-						label: item.label,
-						worker: worker.name,
-						task: item.task,
-						cwd: item.cwd,
-					},
-					worker,
-				});
+				const task: WorkerTask = {
+					label: item.label,
+					worker: worker.name,
+					task: item.task,
+					cwd: item.cwd,
+				};
+				const result = createWorkerResult(task, worker, index, ctx.cwd);
+				resolvedTasks.push({ task, worker, result });
+				upsertRun(result);
 			}
+			publishMonitor();
 
-			const pendingResults: WorkerResult[] = resolvedTasks.map(({ task, worker }, index: number) => ({
-				label: task.label?.trim() || `worker-${index + 1}`,
-				worker: worker.name,
-				task: task.task,
-				cwd: task.cwd || ctx.cwd,
-				exitCode: -1,
-				output: "",
-				error: undefined,
-				durationMs: 0,
-			}));
-			setOrchestratorStatus(ctx, pendingResults);
+			const emitParallelUpdate = () => {
+				const snapshots = resolvedTasks.map((item) => cloneWorkerResult(item.result));
+				const running = snapshots.filter((result) => result.exitCode === -1).length;
+				const done = snapshots.filter((result) => result.exitCode !== -1).length;
+				onUpdate?.({
+					content: [{ type: "text", text: `Parallel: ${done}/${snapshots.length} done, ${running} running...` }],
+					details: { mode: "parallel", results: snapshots },
+				});
+			};
+
+			emitParallelUpdate();
 
 			try {
 				const results = await mapWithConcurrencyLimit(
 					resolvedTasks,
 					Math.min(MAX_PARALLEL, resolvedTasks.length),
-					(item, index: number) => runWorker(item.task, item.worker, index, ctx.cwd, model, thinking, signal),
+					async (item) => {
+						const result = await runWorker(item.result, item.worker, model, thinking, signal, (partial) => {
+							item.result = partial;
+							upsertRun(partial);
+							publishMonitor();
+							emitParallelUpdate();
+						});
+						item.result = result;
+						upsertRun(result);
+						persistCompletedRun(pi, result);
+						publishMonitor();
+						emitParallelUpdate();
+						return result;
+					},
 				);
-				setOrchestratorStatus(ctx, results);
 
 				const allSucceeded = results.every((result) => result.exitCode === 0);
 				return {
 					content: [{ type: "text", text: summarizeParallel(results) }],
-					details: { mode: "parallel", results } satisfies ToolDetails,
+					details: { mode: "parallel", results: results.map(cloneWorkerResult) } satisfies ToolDetails,
 					isError: !allSucceeded,
 				};
 			} catch (error: any) {
-				setOrchestratorStatus(ctx);
+				publishMonitor();
 				throw error;
 			}
 		},
@@ -618,12 +1408,20 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 
 			if (details.mode === "single") {
 				const worker = details.results[0];
+				const activityLine = worker.activeTool
+					? `${theme.fg("muted", "tool")} ${theme.fg("border", "│")} ${theme.fg("warning", worker.activeTool)}`
+					: worker.lastEvent
+						? `${theme.fg("muted", "last")} ${theme.fg("border", "│")} ${theme.fg("dim", preview(worker.lastEvent, 160))}`
+						: "";
+				const body = summarizeRun(worker, 220);
 				return new Text(
 					[
 						`${theme.fg("toolTitle", theme.bold("WORKER"))}${theme.fg("border", " ─ ")}${theme.fg("accent", worker.label)}`,
 						renderWorkerSummary(theme, worker),
-						theme.fg(worker.exitCode === 0 ? "text" : "error", preview(worker.error || worker.output, 220)),
-					].join("\n"),
+						activityLine,
+						theme.fg(worker.exitCode > 0 ? "error" : "text", body),
+						theme.fg("dim", worker.exitCode === -1 ? "live /subagents for timeline" : "/subagents for history"),
+					].filter(Boolean).join("\n"),
 					0,
 					0,
 				);
@@ -636,8 +1434,9 @@ export default function delegatedSubagents(pi: ExtensionAPI) {
 			];
 			for (const worker of details.results) {
 				lines.push(renderWorkerSummary(theme, worker));
-				lines.push(theme.fg("dim", preview(worker.error || worker.output, 160)));
+				lines.push(theme.fg("dim", summarizeRun(worker, 180)));
 			}
+			lines.push(theme.fg("dim", details.results.some((worker) => worker.exitCode === -1) ? "live /subagents for timeline" : "/subagents for history"));
 			return new Text(lines.join("\n"), 0, 0);
 		},
 	});

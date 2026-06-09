@@ -7,3 +7,6 @@ plugins/installed_plugins.json
 plugins/known_marketplaces.json
 plugins/marketplaces/
 plugins/repos/
+
+# Local skill-sync state (written per-machine by the sync tool)
+skills/.sync-manifest.json

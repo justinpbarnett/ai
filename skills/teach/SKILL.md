@@ -34,7 +34,7 @@ Some topics may require more skills than knowledge. Learning more about theoreti
 
 A lesson is the main thing you produce — the unit in which knowledge and skills reach the user. Each lesson is one self-contained HTML file, saved to `./lessons/` and titled `0001-<dash-case-name>.html` where the number increments each time.
 
-A lesson should be **beautiful** — clean, readable typography and layout — since the user will return to these later to review.
+A lesson should be **beautiful** — clean, readable typography and layout — since the user will return to these later to review. All HTML output (lessons and reference documents) should use a dark-mode color scheme by default: light text on a dark background, with sufficient contrast for comfortable reading.
 
 The lesson should teach ONE THING only. It should be completable very quickly - but give the user a tangible win that they can build on. It should be directly tied to the mission, and should be in the user's zone of proximal development.
 

@@ -101,7 +101,11 @@ skills_name = "skills-cursor"
 config_format = "json"
 
 [cursor.symlinks]
-"skills-cursor" = "skills"
+# NOTE: intentionally NOT symlinking skills here. Cursor's CLI auto-syncs its
+# built-in agent skills into ~/.cursor/skills-cursor; pointing that dir at the
+# shared repo made Cursor write its built-ins into ~/dev/ai/skills, which then
+# propagated into every other harness. Cursor now owns its skills dir directly.
+# "skills-cursor" = "skills"
 # "cli-config.json" = "harness/cursor/cli-config.json"   # add when you want to manage it
 
 # ─────────────────────────────────────────────────────────────────────────────

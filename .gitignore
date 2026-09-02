@@ -1,6 +1,10 @@
 *.bak.*
 .DS_Store
 .pytest_cache/
+# Everything Claude Code writes here is per-machine state. The enumerated list
+# below went stale as new files appeared (.last_inuse_sweep), which is how
+# machine state nearly reached a public repo — so ignore the directory itself.
+plugins/
 plugins/cache/
 plugins/data/
 plugins/installed_plugins.json

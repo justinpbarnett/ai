@@ -8,9 +8,32 @@
     "commit": "",
     "pr": ""
   },
+  "enabledPlugins": {
+    "local-engineering@passion-tech": true,
+    "general@passion-tech": true,
+    "jira@passion-tech": true,
+    "dev@passion-tech": true,
+    "plan@passion-tech": true,
+    "rock@passion-tech": true,
+    "rock-build@passion-tech": true
+  },
+  "extraKnownMarketplaces": {
+    "passion-tech": {
+      "source": {
+        "source": "github",
+        "repo": "passiondev/tech-skills"
+      },
+      "autoUpdate": true
+    }
+  },
   "effortLevel": "xhigh",
   "autoCompactWindow": 200000,
   "skipDangerousModePermissionPrompt": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "high"
+    }
+  }
 }

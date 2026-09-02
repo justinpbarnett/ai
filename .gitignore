@@ -1,16 +1,13 @@
 *.bak.*
 .DS_Store
 .pytest_cache/
+__pycache__/
+*.py[cod]
 # Everything Claude Code writes here is per-machine state. The enumerated list
-# below went stale as new files appeared (.last_inuse_sweep), which is how
-# machine state nearly reached a public repo — so ignore the directory itself.
+# that used to sit below went stale as new files appeared (.last_inuse_sweep),
+# which is how machine state nearly reached a public repo — so ignore the
+# directory itself.
 plugins/
-plugins/cache/
-plugins/data/
-plugins/installed_plugins.json
-plugins/known_marketplaces.json
-plugins/marketplaces/
-plugins/repos/
 
 # Local skill-sync state (written per-machine by the sync tool)
 skills/.sync-manifest.json

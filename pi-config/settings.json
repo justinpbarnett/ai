@@ -1,13 +1,16 @@
 {
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "off",
   "doubleEscapeAction": "tree",
-  "lastChangelogVersion": "0.80.3",
-  "packages": [
-    "https://github.com/davebcn87/pi-autoresearch",
-    "npm:pi-xai"
-  ],
+  "lastChangelogVersion": "0.85.1",
+  "packages": [],
   "hideThinkingBlock": true,
-  "theme": "dark"
+  "warnings": {
+    "anthropicExtraUsage": false
+  },
+  "theme": "dark",
+  "quietStartup": true,
+  "defaultProjectTrust": "always",
+  "tuiMode": "regular"
 }

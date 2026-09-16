@@ -85,10 +85,7 @@ config_format = "json"
 [pi.symlinks]
 skills = "skills"
 "settings.json" = "pi-config/settings.json"
-"models.json" = "pi-config/models.json"
 "keybindings.json" = "pi-config/keybindings.json"
-"autoresearch.config.json" = "pi-config/autoresearch.config.json"
-extensions = "pi-config/extensions"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cursor

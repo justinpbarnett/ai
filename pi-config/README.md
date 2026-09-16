@@ -7,23 +7,8 @@ This directory stores the portable part of `~/.pi/agent` for this repo.
 Tracked items are copied from or linked into the target pi config directory:
 
 - `settings.json`
-- `models.json`
-- `keybindings.json`, if present
-- `autoresearch.config.json`, if present
-- `prompts/`, if present
-- `skills/` (symlinked by install.sh)
-- portable files inside `extensions/`
-- portable files inside `extensions/`
-
-Current portable extensions:
-
-- `fireworks`
-- `goal`
-- `inline-slash-autocomplete`
-- `stash-draft`
-- `subagent`
-- `web-scrape`
-- `web-search`
+- `keybindings.json`
+- the repository's global `skills/` directory
 
 ## What stays local
 
@@ -34,8 +19,6 @@ These are intentionally excluded and should be created on each machine as needed
 - `git/`
 - `bin/`
 - `pi-debug.log`
-- extension secrets such as `.env`
-- extension local npm cache directories such as `.npm/`
 - `node_modules/`
 
 ## Install on another machine
@@ -61,7 +44,7 @@ To copy files instead of linking them:
 ./install.sh --mode copy
 ```
 
-The installer creates missing directories, preserves local state that is not managed here, and runs `npm install` in each target extension directory that contains a `package.json`.
+The installer creates missing directories and preserves local state that is not managed here.
 
 ## Link this repo on the current machine
 
@@ -70,7 +53,9 @@ cd ~/dev/ai/pi-config
 ./link-local.sh
 ```
 
-This is a small wrapper around `install.sh --mode symlink`. In symlink mode, `~/dev/ai/pi-config` is the source of truth. pi global config points back to this repo, while local-only files such as extension `.env` files and `node_modules/` stay under `~/.pi/agent`.
+This is a small wrapper around `install.sh --mode symlink`.
+In symlink mode, `~/dev/ai/pi-config` is the source of truth.
+Pi's global settings, keybindings, and skills point back to this repo, while local-only files remain under `~/.pi/agent`.
 
 If an existing managed file or directory needs to be replaced, it is moved into a timestamped backup directory under:
 
@@ -85,7 +70,8 @@ cd ~/dev/ai/pi-config
 ./uninstall.sh
 ```
 
-The uninstall script removes only symlinks in `~/.pi/agent` that point into this repo. It does not remove local auth, sessions, extension `.env` files, or `node_modules/`.
+The uninstall script removes only symlinks in `~/.pi/agent` that point into this repo.
+It does not remove local auth, sessions, or package state.
 
 Preview first with:
 
@@ -95,10 +81,6 @@ Preview first with:
 
 ## Secrets and auth
 
-After bootstrapping on a new machine:
-
-1. Sign in to pi so it creates `auth.json` locally.
-2. Recreate any extension `.env` files locally.
-3. Restart pi after installing or updating config.
+After bootstrapping on a new machine, sign in to Pi so it creates `auth.json` locally.
 
 Do not commit local secrets or session data from `~/.pi/agent`.

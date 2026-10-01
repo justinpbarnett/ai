@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900">
+  <!-- A test card that stands in for a photograph. It holds no lettering, because an image cannot use the page's fonts. -->
+  <rect width="1600" height="900" fill="#0D0E10"/>
+  <rect width="533" height="900" fill="#C4C6C9"/>
+  <rect x="533" width="534" height="900" fill="#5C5F62"/>
+  <!-- a grid line every tenth of the width and of the height -->
+  <path d="M160 0V900M320 0V900M480 0V900M640 0V900M800 0V900M960 0V900M1120 0V900M1280 0V900M1440 0V900M0 90H1600M0 180H1600M0 270H1600M0 360H1600M0 450H1600M0 540H1600M0 630H1600M0 720H1600M0 810H1600" fill="none" stroke="#0B0C0E" stroke-opacity="0.35" stroke-width="2"/>
+  <!-- four targets: a pin set to the same percentages lands on each one -->
+  <g fill="none" stroke-width="3">
+    <path d="M320 180v180M230 270h180M374 270a54 54 0 1 0 -108 0a54 54 0 1 0 108 0" stroke="#0B0C0E"/>
+    <path d="M800 450v180M710 540h180M854 540a54 54 0 1 0 -108 0a54 54 0 1 0 108 0" stroke="#E7E5DF"/>
+    <path d="M1280 180v180M1190 270h180M1334 270a54 54 0 1 0 -108 0a54 54 0 1 0 108 0" stroke="#E7E5DF"/>
+    <path d="M1120 630v180M1030 720h180M1174 720a54 54 0 1 0 -108 0a54 54 0 1 0 108 0" stroke="#E7E5DF"/>
+  </g>
+</svg>

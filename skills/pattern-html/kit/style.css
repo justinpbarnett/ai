@@ -1,0 +1,265 @@
+/* Pattern page style.
+
+   Part 1 is the stylesheet of the page Justin approved on 2026 10 01 (reference board 01), unchanged.
+   Part 2 carries the same look to the parts that page never needed.
+
+   The values are decisions recorded in ~/dev/design/decisions.md. If that file and this one
+   disagree, that file wins: fix this one. build.py fills the font placeholders. */
+
+/* ==========================================================================
+   Part 1. The approved page. Leave it as it is.
+   ========================================================================== */
+
+@font-face { font-family: "Routed Gothic"; src: url(data:font/woff2;base64,{{font:routed-gothic.woff2}}) format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url(data:font/woff2;base64,{{font:jbm-Regular.woff2}}) format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url(data:font/woff2;base64,{{font:jbm-Bold.woff2}}) format("woff2"); font-weight: 700; font-display: block; }
+
+:root {
+  --ground: #0B0C0E;
+  --ink: #E7E5DF;
+  --muted: #9C9A93;
+  --rule: #2B2C31;
+  --act: #FFD60A;
+  --mark: "Routed Gothic", "DIN Alternate", "Arial Narrow", sans-serif;
+  --read: "JetBrains Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 400 15px/1.65 var(--read); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+
+h1, h2, h3, .kicker, .tag, .figno, dt, .legend b, th { font-family: var(--mark); font-weight: 400; text-transform: uppercase; }
+header { padding: 56px 0 30px; }
+.kicker { color: var(--muted); letter-spacing: .16em; font-size: 15px; }
+h1 { font-size: 76px; line-height: 1; letter-spacing: .08em; margin: 14px 0 18px; }
+.sub { font-size: 17px; max-width: 62ch; margin: 0 0 14px; }
+.status { color: var(--muted); font-size: 13.5px; margin: 0; }
+h2 { font-size: 30px; letter-spacing: .1em; line-height: 1.15; margin: 76px 0 18px; padding-top: 18px; border-top: 1px solid var(--rule); }
+h2 .n { color: var(--muted); margin-right: .55em; }
+h3 { font-size: 21px; letter-spacing: .1em; line-height: 1.2; margin: 0 0 10px; }
+p { max-width: 76ch; margin: 0 0 14px; }
+.muted { color: var(--muted); }
+strong { font-weight: 700; }
+a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+
+ul.plain { list-style: none; padding: 0; margin: 0 0 14px; max-width: 80ch; }
+ul.plain li { padding: 9px 0 9px 26px; border-bottom: 1px solid var(--rule); position: relative; }
+ul.plain li:first-child { border-top: 1px solid var(--rule); }
+ul.plain li::before { content: ""; position: absolute; left: 4px; top: 18px; width: 6px; height: 6px; background: var(--ink); }
+
+/* tags: no status colors, those are reserved for states */
+.tag { display: inline-block; font-size: 12.5px; letter-spacing: .16em; line-height: 18px; padding: 1px 7px 0; border: 1px solid var(--ink); margin-right: 10px; white-space: nowrap; vertical-align: 1px; }
+.tag.take { background: var(--ink); color: var(--ground); }
+.tag.skip { border-color: var(--muted); color: var(--muted); }
+.tag.call { border-style: dashed; }
+
+/* figures */
+figure { margin: 30px 0 38px; }
+.img { position: relative; border: 1px solid var(--rule); line-height: 0; background: #000; }
+.img img { display: block; width: 100%; height: auto; }
+.pin { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; background: var(--ground); border: 1px solid var(--ink); color: var(--ink); font: 400 16px/25px var(--mark); text-align: center; }
+figcaption { margin-top: 10px; }
+.figno { color: var(--muted); letter-spacing: .14em; font-size: 13.5px; margin: 0 0 6px; max-width: none; }
+ol.notes { list-style: none; margin: 0; padding: 0; counter-reset: n; font-size: 14px; line-height: 1.55; }
+ol.notes li { counter-increment: n; display: grid; grid-template-columns: 26px 62px 1fr; gap: 0 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); align-items: start; }
+ol.notes li::before { content: counter(n); width: 22px; height: 22px; border: 1px solid var(--ink); font: 400 14px/21px var(--mark); text-align: center; }
+ol.notes .tag { margin: 1px 0 0; text-align: center; padding: 1px 0 0; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; align-items: start; }
+
+/* rule cards */
+.principle { border: 1px solid var(--rule); padding: 24px 26px; margin: 22px 0 0; }
+.rules { display: grid; grid-template-columns: 1fr 1fr; border-left: 1px solid var(--rule); margin: 0 0 8px; }
+.rule { border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 24px 26px; }
+.rule .lead, .principle .lead { font-size: 15px; margin: 0 0 14px; max-width: 70ch; }
+dl { display: grid; grid-template-columns: 64px 1fr; gap: 7px 14px; margin: 0; font-size: 13.5px; line-height: 1.55; }
+dt { color: var(--muted); letter-spacing: .14em; font-size: 12.5px; padding-top: 2px; }
+dd { margin: 0; }
+
+/* mocks */
+.mock { border: 1px solid var(--rule); margin: 22px 0 10px; line-height: 0; }
+.mock svg { display: block; width: 100%; height: auto; }
+.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; list-style: none; padding: 0; margin: 14px 0 0; font-size: 14px; line-height: 1.55; }
+.legend li { display: grid; grid-template-columns: 26px 1fr; gap: 0 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.legend li > span { width: 22px; height: 22px; border: 1px solid var(--ink); font: 400 14px/21px var(--mark); text-align: center; }
+.legend b { letter-spacing: .12em; font-size: 14px; margin-right: 6px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.5; margin: 14px 0; }
+th, td { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); }
+th { color: var(--muted); letter-spacing: .14em; font-size: 12.5px; border-top: 1px solid var(--rule); }
+
+/* the one Act line on the page sits on the one thing to do */
+.ask { border: 1px solid var(--rule); border-top: 2px solid var(--act); padding: 22px 26px; margin: 26px 0 0; }
+.ask p:last-child { margin: 0; }
+
+.sources { font-size: 13px; line-height: 1.6; color: var(--muted); list-style: none; padding: 0; margin: 0; }
+.sources b { font-family: var(--mark); font-weight: 400; text-transform: uppercase; letter-spacing: .14em; font-size: 12.5px; color: var(--ink); margin-right: 8px; }
+.sources li { margin: 0 0 6px; overflow-wrap: anywhere; }
+.sources a { color: var(--muted); }
+footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+
+@media (max-width: 820px) {
+  body { font-size: 14.5px; }
+  .wrap { padding: 0 16px 64px; }
+  h1 { font-size: 46px; }
+  h2 { font-size: 24px; margin-top: 56px; }
+  .pair, .rules, .legend { grid-template-columns: 1fr; }
+  .pin { width: 22px; height: 22px; font-size: 13px; line-height: 21px; }
+  ol.notes li { grid-template-columns: 24px 58px 1fr; gap: 0 8px; }
+}
+
+/* words quoted from a designer's own sheet */
+.sheet { font-family: var(--mark); text-transform: uppercase; letter-spacing: .1em; font-size: 15px; line-height: 1.45; border-left: 2px solid var(--ink); padding: 1px 0 1px 14px; margin: 10px 0 12px; color: var(--ink); max-width: none; }
+
+/* part numbers stay on one line */
+.nb { white-space: nowrap; }
+
+/* ==========================================================================
+   Part 2. The same look for the parts that page never needed.
+   Nothing below changes how a rule above draws.
+   ========================================================================== */
+
+@font-face { font-family: "JetBrains Mono"; src: url(data:font/woff2;base64,{{font:jbm-Italic.woff2}}) format("woff2"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url(data:font/woff2;base64,{{font:jbm-BoldItalic.woff2}}) format("woff2"); font-weight: 700; font-style: italic; font-display: block; }
+
+:root {
+  color-scheme: dark;
+  accent-color: var(--ink);
+  --ok: #22C55E;
+  --caution: #FFD60A;
+  --fault: #E5484D;
+}
+html { scrollbar-color: var(--muted) var(--ground); }
+body { overflow-wrap: break-word; }
+::selection { background: var(--ink); color: var(--ground); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+:where(img, video, canvas) { max-width: 100%; height: auto; }
+[hidden] { display: none !important; }
+
+/* text */
+h4 { font-family: var(--mark); font-weight: 400; text-transform: uppercase; font-size: 16px; letter-spacing: .12em; line-height: 1.3; margin: 22px 0 8px; }
+.wrap > h3 { margin-top: 34px; }
+.wrap > h2 + h3 { margin-top: 0; }
+em { font-style: italic; }
+small { font-size: 13px; color: var(--muted); }
+mark { background: var(--ink); color: var(--ground); padding: 0 3px; }
+abbr[title] { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+a:hover { text-decoration-color: var(--ink); }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 38px 0; }
+
+/* lists: a list with no class is a light one, ul.plain is the ruled one, ol.steps is the numbered one */
+:where(ul, ol):not([class]) { margin: 0 0 14px; padding-left: 26px; max-width: 76ch; }
+ul:not([class]) { list-style: square; }
+:where(ul, ol):not([class]) > li { margin: 0 0 6px; padding-left: 4px; }
+:where(ul, ol):not([class]) :where(ul, ol):not([class]) { margin: 6px 0 0; }
+ol.steps { list-style: none; margin: 0 0 14px; padding: 0; counter-reset: n; max-width: 80ch; }
+ol.steps > li { counter-increment: n; position: relative; padding: 9px 0 9px 38px; border-bottom: 1px solid var(--rule); }
+ol.steps > li:first-child { border-top: 1px solid var(--rule); }
+ol.steps > li::before { content: counter(n); position: absolute; left: 0; top: 10px; width: 22px; height: 22px; border: 1px solid var(--ink); font: 400 14px/21px var(--mark); text-align: center; }
+
+/* code, keys, quotes */
+code, kbd, samp { font-family: var(--read); font-size: .94em; }
+:not(pre) > code { border: 1px solid var(--rule); padding: 0 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+pre { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--rule); overflow-x: auto; font: 400 13.5px/1.6 var(--read); tab-size: 2; }
+pre code { font-size: inherit; }
+kbd { font-family: var(--mark); text-transform: uppercase; letter-spacing: .1em; font-size: .88em; border: 1px solid var(--ink); padding: 1px 5px 0; white-space: nowrap; }
+blockquote { margin: 14px 0; padding: 1px 0 1px 14px; border-left: 2px solid var(--ink); max-width: 74ch; }
+blockquote p:last-child { margin-bottom: 0; }
+blockquote cite { display: block; margin-top: 6px; color: var(--muted); font-style: normal; font-size: 13.5px; }
+
+/* fold away detail */
+details { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 0 0 14px; max-width: 80ch; }
+details:has(+ details) { margin-bottom: -1px; }
+summary { font-family: var(--mark); text-transform: uppercase; letter-spacing: .12em; font-size: 15px; padding: 10px 0; cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "+"; display: inline-block; width: 22px; }
+details[open] > summary::before { content: "\2212"; }
+details > :last-child:not(summary) { margin-bottom: 14px; }
+
+/* tables and wide things */
+caption { caption-side: top; text-align: left; font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 13.5px; color: var(--muted); padding: 0 0 8px; }
+td.num, th.num { text-align: right; }
+.wide { overflow-x: auto; }
+.wide > table { min-width: 720px; }
+.mock.wide > svg { min-width: 960px; }
+figure > .mock { margin: 0; }
+.legend { margin-bottom: 22px; }
+dl.w { grid-template-columns: 120px 1fr; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px 28px; margin: 30px 0 38px; }
+.grid > figure { margin: 0; }
+
+/* states: the only colored words on a page, and each one shows its word */
+.state { display: inline-block; font-family: var(--mark); font-weight: 400; text-transform: uppercase; font-size: 12.5px; letter-spacing: .16em; line-height: 18px; padding: 1px 7px 0; border: 1px solid currentColor; white-space: nowrap; vertical-align: 1px; }
+.state.ok { color: var(--ok); }
+.state.fault { color: var(--fault); }
+.state.caution { background: var(--caution); border-color: var(--caution); color: var(--ground); }
+.readout { font: 700 40px/1.1 var(--read); margin: 0 0 6px; max-width: none; }
+.readout small { font-size: 15px; font-weight: 400; margin-left: 8px; }
+/* a result that no longer matches the inputs on show waits, muted, for the next run */
+.readout.stale { color: var(--muted); }
+
+/* controls: at rest like .tag, under the pointer or pressed like .tag.take, disabled like .tag.skip */
+button, .btn, input, select, textarea { font: inherit; color: inherit; border-radius: 0; margin: 0; }
+button, .btn, input[type="submit"], input[type="button"], input[type="reset"] {
+  display: inline-block; font-family: var(--mark); font-weight: 400; text-transform: uppercase; letter-spacing: .14em;
+  font-size: 14px; line-height: 20px; padding: 9px 16px 8px; background: var(--ground); color: var(--ink);
+  border: 1px solid var(--ink); cursor: pointer; text-decoration: none; -webkit-appearance: none; appearance: none;
+}
+button:hover, .btn:hover, input[type="submit"]:hover, input[type="button"]:hover, input[type="reset"]:hover,
+button[aria-pressed="true"], .btn[aria-pressed="true"], .btn[aria-current] { background: var(--ink); color: var(--ground); }
+/* the Act line: one per page, on the one primary action, and never a filled yellow button */
+button.act, .btn.act { border-top: 2px solid var(--act); padding-top: 8px; }
+button:disabled, .btn[aria-disabled="true"] { border-color: var(--muted); color: var(--muted); background: var(--ground); cursor: default; }
+/* one of several: the frames share their edges, on one row or wrapped onto more */
+.seg { display: inline-flex; flex-wrap: wrap; padding: 0 1px 1px 0; }
+.seg > * { margin: 0 -1px -1px 0; }
+.seg > :focus-visible { position: relative; z-index: 1; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 18px 0; }
+
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="submit"], [type="button"], [type="reset"], [type="image"]), select, textarea {
+  display: block; width: 100%; background: var(--ground); color: var(--ink); border: 1px solid var(--muted);
+  padding: 8px 10px; font-size: 14.5px; line-height: 20px; -webkit-appearance: none; appearance: none;
+}
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="submit"], [type="button"], [type="reset"], [type="image"]):focus-visible,
+select:focus-visible, textarea:focus-visible { border-color: var(--ink); outline: 1px solid var(--ink); outline-offset: 0; }
+::placeholder { color: var(--muted); opacity: 1; }
+textarea { min-height: 96px; resize: vertical; }
+select { padding-right: 30px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0h10L5 6z' fill='%23E7E5DF'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+option { background: var(--ground); color: var(--ink); }
+input[type="checkbox"], input[type="radio"] {
+  -webkit-appearance: none; appearance: none; flex: none; width: 16px; height: 16px; margin: 0 10px 0 0; padding: 3px;
+  border: 1px solid var(--ink); background: var(--ground); background-clip: content-box; vertical-align: -3px; cursor: pointer;
+}
+input[type="checkbox"]:checked, input[type="radio"]:checked { background-color: var(--ink); }
+/* one of several is a square turned on its corner, so it is never mistaken for a checkbox */
+input[type="radio"] { width: 14px; height: 14px; margin: 0 12px 0 2px; transform: rotate(45deg); }
+input[type="file"]::file-selector-button { font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 13px; line-height: 18px; background: var(--ground); color: var(--ink); border: 1px solid var(--ink); border-radius: 0; padding: 6px 12px 5px; margin-right: 12px; cursor: pointer; }
+/* disabled: lettering goes muted, a field's frame drops to the rule color, and nothing answers the pointer */
+input:disabled, select:disabled, textarea:disabled { color: var(--muted); -webkit-text-fill-color: var(--muted); border-color: var(--rule); opacity: 1; cursor: default; }
+input:is([type="checkbox"], [type="radio"], [type="submit"], [type="button"], [type="reset"]):disabled { border-color: var(--muted); background-color: var(--ground); color: var(--muted); }
+input:is([type="checkbox"], [type="radio"]):disabled:checked { background-color: var(--muted); }
+input[type="file"]:disabled::file-selector-button { border-color: var(--muted); color: var(--muted); cursor: default; }
+select:disabled { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0h10L5 6z' fill='%239C9A93'/%3E%3C/svg%3E"); }
+
+.field { display: grid; gap: 6px; margin: 0 0 14px; align-content: start; }
+.field > label, legend { font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 12.5px; color: var(--muted); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 28px; }
+label.check { display: flex; align-items: flex-start; margin: 0 0 8px; cursor: pointer; }
+label.check > input { margin-top: 4px; }
+label.check:has(> input:disabled) { color: var(--muted); cursor: default; }
+fieldset { border: 1px solid var(--rule); padding: 14px 18px 16px; margin: 0 0 14px; min-width: 0; }
+legend { padding: 0 8px; }
+
+@media (max-width: 820px) {
+  pre { font-size: 12.5px; padding: 12px; }
+  .readout { font-size: 32px; }
+  .seg > * { padding-left: 12px; padding-right: 12px; }
+}
+/* a table wider than the phone says so, because a phone hides the scrollbar that would.
+   751 px is the widest window in which the 720 px table above cannot fit. */
+@media (max-width: 751px) {
+  .wide:has(> table)::before { content: "Scrolls sideways \2192"; display: block; position: sticky; left: 0; width: max-content; font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+}
+@media print {
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure, .rule, .principle, .ask, tr, li { break-inside: avoid; }
+}

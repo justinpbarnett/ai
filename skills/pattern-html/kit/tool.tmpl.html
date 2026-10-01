@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pattern 26 · Contrast check</title>
+<style>{{kit:style.css}}</style>
+<style>
+/* This page's own rules. Keep them few: a part that a second page needs belongs in the kit. */
+#sample { border: 1px solid var(--rule); padding: 14px 16px; margin: 18px 0; max-width: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Pattern 26 · HTML kit · Tool</div>
+  <h1>Contrast</h1>
+  <p class="sub">How well one color reads on another, by the WCAG formula. It opens on the page's own ink and ground.</p>
+  <p class="status">2026 10 01 · A working tool, and the starter for the next one.</p>
+</header>
+
+<h2><span class="n">01</span>The pair</h2>
+<form id="pair" novalidate>
+  <div class="fields">
+    <div class="field">
+      <label for="fg">Lettering</label>
+      <input id="fg" type="text" value="#E7E5DF" spellcheck="false" autocomplete="off" autocapitalize="characters">
+    </div>
+    <div class="field">
+      <label for="bg">Ground</label>
+      <input id="bg" type="text" value="#0B0C0E" spellcheck="false" autocomplete="off" autocapitalize="characters">
+    </div>
+    <div class="field">
+      <label for="use">Used for</label>
+      <select id="use">
+        <option value="read" data-bar="4.5" data-strict="7">Reading text</option>
+        <option value="large" data-bar="3" data-strict="4.5">Large text</option>
+        <option value="line" data-bar="3" data-strict="3">A line, or the edge of a control</option>
+      </select>
+    </div>
+  </div>
+  <label class="check"><input id="strict" type="checkbox">Hold lettering to the strictest level</label>
+  <div class="actions">
+    <div class="seg" role="group" aria-label="Lettering in one of the page's own colors">
+      <button type="button" data-token="ink">Ink</button>
+      <button type="button" data-token="muted">Muted</button>
+      <button type="button" data-token="act">Act</button>
+      <button type="button" data-token="ok">OK</button>
+      <button type="button" data-token="fault">Fault</button>
+    </div>
+  </div>
+  <div class="actions">
+    <button type="submit" class="act">Check</button>
+    <button type="reset">Reset</button>
+  </div>
+</form>
+
+<h2><span class="n">02</span>The result</h2>
+<p class="readout" id="ratio" aria-live="polite"></p>
+<p><span id="state" class="state ok">OK</span> <span id="verdict"></span></p>
+<p id="sample">Reading text in the chosen pair. <strong>Bold beside it.</strong> 0123456789</p>
+<p class="muted" style="font-size:14px">Large text is 24 px and up, or about 19 px and up in bold. A line needs 3 to 1 only when the reader depends on seeing it, as with the edge of a field. A line that only divides has no bar to clear.</p>
+
+<h2><span class="n">03</span>The page's own pairs</h2>
+<p>Worked out by this page as it loads, from the colors in its stylesheet.</p>
+<div class="wide">
+<table>
+  <thead>
+    <tr><th>Pair</th><th>Used for</th><th class="num" style="width:110px">Needs</th><th class="num" style="width:110px">Has</th><th style="width:150px">State</th></tr>
+  </thead>
+  <tbody id="own"></tbody>
+</table>
+</div>
+
+<ul class="sources" style="margin-top:38px">
+  <li><b>Formula</b><a href="https://www.w3.org/TR/WCAG22/#dfn-contrast-ratio">WCAG 2.2, contrast ratio</a> and <a href="https://www.w3.org/TR/WCAG22/#dfn-relative-luminance">relative luminance</a></li>
+  <li><b>Bars</b><a href="https://www.w3.org/TR/WCAG22/#contrast-minimum">4.5 and 3 to 1</a> · <a href="https://www.w3.org/TR/WCAG22/#contrast-enhanced">7 and 4.5 to 1</a> · <a href="https://www.w3.org/TR/WCAG22/#non-text-contrast">3 to 1 for a line</a></li>
+</ul>
+
+<footer>Pattern 26 · HTML kit · Contrast check</footer>
+
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var css = getComputedStyle(document.documentElement);
+  function token(name) { return css.getPropertyValue("--" + name).trim().toUpperCase(); }
+
+  // "#RGB" or "#RRGGBB", with or without the #. Returns [r, g, b], or null when it is not a color.
+  function parse(s) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s.trim());
+    if (!m) return null;
+    var h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+    return [0, 2, 4].map(function (i) { return parseInt(h.slice(i, i + 2), 16); });
+  }
+  function hex(rgb) {
+    return "#" + rgb.map(function (v) { return ("0" + v.toString(16)).slice(-2); }).join("").toUpperCase();
+  }
+  // relative luminance and contrast ratio, as WCAG 2.2 defines them
+  function light(rgb) {
+    var c = rgb.map(function (v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function ratio(a, b) {
+    var x = light(a), y = light(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+  // two decimals, and never rounded up onto a bar the pair does not clear
+  function show(r, bar) {
+    var s = r.toFixed(2);
+    return r < bar && parseFloat(s) >= bar ? (Math.floor(r * 100) / 100).toFixed(2) : s;
+  }
+  function plain(n) { return String(n).replace(/\.0+$/, ""); }
+
+  // the state of a pair against its bar: [class, word, sentence]
+  function judge(r, use, bar, usual) {
+    var what = { read: "reading text", large: "large text", line: "a line" }[use];
+    if (r >= bar) return ["ok", "OK", "Clears the " + plain(bar) + " to 1 that " + what + " needs."];
+    if (r >= usual) return ["caution", "Caution", "Clears the usual " + plain(usual) + " to 1, and falls short of the strictest, " + plain(bar) + " to 1."];
+    if (r >= 3) return ["caution", "Caution", "Too weak for " + what + ". Enough for large text or a line, which need 3 to 1."];
+    return ["fault", "Fault", "Below 3 to 1, which is too weak for lettering and for any line a reader depends on."];
+  }
+  function chip(el, state) {
+    el.className = "state " + state[0];
+    el.textContent = state[1];
+    el.hidden = false;
+  }
+
+  function check() {
+    var fg = parse($("fg").value), bg = parse($("bg").value);
+    $("ratio").className = "readout";
+    if (!fg || !bg) {
+      $("ratio").textContent = "No reading";
+      chip($("state"), ["fault", "Fault"]);
+      $("verdict").textContent = (fg ? "The ground" : "The lettering") + " is not a color this reads. Write it as six digits after a #, as in #E7E5DF.";
+      $("sample").hidden = true;      // no reading, so no pair to show
+      return;
+    }
+    $("fg").value = hex(fg);
+    $("bg").value = hex(bg);
+    var opt = $("use").selectedOptions[0], usual = parseFloat(opt.dataset.bar);
+    var bar = $("strict").checked ? parseFloat(opt.dataset.strict) : usual;
+    var r = ratio(fg, bg), state = judge(r, opt.value, bar, usual);
+    $("ratio").textContent = show(r, bar);
+    $("ratio").appendChild(document.createElement("small")).textContent = "to 1";
+    chip($("state"), state);
+    $("verdict").textContent = state[2];
+    $("sample").hidden = false;
+    $("sample").style.color = hex(fg);
+    $("sample").style.background = hex(bg);
+    presets();
+  }
+  // a preset is pressed while the lettering field holds its color
+  function presets() {
+    var now = parse($("fg").value);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-token]"), function (b) {
+      b.setAttribute("aria-pressed", String(!!now && hex(now) === token(b.dataset.token)));
+    });
+  }
+  // once a field changes, the result on show is no longer about what the fields say
+  function stale() {
+    $("ratio").className = "readout stale";
+    $("state").hidden = true;
+    $("verdict").textContent = "The pair changed. Check it again.";
+    presets();
+  }
+
+  function own() {
+    var g = token("ground"), rows = [
+      ["Ink on ground", "Reading text", token("ink"), g, 4.5],
+      ["Muted on ground", "The second voice", token("muted"), g, 4.5],
+      ["Ground on ink", "A pressed button, a filled tag", g, token("ink"), 4.5],
+      ["Act on ground", "The one line", token("act"), g, 3],
+      ["OK on ground", "The word OK", token("ok"), g, 4.5],
+      ["Ground on caution", "The word CAUTION", g, token("caution"), 4.5],
+      ["Fault on ground", "The word FAULT", token("fault"), g, 4.5],
+      ["Muted on ground", "The edge of a field", token("muted"), g, 3],
+      ["Rule on ground", "Lines that only divide", token("rule"), g, 0]
+    ];
+    rows.forEach(function (row) {
+      var r = ratio(parse(row[2]), parse(row[3])), bar = row[4], tr = $("own").insertRow();
+      tr.insertCell().textContent = row[0];
+      tr.insertCell().textContent = row[1];
+      var needs = tr.insertCell(), has = tr.insertCell(), state = tr.insertCell();
+      needs.className = has.className = "num";
+      needs.textContent = bar ? plain(bar) + " to 1" : "No bar";
+      has.textContent = show(r, bar) + " to 1";
+      if (!bar) { state.textContent = "Lines only"; state.className = "muted"; return; }
+      var s = r >= bar ? ["ok", "OK"] : r >= 3 ? ["caution", "Caution"] : ["fault", "Fault"];
+      chip(state.appendChild(document.createElement("span")), s);
+    });
+  }
+
+  $("pair").addEventListener("submit", function (e) { e.preventDefault(); check(); });
+  $("pair").addEventListener("reset", function () { setTimeout(check, 0); });
+  $("pair").addEventListener("input", stale);
+  $("pair").addEventListener("change", stale);
+  Array.prototype.forEach.call(document.querySelectorAll("[data-token]"), function (b) {
+    b.addEventListener("click", function () { $("fg").value = token(b.dataset.token); check(); });
+  });
+  own();
+  check();
+})();
+</script>
+</body>
+</html>

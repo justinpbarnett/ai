@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pattern 26 · HTML specimen</title>
+<style>{{kit:style.css}}</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Pattern 26 · HTML kit</div>
+  <h1>Specimen</h1>
+  <p class="sub">Every part the kit can put on a page, shown once, with the markup that makes it in this page's own template.</p>
+  <p class="status">2026 10 01 · Built by build.py from specimen.tmpl.html.</p>
+</header>
+
+<p><span class="tag take">Approved</span>A part taken as it stands from reference board 01, the page approved on 2026 10 01.</p>
+<p><span class="tag call">New</span>A part that page never needed, made for the kit in the same look. It stands until someone names it wrong.</p>
+
+<h2><span class="n">01</span>The rules</h2>
+<ul class="plain">
+  <li><strong>Two faces, split by job.</strong> Routed Gothic in capitals for marks and titles. JetBrains Mono in mixed case for anything read at length or updated live.</li>
+  <li><strong>Ink on one ground.</strong> Ink for everything read, muted for the second voice, and the rule color for lines only.</li>
+  <li><strong>One yellow line.</strong> Act marks the one thing the page asks for. A page that asks nothing has no yellow.</li>
+  <li><strong>States show their word.</strong> Green, yellow, and red appear only on a real state, each written out as OK, CAUTION, or FAULT.</li>
+  <li><strong>Square and flat.</strong> Square corners and 1 px rules. No shadow, no gradient, no rounded corner.</li>
+  <li><strong>One file.</strong> Fonts, images, and drawings travel inside the page, so it opens anywhere and looks the same.</li>
+</ul>
+
+<h2><span class="n">02</span>Type</h2>
+<p><span class="tag take">Approved</span>The page title, this section heading, and the two samples below. A title is one to three words, and the sentence that explains it goes under it.</p>
+<h3>Heading three · a card or a part of a section</h3>
+<p>Reading text is JetBrains Mono at 15 px on a 1.65 line, held to about 76 characters a line. It carries <strong>bold for the one phrase that matters</strong> and <a href="#sources">a link</a> underlined in the muted color. <span class="muted">Muted is the second voice: credits, dates, and asides.</span></p>
+
+<p><span class="tag call">New</span>A fourth heading, and the small parts of a sentence.</p>
+<h4>Heading four · a label inside a part</h4>
+<p>Reading text also carries <em>italics for a title or a term</em>, <strong><em>both at once</em></strong>, <mark>a marked phrase</mark>, <small>small print</small>, an abbreviation such as <abbr title="Web Content Accessibility Guidelines">WCAG</abbr>, a key such as <kbd>Ctrl</kbd> <kbd>S</kbd>, and <code>inline code</code>.</p>
+
+<h3>What each face can draw</h3>
+<h4>ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789</h4>
+<h4>· × − + ± ° → ← ↑ ↓ ′ ″ Ø ⌀ § # &amp; / ( ) % ?</h4>
+<p>Routed Gothic, above, has no ellipsis, no Greek, and none of ≤ ≥ ≈ ✓. A title or a drawing label spells those out. JetBrains Mono has them all:</p>
+<p>abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789<br>· × − + ± ° → ← ↑ ↓ ′ ″ µ Ω ≤ ≥ ≈ ≠ ✓ ✗ … § # &amp; / ( ) % ?</p>
+
+<div class="wide">
+<table>
+  <caption>Sizes</caption>
+  <tr><th style="width:150px">Part</th><th style="width:150px">Face</th><th class="num" style="width:110px">Desktop</th><th class="num" style="width:110px">Phone</th><th>Job</th></tr>
+  <tr><td><code>h1</code></td><td>Routed Gothic</td><td class="num">76 px</td><td class="num">46 px</td><td>The page's name</td></tr>
+  <tr><td><code>h2</code></td><td>Routed Gothic</td><td class="num">30 px</td><td class="num">24 px</td><td>A numbered section</td></tr>
+  <tr><td><code>h3</code></td><td>Routed Gothic</td><td class="num">21 px</td><td class="num">21 px</td><td>A card, or a part of a section</td></tr>
+  <tr><td><code>h4</code></td><td>Routed Gothic</td><td class="num">16 px</td><td class="num">16 px</td><td>A label inside a part</td></tr>
+  <tr><td><code>.kicker</code></td><td>Routed Gothic</td><td class="num">15 px</td><td class="num">15 px</td><td>Whose page and what kind</td></tr>
+  <tr><td><code>.sub</code></td><td>JetBrains Mono</td><td class="num">17 px</td><td class="num">17 px</td><td>The sentence under the title</td></tr>
+  <tr><td><code>p</code></td><td>JetBrains Mono</td><td class="num">15 px</td><td class="num">14.5 px</td><td>Reading text</td></tr>
+  <tr><td>Notes, tables</td><td>JetBrains Mono</td><td class="num">14 px</td><td class="num">14 px</td><td>Dense facts</td></tr>
+  <tr><td><code>.status</code></td><td>JetBrains Mono</td><td class="num">13.5 px</td><td class="num">13.5 px</td><td>The date and where the page stands</td></tr>
+</table>
+</div>
+
+<h2><span class="n">03</span>Color and states</h2>
+<p><span class="tag take">Approved</span>Ground, ink, muted, rule, and Act. <span class="tag call">New</span>The three state words.</p>
+<div class="wide">
+<table>
+  <tr><th style="width:110px">Name</th><th style="width:110px">Value</th><th>Job</th><th class="num" style="width:130px">On ground</th><th style="width:230px">Shown</th></tr>
+  <tr><td>Ground</td><td>#0B0C0E</td><td>The page itself</td><td class="num"></td><td>Behind everything</td></tr>
+  <tr><td>Ink</td><td>#E7E5DF</td><td>Everything read</td><td class="num">15.5 to 1</td><td>This text</td></tr>
+  <tr><td>Muted</td><td>#9C9A93</td><td>The second voice: kickers, credits, table heads</td><td class="num">6.95 to 1</td><td><span class="muted">This text</span></td></tr>
+  <tr><td>Rule</td><td>#2B2C31</td><td>Lines only. Too faint to carry a word</td><td class="num">1.4 to 1</td><td>The lines of this table</td></tr>
+  <tr><td>Act</td><td>#FFD60A</td><td>One 2 px line on the one thing to do</td><td class="num">13.9 to 1</td><td>The line at the foot of this page</td></tr>
+  <tr><td>OK</td><td>#22C55E</td><td>A state that is fine</td><td class="num">8.6 to 1</td><td><span class="state ok">OK</span></td></tr>
+  <tr><td>Caution</td><td>#FFD60A</td><td>A state that needs a look. A filled field with black letters</td><td class="num">13.9 to 1</td><td><span class="state caution">Caution</span></td></tr>
+  <tr><td>Fault</td><td>#E5484D</td><td>A state that is broken</td><td class="num">5.0 to 1</td><td><span class="state fault">Fault</span></td></tr>
+</table>
+</div>
+<p><span class="tag call">New</span>A readout: one number that matters, with its unit, and its state beside the sentence that explains it.</p>
+<p class="readout">15.5<small>to 1</small></p>
+<p><span class="state ok">OK</span> Ink on ground. Reading text is held to 4.5 to 1, and to 7 to 1 at the strictest level.</p>
+
+<h2><span class="n">04</span>Lists</h2>
+<p><span class="tag take">Approved</span>The ruled list, <code>ul.plain</code>. Section 01 is one. It suits the short version of anything.</p>
+<p><span class="tag call">New</span>A list with no class is a light one, for a few items inside running text.</p>
+<ul>
+  <li>A square bullet, no rules, the same measure as a paragraph.</li>
+  <li>A second level sits inside the first:
+    <ul>
+      <li>One step in, the same bullet.</li>
+    </ul>
+  </li>
+</ul>
+<ol>
+  <li>A numbered list with no class counts in plain numerals.</li>
+  <li>It suits an order that matters only a little.</li>
+</ol>
+<p><span class="tag call">New</span>Steps, <code>ol.steps</code>, for an order that matters. This one is how a page gets built.</p>
+<ol class="steps">
+  <li><strong>Copy the starter.</strong> <code>page.tmpl.html</code> for a page to read, <code>tool.tmpl.html</code> for one to use. Put it beside its images.</li>
+  <li><strong>Write it with the parts on this sheet.</strong> The markup for each one is in <code>specimen.tmpl.html</code>.</li>
+  <li><strong>Build it.</strong> <code>build.py</code> fills every slot and writes one file.</li>
+  <li><strong>Check it.</strong> <code>check.py</code> opens the page at desktop and phone width, tests it against the rules, and photographs it in slices to read.</li>
+</ol>
+
+<h2><span class="n">05</span>Tables and data</h2>
+<p><span class="tag take">Approved</span>The table: left aligned, ruled under each row, heads in muted capitals. <span class="tag call">New</span>A caption, a column of numbers set to the right, and <code>.wide</code>: on a phone the table scrolls sideways, says so above itself, and the page stays still.</p>
+<div class="wide">
+<table>
+  <caption>The fonts inside every built page</caption>
+  <tr><th>File</th><th>Job</th><th class="num">Bytes</th></tr>
+  <tr><td><code>routed-gothic.woff2</code></td><td>Marks and titles</td><td class="num">19,976</td></tr>
+  <tr><td><code>jbm-Regular.woff2</code></td><td>Reading text</td><td class="num">24,756</td></tr>
+  <tr><td><code>jbm-Bold.woff2</code></td><td>Bold</td><td class="num">25,232</td></tr>
+  <tr><td><code>jbm-Italic.woff2</code></td><td>Italic</td><td class="num">26,412</td></tr>
+  <tr><td><code>jbm-BoldItalic.woff2</code></td><td>Bold italic</td><td class="num">26,804</td></tr>
+  <tr><td><strong>All five</strong></td><td>About 164 KB once written into the page as text</td><td class="num"><strong>123,180</strong></td></tr>
+</table>
+</div>
+<p><span class="tag take">Approved</span>Terms and their meanings, <code>dl</code>, as the cards in section 09 use it. <span class="tag call">New</span><code>dl.w</code> gives the terms a wider column.</p>
+<dl class="w">
+  <dt>A whole page</dt><dd><code>build.py TEMPLATE OUT</code></dd>
+  <dt>An Artifact</dt><dd><code>build.py --artifact TEMPLATE OUT</code> leaves off the document skeleton, which the Artifact tool adds itself.</dd>
+  <dt>Stylesheet</dt><dd><code>build.py --css OUT</code> for an app that serves its own CSS.</dd>
+  <dt>One drawing</dt><dd><code>build.py --draw DRAWING.py OUT</code> to look at a drawing while drawing it.</dd>
+</dl>
+
+<h2><span class="n">06</span>Code and quotes</h2>
+<p><span class="tag call">New</span>A block of code scrolls sideways inside its own frame. This one is the markup of a pinned figure.</p>
+<pre><code>&lt;figure&gt;
+  &lt;div class="img"&gt;
+    &lt;img src="&#123;{img:fig/photo.jpg}}" alt="What the photograph shows"&gt;
+    &lt;span class="pin" style="left:20%;top:30%"&gt;1&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;figcaption&gt;
+    &lt;p class="figno"&gt;Fig 01 · Subject · Photo: who took it&lt;/p&gt;
+    &lt;ol class="notes"&gt;
+      &lt;li&gt;&lt;span class="tag take"&gt;Take&lt;/span&gt;&lt;span&gt;What pin 1 points at, and why it matters.&lt;/span&gt;&lt;/li&gt;
+    &lt;/ol&gt;
+  &lt;/figcaption&gt;
+&lt;/figure&gt;</code></pre>
+<p><span class="tag call">New</span>A quotation, with where it comes from.</p>
+<blockquote>
+  <p>Type splits by job: Routed Gothic in capitals for marks and titles, and JetBrains Mono in mixed case for anything read at length or updated live.</p>
+  <cite>decisions.md · 2026 09 24</cite>
+</blockquote>
+<p><span class="tag take">Approved</span>Words copied from a drawing or a sheet, set in capitals as they were lettered: <code>.sheet</code>. These are lettered on the first drawing in section 08.</p>
+<p class="sheet">Test box · 260 × 140 × 120 mm<br>Drawn to show the style, not a product</p>
+<p><span class="tag call">New</span>Detail that most readers can skip folds away.</p>
+<details>
+  <summary>What fails the check</summary>
+  <ul>
+    <li>The page scrolls sideways.</li>
+    <li>A rounded corner, a shadow, or a gradient.</li>
+    <li>Lettering in any face but the two.</li>
+    <li>More than one Act line.</li>
+    <li>A state that does not show its word.</li>
+    <li>An image that did not load, or a slot that was never filled.</li>
+  </ul>
+</details>
+<details>
+  <summary>What it warns about</summary>
+  <ul>
+    <li>A color that is not one of the page's own.</li>
+    <li>Yellow anywhere but the Act line and a caution, or a state color off a state.</li>
+    <li>A character the face cannot draw, which a browser would borrow from some other font.</li>
+    <li>A dash between words.</li>
+    <li>Anything the page fetches from outside its own file.</li>
+    <li>An image with no alt text, a page with no title, or a page over 16 MB.</li>
+  </ul>
+</details>
+
+<h2><span class="n">07</span>Figures</h2>
+<p><span class="tag take">Approved</span>An image in a 1 px frame, numbered pins on the things worth seeing, a credit line, and one note for each pin in the same order. Each note opens with one of four tags.</p>
+<figure>
+  <div class="img">
+    <img src="{{img:specimen/card.svg}}" alt="Test card: three vertical bands, light grey, mid grey, and black, under a grid, with four crosshair targets">
+    <span class="pin" style="left:20%;top:30%">1</span>
+    <span class="pin" style="left:50%;top:60%">2</span>
+    <span class="pin" style="left:80%;top:30%">3</span>
+    <span class="pin" style="left:70%;top:80%">4</span>
+  </div>
+  <figcaption>
+    <p class="figno">Fig 01 · Test card · Drawn for this page</p>
+    <ol class="notes">
+      <li><span class="tag take">Take</span><span><strong>Adopt it.</strong> Something in the image that goes into the work. A pin sits on a point given as a percentage of the image, so it stays put at any width.</span></li>
+      <li><span class="tag">Have</span><span><strong>Already ours.</strong> The image confirms something the language already holds.</span></li>
+      <li><span class="tag skip">Skip</span><span><strong>Left out.</strong> Seen, considered, and not taken. The note says why.</span></li>
+      <li><span class="tag call">Call</span><span><strong>A decision to make.</strong> It waits for Justin's word.</span></li>
+    </ol>
+  </figcaption>
+</figure>
+<p><span class="tag take">Approved</span>Two figures side by side, <code>.pair</code>, for a comparison. On a phone they stack.</p>
+<div class="pair">
+  <figure>
+    <div class="img">
+      <img src="{{img:specimen/card.svg}}" alt="The same test card">
+      <span class="pin" style="left:20%;top:30%">1</span>
+    </div>
+    <figcaption>
+      <p class="figno">Fig 02 · Test card · Left of a pair</p>
+      <ol class="notes">
+        <li><span class="tag">Have</span><span>Pins start again at 1 in every figure.</span></li>
+      </ol>
+    </figcaption>
+  </figure>
+  <figure>
+    <div class="img">
+      <img src="{{img:specimen/card.svg}}" alt="The same test card">
+      <span class="pin" style="left:80%;top:30%">1</span>
+    </div>
+    <figcaption>
+      <p class="figno">Fig 03 · Test card · Right of a pair</p>
+      <ol class="notes">
+        <li><span class="tag">Have</span><span>Figure numbers run on through the whole page.</span></li>
+      </ol>
+    </figcaption>
+  </figure>
+</div>
+<p><span class="tag call">New</span>Many images at once, <code>.grid</code>: as many columns as fit, each image with its credit line and no notes.</p>
+<div class="grid">
+  <figure>
+    <div class="img"><img src="{{img:specimen/card.svg}}" alt="The same test card"></div>
+    <figcaption><p class="figno">Fig 04 · Test card</p></figcaption>
+  </figure>
+  <figure>
+    <div class="img"><img src="{{img:specimen/card.svg}}" alt="The same test card"></div>
+    <figcaption><p class="figno">Fig 05 · Test card</p></figcaption>
+  </figure>
+  <figure>
+    <div class="img"><img src="{{img:specimen/card.svg}}" alt="The same test card"></div>
+    <figcaption><p class="figno">Fig 06 · Test card</p></figcaption>
+  </figure>
+  <figure>
+    <div class="img"><img src="{{img:specimen/card.svg}}" alt="The same test card"></div>
+    <figcaption><p class="figno">Fig 07 · Test card</p></figcaption>
+  </figure>
+</div>
+
+<h2><span class="n">08</span>Drawings</h2>
+<p><span class="tag take">Approved</span>The drawing style: black parts with a lighter edge, on the grey of a wall, lettered in white capitals. Numbered tags point at parts, and a legend under the drawing names them. The style is the board's. The test box is new, and every value on it is one the language has already decided.</p>
+<div class="mock wide">{{draw:specimen/front.py}}</div>
+<ul class="legend">
+  <li><span>1</span><div><b>Frame</b>Satin black, the darkest step of the ladder. Its edges are cut 2 mm at 45 degrees.</div></li>
+  <li><span>2</span><div><b>Smoke</b>A dark grey frosted sheet. The board behind it reads as soft shapes.</div></li>
+  <li><span>3</span><div><b>Screw</b>A black oxide M3 cap screw on a black nylon washer, 9 mm in from the sheet's edge.</div></li>
+  <li><span>4</span><div><b>Panel</b>Off black and matte, a step lighter than the frame.</div></li>
+  <li><span>5</span><div><b>Light</b>Green, with its word lettered above it.</div></li>
+</ul>
+<p><span class="tag take">Approved</span>A section: cut faces are hatched, each part gets a name and a line of detail in one column, and a dimension is a number between two ticks.</p>
+<div class="mock wide">{{draw:specimen/section.py}}</div>
+<p><span class="tag call">New</span>A diagram of an idea, not of a thing, takes no ground and no tones: ink lines on the page. This one is how the kit builds a page.</p>
+<div class="mock wide">{{draw:specimen/flow.py}}</div>
+<p><span class="tag call">New</span>A chart follows the same rule: ink lines on the page, told apart by weight, by dashes, and by a name at the end of each line, never by color. A bar is a frame, and the one the chart is about is filled. A level to clear is a dashed line with its name on it. Figures that have to be read exactly are set in the reading face. Both charts are worked out from this page's own colors.</p>
+<div class="mock wide">{{draw:specimen/chart.py}}</div>
+<p class="muted" style="font-size:14px">A drawing with lettering takes <code>class="mock wide"</code>, so a phone scrolls it sideways at a size that can be read.</p>
+
+<h2><span class="n">09</span>Cards</h2>
+<p><span class="tag take">Approved</span>One principle in a frame of its own, then the rules that follow from it, two across. Each has a title, a lead sentence, and short named facts.</p>
+<div class="principle">
+  <h3>One look</h3>
+  <p class="lead">Every HTML page made for Justin takes this look, whatever the page is for.</p>
+  <dl>
+    <dt>Means</dt><dd>A report, a reference board, a dashboard, a gallery, a tool: the same two faces, the same colors, the same square parts.</dd>
+    <dt>Why</dt><dd>He approved it once, on reference board 01, and asked for it as the default from then on. A page that should look different has to be asked for.</dd>
+    <dt>Limit</dt><dd>Work made under another business's name keeps that business's brand.</dd>
+  </dl>
+</div>
+<div class="rules">
+  <div class="rule">
+    <h3>Two faces</h3>
+    <p class="lead">Routed Gothic in capitals for marks and titles. JetBrains Mono in mixed case for anything read at length or updated live.</p>
+    <dl>
+      <dt>Value</dt><dd>Routed Gothic in its one weight. JetBrains Mono in regular and bold, each with its italic.</dd>
+      <dt>When</dt><dd>A title, a label, a tag, a table head, or a button is a mark. A sentence, a number that changes, or code is read.</dd>
+      <dt>Limit</dt><dd>No third face, on a page or in a drawing.</dd>
+    </dl>
+  </div>
+  <div class="rule">
+    <h3>One Act</h3>
+    <p class="lead">The brand yellow, as one thin line on the one thing the page asks for.</p>
+    <dl>
+      <dt>Value</dt><dd>#FFD60A, 2 px, along the top edge of the ask or of the primary button.</dd>
+      <dt>When</dt><dd>Once on a page, and only when the page asks for something.</dd>
+      <dt>Limit</dt><dd>Never a filled button, a heading, a highlight, or a line in a chart.</dd>
+    </dl>
+  </div>
+  <div class="rule">
+    <h3>States</h3>
+    <p class="lead">Green, yellow, and red report a real state and nothing else, and each shows its word.</p>
+    <dl>
+      <dt>Value</dt><dd>OK in #22C55E. CAUTION as a filled #FFD60A field with black letters. FAULT in #E5484D.</dd>
+      <dt>When</dt><dd>A check that passed or failed, a machine that is up or down, a value inside or outside its limit.</dd>
+      <dt>Limit</dt><dd>Never to rank, to decorate, or to tell the lines of a chart apart.</dd>
+    </dl>
+  </div>
+  <div class="rule">
+    <h3>Square</h3>
+    <p class="lead">Square corners and 1 px rules. A part stands out by its frame, never by a shadow.</p>
+    <dl>
+      <dt>Value</dt><dd>Lines 1 px in #2B2C31. A frame in ink where a part has to stand out, as a tag or a button does.</dd>
+      <dt>When</dt><dd>Every part of every page.</dd>
+      <dt>Limit</dt><dd>No rounded corner, no shadow, no gradient, no blur.</dd>
+    </dl>
+  </div>
+</div>
+
+<h2><span class="n">10</span>Controls</h2>
+<p><span class="tag call">New</span>All of it. A control at rest is drawn like a tag: ink letters in an ink frame. Under the pointer, or pressed, it fills with ink. Disabled, it goes muted. These samples do nothing. The tool page is a working one, and it carries the yellow line on its primary button, which this page leaves to the ask below.</p>
+<h3>Buttons</h3>
+<div class="actions">
+  <button type="button">At rest</button>
+  <button type="button" aria-pressed="true">Pressed</button>
+  <button type="button" disabled>Disabled</button>
+  <a class="btn" href="#sources">A link as a button</a>
+</div>
+<h3>One of several</h3>
+<div class="actions">
+  <div class="seg" role="group" aria-label="Width">
+    <button type="button" aria-pressed="true">Desktop</button>
+    <button type="button" aria-pressed="false">Phone</button>
+    <button type="button" aria-pressed="false">Both</button>
+  </div>
+</div>
+<h3>Fields</h3>
+<div class="fields">
+  <div class="field">
+    <label for="s-name">Template</label>
+    <input id="s-name" type="text" value="page.tmpl.html">
+  </div>
+  <div class="field">
+    <label for="s-kind">Output</label>
+    <select id="s-kind">
+      <option>A whole page</option>
+      <option>An Artifact body</option>
+      <option>The stylesheet only</option>
+      <option>One drawing</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="s-empty">Empty, with a hint</label>
+    <input id="s-empty" type="text" placeholder="Where the built page goes">
+  </div>
+  <div class="field">
+    <label for="s-off">Disabled</label>
+    <input id="s-off" type="text" value="Not for changing" disabled>
+  </div>
+</div>
+<div class="field">
+  <label for="s-note">A longer answer</label>
+  <textarea id="s-note">Text that runs to several lines goes in a box that can be dragged taller.</textarea>
+</div>
+<div class="fields">
+  <fieldset>
+    <legend>Any of these</legend>
+    <label class="check"><input type="checkbox" checked>Photograph the page at both widths</label>
+    <label class="check"><input type="checkbox">Open the page when it is built</label>
+    <label class="check"><input type="checkbox" checked disabled>A choice that is locked on</label>
+  </fieldset>
+  <fieldset>
+    <legend>One of these</legend>
+    <label class="check"><input type="radio" name="s-width" checked>Desktop, 1280 wide</label>
+    <label class="check"><input type="radio" name="s-width">Phone, 390 wide</label>
+    <label class="check"><input type="radio" name="s-width" disabled>A choice that is locked off</label>
+  </fieldset>
+</div>
+<div class="field">
+  <label for="s-file">A file</label>
+  <input id="s-file" type="file">
+</div>
+
+<h2 id="sources"><span class="n">11</span>Sources</h2>
+<p><span class="tag take">Approved</span>Where the facts on a page come from, grouped under short capitals.</p>
+<ul class="sources">
+  <li><b>Faces</b><a href="https://github.com/dse/routed-gothic">Routed Gothic</a> by Darren Embry · <a href="https://github.com/JetBrains/JetBrainsMono">JetBrains Mono</a> · both under the SIL Open Font License 1.1</li>
+  <li><b>Rules</b>~/dev/design/decisions.md, the lines on screens, type, and marks · ~/dev/design/CONTEXT.md for the terms</li>
+  <li><b>Contrast</b><a href="https://www.w3.org/TR/WCAG22/#dfn-contrast-ratio">WCAG 2.2, contrast ratio</a> · <a href="https://www.w3.org/TR/WCAG22/#contrast-minimum">4.5 to 1</a> · <a href="https://www.w3.org/TR/WCAG22/#contrast-enhanced">7 to 1</a></li>
+  <li><b>Page</b>~/dev/design/refs/rugged/board.html, reference board 01, approved 2026 10 01</li>
+</ul>
+
+<div class="ask">
+  <p><strong>Name anything on this page that looks wrong</strong> and it gets fixed in the kit, so every later page inherits the fix.</p>
+</div>
+
+<footer>Pattern 26 · HTML kit · Specimen</footer>
+
+</div>
+</body>
+</html>

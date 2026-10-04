@@ -8,6 +8,8 @@
     "commit": "",
     "pr": ""
   },
+  "model": "opus",
+  "enableWorkflows": true,
   "enabledPlugins": {
     "local-engineering@passion-tech": true,
     "general@passion-tech": true,
@@ -27,6 +29,11 @@
     }
   },
   "effortLevel": "xhigh",
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "high"
+    }
+  },
   "autoCompactWindow": 200000,
   "hooks": {
     "PreCompact": [
@@ -43,10 +50,5 @@
   },
   "skipDangerousModePermissionPrompt": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true,
-  "modelSettings": {
-    "claude-opus-5": {
-      "effortLevel": "high"
-    }
-  }
+  "voiceEnabled": true
 }

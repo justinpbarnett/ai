@@ -17,3 +17,6 @@ skills/omarchy
 
 # Claude account skills synced per machine (Anthropic-licensed, not ours to publish).
 skills/synced/
+
+# Stray lockfile from npm runs; this repo has no package.json
+package-lock.json

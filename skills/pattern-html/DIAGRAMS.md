@@ -67,7 +67,7 @@ Lettering never wraps, so count it before placing it. Capitals run about 0.72 of
 <div class="mock wide">{{draw:PATH}}</div>
 ```
 
-- `mock wide` holds the drawing at 960 px or more and lets a phone scroll it sideways. Every drawing with lettering takes it. A drawing with no lettering takes `class="mock"` and shrinks with the page.
+- `mock wide` holds the drawing at 960 px or more and lets a phone scroll it sideways, with a line inside the frame that says so. Every drawing with lettering takes it. A drawing with no lettering takes `class="mock"` and shrinks with the page.
 - `{{draw:PATH#ARG}}` runs the script with `ARG` as its first argument, so one script can draw several views.
 - A legend goes straight after the drawing:
 

@@ -259,6 +259,11 @@ legend { padding: 0 8px; }
 @media (max-width: 751px) {
   .wide:has(> table)::before { content: "Scrolls sideways \2192"; display: block; position: sticky; left: 0; width: max-content; font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 12.5px; line-height: 18px; color: var(--muted); }
 }
+/* a lettered drawing says so too, inside its frame. 1009 px is the widest window in which
+   the 960 px drawing and its 1 px frame cannot fit between the 24 px gutters. */
+@media (max-width: 1009px) {
+  .mock.wide::before { content: "Scrolls sideways \2192"; display: block; position: sticky; left: 0; width: max-content; padding: 10px 12px 0; font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+}
 @media print {
   html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   figure, .rule, .principle, .ask, tr, li { break-inside: avoid; }

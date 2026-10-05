@@ -11,3 +11,6 @@ plugins/
 
 # Local skill-sync state (written per-machine by the sync tool)
 skills/.sync-manifest.json
+
+# Machine-local skill; keep the repo copy out of version control.
+skills/omarchy

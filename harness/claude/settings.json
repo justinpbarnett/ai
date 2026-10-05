@@ -9,6 +9,19 @@
     "pr": ""
   },
   "model": "opus",
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s\\n' 'Keep this summary under 4,000 words. Cover the current task, decisions made, open questions, and key file paths with one-line notes. Condense any earlier compaction summary to its still-relevant points instead of carrying it forward verbatim. Do not include file contents, long code blocks, or tool output; reference file paths instead.'"
+          }
+        ]
+      }
+    ]
+  },
   "enableWorkflows": true,
   "enabledPlugins": {
     "local-engineering@passion-tech": true,
@@ -32,22 +45,12 @@
   "modelSettings": {
     "claude-opus-5": {
       "effortLevel": "high"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
     }
   },
   "autoCompactWindow": 200000,
-  "hooks": {
-    "PreCompact": [
-      {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s\\n' 'Keep this summary under 4,000 words. Cover the current task, decisions made, open questions, and key file paths with one-line notes. Condense any earlier compaction summary to its still-relevant points instead of carrying it forward verbatim. Do not include file contents, long code blocks, or tool output; reference file paths instead.'"
-          }
-        ]
-      }
-    ]
-  },
   "skipDangerousModePermissionPrompt": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": true

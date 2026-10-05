@@ -14,3 +14,6 @@ skills/.sync-manifest.json
 
 # Machine-local skill; keep the repo copy out of version control.
 skills/omarchy
+
+# Claude account skills synced per machine (Anthropic-licensed, not ours to publish).
+skills/synced/

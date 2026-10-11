@@ -17,6 +17,8 @@ skills/omarchy
 
 # Claude account skills synced per machine (Anthropic-licensed, not ours to publish).
 skills/synced/
+# Synced skills Claude Code retires land here until cleanup; same license as above.
+skills/.trash/
 
 # Stray lockfile from npm runs; this repo has no package.json
 package-lock.json

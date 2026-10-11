@@ -51,6 +51,7 @@
     }
   },
   "autoCompactWindow": 200000,
+  "cleanupPeriodDays": 365,
   "skipDangerousModePermissionPrompt": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": true

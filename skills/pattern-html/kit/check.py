@@ -127,6 +127,10 @@ class Browser:
     def open(self, url, width, height, phone):
         self.call("Emulation.setDeviceMetricsOverride",
                   {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": phone}, tab=True)
+        self.go("about:blank")      # a page reopened at the same address with a #fragment never fires load
+        self.go(url)
+
+    def go(self, url):
         self.events.clear()
         got = self.call("Page.navigate", {"url": url}, tab=True)
         if got.get("errorText"):

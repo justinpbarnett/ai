@@ -13,7 +13,7 @@ Every HTML page made for Justin takes one look: the page he approved on 2026 10 
 
 The kit dresses everything made for Justin or under his own name: a report, a reference board, a dashboard, a gallery, a tool, an Artifact, and any template or script that writes such pages. It takes the place of the page style that another skill, a template, or habit would supply: that skill gives the page its content and its structure, and the kit gives it its look. A look that Justin asks for in the request comes first. Three cases keep their own look:
 
-- **Another business's name.** Work made under another business's name carries that business's brand.
+- **Another organization's work.** A page about an employer's or a client's work, or one its people may read, carries that organization's brand, even when the request is his and he reads it first. Take the colors and faces from the organization's own site, and ask when its brand is unclear.
 - **An app or site with a look of its own.** It keeps that look until Justin asks for the restyle.
 - **HTML email.** Mail clients drop embedded fonts and most style blocks, so an email carries the token colors as inline styles and lets the faces fall back. Say so at the handover.
 

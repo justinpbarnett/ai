@@ -103,4 +103,4 @@ Links to where the images and facts came from go in one `ul.sources` near the fo
 
 A page that holds photographs or film images that belong to someone else is a private reference. Its footer says so: "Photographs and film images belong to their owners and are kept here for private reference."
 
-The page stays a local file, shared on Justin's private network only (the workshop's `docs/infrastructure.md` says how). It never becomes an Artifact or a doc, and its `fig/` folder never enters a public repo.
+The page stays a local file, shared on Justin's private network only, from his MacBook with `just share` (step 5 of SKILL.md). It never becomes an Artifact or a doc, and its `fig/` folder never enters a public repo.

@@ -63,7 +63,7 @@ Then Read every slice, because a page can pass every rule and still look wrong. 
 
 ## 5. Hand it over
 
-- **A file.** Give the built page's path. The workshop's `docs/infrastructure.md` says how to share a file on Justin's private network.
+- **A file.** Give the built page's path and its link on Justin's private network, which his MacBook serves: in `~/dev/workshop`, `just share PATH` links the page into the share and prints the link. Pass a name after the path when the file's own name says little. A rebuilt page keeps its link, and `just unshare NAME` takes one down. The workshop's `docs/infrastructure.md` covers the share.
 - **An Artifact.** `python3 KIT/build.py --artifact NAME.tmpl.html NAME.artifact.html` leaves off the document skeleton, which the Artifact tool adds itself. Run step 4 on that file, then load `artifact-design` for the publish contract. The kit meets it as a page that commits to one dark look.
 - **An app that serves its own CSS.** `python3 KIT/build.py --css OUT.css` writes the stylesheet with its fonts inside. [CONTROLS.md](CONTROLS.md) covers the rest.
 

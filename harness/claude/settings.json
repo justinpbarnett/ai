@@ -1,4 +1,6 @@
 {
+  "cleanupPeriodDays": 365,
+  "skillListingBudgetFraction": 0.027,
   "env": {
     "CLAUDE_CODE_NO_FLICKER": "1",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
@@ -9,6 +11,34 @@
     "pr": ""
   },
   "model": "opus",
+  "skillOverrides": {
+    "contribute": "name-only",
+    "de-design-slop": "name-only",
+    "twg": "name-only",
+    "twg-agentic-search": "name-only",
+    "twg-artifacts": "name-only",
+    "twg-confluence": "name-only",
+    "twg-context-discovery": "name-only",
+    "twg-engineering-work": "name-only",
+    "twg-jira": "name-only",
+    "twg-jira-resolve-merged-work": "name-only",
+    "twg-operational-health": "name-only",
+    "twg-responsibility-routing": "name-only",
+    "twg-space-creation": "name-only",
+    "twg-status-rollups": "name-only",
+    "anthropic-skills:built-in-browser": "name-only",
+    "anthropic-skills:chrome-browser": "name-only",
+    "anthropic-skills:computer-use": "name-only",
+    "anthropic-skills:deep-research": "name-only",
+    "anthropic-skills:docs": "name-only",
+    "anthropic-skills:import-memory": "name-only",
+    "anthropic-skills:linkedin-post-crafter": "name-only",
+    "anthropic-skills:morning": "name-only",
+    "anthropic-skills:pdf": "name-only",
+    "anthropic-skills:pptx": "name-only",
+    "anthropic-skills:skill-creator": "name-only",
+    "anthropic-skills:xlsx": "name-only"
+  },
   "hooks": {
     "PreCompact": [
       {
@@ -17,6 +47,41 @@
           {
             "type": "command",
             "command": "printf '%s\\n' 'Keep this summary under 4,000 words. Cover the current task, decisions made, open questions, and key file paths with one-line notes. Condense any earlier compaction summary to its still-relevant points instead of carrying it forward verbatim. Do not include file contents, long code blocks, or tool output; reference file paths instead.'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill|Agent|Task|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.local/bin/arete\" ] && \"$HOME/.local/bin/arete\" hook || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.local/bin/arete\" ] && \"$HOME/.local/bin/arete\" hook || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.local/bin/arete\" ] && \"$HOME/.local/bin/arete\" hook || true",
+            "timeout": 10
           }
         ]
       }
@@ -30,7 +95,8 @@
     "dev@passion-tech": true,
     "plan@passion-tech": true,
     "rock@passion-tech": true,
-    "rock-build@passion-tech": true,
+    "global-engineering@passion-tech": true,
+    "hey@37signals": true,
     "jev-compact@ai-mods": true
   },
   "extraKnownMarketplaces": {
@@ -38,6 +104,13 @@
       "source": {
         "source": "github",
         "repo": "passiondev/tech-skills"
+      },
+      "autoUpdate": true
+    },
+    "37signals": {
+      "source": {
+        "source": "github",
+        "repo": "basecamp/claude-plugins"
       },
       "autoUpdate": true
     },
@@ -58,8 +131,8 @@
     }
   },
   "autoCompactWindow": 200000,
-  "cleanupPeriodDays": 365,
   "skipDangerousModePermissionPrompt": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "switchModelsOnFlag": true
 }

@@ -22,3 +22,7 @@ skills/.trash/
 
 # Stray lockfile from npm runs; this repo has no package.json
 package-lock.json
+
+# Skills other tools install on this machine and link in here.
+skills/hey
+skills/twg*

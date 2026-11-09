@@ -5,6 +5,7 @@
     check.py PAGE --shots DIR     run the checks, then photograph the whole page in slices at both widths
 
 PAGE is a built file, or the http address of a page that a running app serves.
+Each width is read once the page has drawn what it fetches after it loads.
 
 FAIL is a broken rule: fix it. WARN is probably wrong: fix it, or know why it stays.
 NOTE is for your judgement. The slices are the other half of the check, because a page
@@ -34,6 +35,32 @@ BROWSERS = ("chromium", "chromium-browser", "google-chrome-stable", "google-chro
             "/Applications/Chromium.app/Contents/MacOS/Chromium")
 LIMIT = 16 * 1024 * 1024                                        # the largest page the Artifact tool takes
 PATIENCE = 120                                                  # seconds to wait for any one answer
+QUIET_MS = 400                                                  # a page is drawn once it stays unchanged this long
+SETTLE_S = 10                                                   # the longest wait for a page to be drawn
+COUNT_REQUESTS = """(() => {
+  let busy = 0;
+  const fetchFirst = window.fetch;
+  window.fetch = function () { busy++; return fetchFirst.apply(this, arguments).finally(() => busy--); };
+  const sendFirst = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () {
+    busy++;
+    this.addEventListener("loadend", () => busy--, { once: true });
+    return sendFirst.apply(this, arguments);
+  };
+  Object.defineProperty(window, "__patternBusy", { get: () => busy });
+})();"""
+SETTLE = """(quiet, cap) => new Promise((done) => {
+  const start = performance.now();
+  let changed = start;
+  new MutationObserver(() => { changed = performance.now(); })
+    .observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+  (function look() {
+    const now = performance.now();
+    if (!window.__patternBusy && now - changed >= quiet) return done("true");
+    if (now - start >= cap) return done("false");
+    setTimeout(look, 50);
+  })();
+})"""
 
 
 def find_browser():
@@ -63,6 +90,7 @@ class Browser:
         target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         self.tab = self.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
         self.call("Page.enable", tab=True)
+        self.call("Page.addScriptToEvaluateOnNewDocument", {"source": COUNT_REQUESTS}, tab=True)
 
     def start(self, exe, work, flags):
         ours_r, theirs_w = os.pipe()
@@ -129,6 +157,12 @@ class Browser:
                   {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": phone}, tab=True)
         self.go("about:blank")      # a page reopened at the same address with a #fragment never fires load
         self.go(url)
+        return self.settle()
+
+    def settle(self):
+        """Wait until the page has drawn what it fetched after load: no request in flight and no change
+        for QUIET_MS. Say whether it got there within SETTLE_S."""
+        return self.ask(f"({SETTLE})({QUIET_MS}, {SETTLE_S * 1000})")
 
     def go(self, url):
         self.events.clear()
@@ -260,12 +294,14 @@ def main(argv):
         if out:
             out.mkdir(parents=True, exist_ok=True)
         for width, height, tall, phone in WIDTHS:
-            browser.open(url, width, height, phone)
+            settled = browser.open(url, width, height, phone)
             if static is None:
                 static = source(browser.ask("JSON.stringify(document.documentElement.outerHTML)"), 0)
             result = browser.ask(js)
             for level in static:
                 result[level] = static[level] + result[level]
+            if not settled:
+                result["note"].append(["settle", f"the page still changed {SETTLE_S} s after it loaded, so it was read mid-change"])
             results.append(result)
             info = result["info"]
             print(f"{info['width']} wide · {info['height']} tall" + ("" if info["width"] == width else f" (asked for {width})"))

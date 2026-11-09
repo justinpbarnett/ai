@@ -1,0 +1,13 @@
+{
+  "name": "ai-mods",
+  "description": "Claude Code mods from justinpbarnett/ai",
+  "owner": {
+    "name": "Justin Barnett"
+  },
+  "plugins": [
+    {
+      "name": "jev-compact",
+      "source": "./jev-compact"
+    }
+  ]
+}

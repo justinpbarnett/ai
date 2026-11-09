@@ -1,0 +1,8 @@
+{
+  "name": "jev-compact",
+  "version": "0.1.0",
+  "description": "Compacts when JEV reads a topic switch or a good stopping point, not only at the token limit",
+  "author": {
+    "name": "Justin Barnett"
+  }
+}

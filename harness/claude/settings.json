@@ -30,7 +30,8 @@
     "dev@passion-tech": true,
     "plan@passion-tech": true,
     "rock@passion-tech": true,
-    "rock-build@passion-tech": true
+    "rock-build@passion-tech": true,
+    "jev-compact@ai-mods": true
   },
   "extraKnownMarketplaces": {
     "passion-tech": {
@@ -39,6 +40,12 @@
         "repo": "passiondev/tech-skills"
       },
       "autoUpdate": true
+    },
+    "ai-mods": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/justin.barnett/dev/ai/mods"
+      }
     }
   },
   "effortLevel": "xhigh",

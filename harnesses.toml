@@ -5,8 +5,9 @@
 # Install: ./install.sh [harness|all]   (or python install.py)
 # Uninstall: ./uninstall.sh [harness|all]
 #
-# Minimal profile: only skills + tiny per-harness config files are installed.
-# No rules, hooks, agents, plugins, MCP servers, or top-level guidelines files.
+# Minimal profile: only skills + tiny per-harness config files are installed,
+# plus one global guidelines file for Claude Code (harness/claude/CLAUDE.md).
+# No rules, hooks, agents, plugins, or MCP servers.
 #
 # skills_mode:
 #   "directory" (default) → symlink the whole skills/ folder into the target
@@ -24,6 +25,7 @@ config_format = "json"
 [claude.symlinks]
 skills = "skills"
 "settings.json" = "harness/claude/settings.json"
+"CLAUDE.md" = "harness/claude/CLAUDE.md"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ForgeCode

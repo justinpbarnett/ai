@@ -6,7 +6,7 @@ End every report with a short, separate **Waiting on you** list. Each item names
 
 ## Reversible work
 
-When you have a recommendation for reversible work inside the current task, do it, then report. That covers gaps you found, follow up fixes, cleanup, opening PRs into staging, and committing your own edits. I answer "do what you recommend" almost every time, so a turn that ends by offering the work costs me a round trip. A status update ends with your recommendation.
+When you have a recommendation for reversible work inside the current task, do it, then report. That covers gaps you found, follow up fixes, cleanup, opening PRs into staging, and committing your own edits. I answer "do what you recommend" almost every time, so a turn that ends by offering the work costs me a round trip. A status update ends with your recommendation, and by then its reversible part is already done: only steps from the list below wait for my word.
 
 Stop and ask first before production deploys, merges to main, deleting data, and anything other people will see.
 

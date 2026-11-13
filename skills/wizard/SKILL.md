@@ -1,6 +1,6 @@
 ---
 name: wizard
-description: Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or running a one-off migration or cutover. Don't invoke this for steps the agent can perform itself.
+description: Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or running a one-off migration or cutover. Don't invoke this for steps the agent can perform itself. For one secret, hand over a `!` line that pipes it from the clipboard or a file, since a `!` command gets no keyboard input.
 ---
 
 # Wizard
@@ -41,4 +41,5 @@ Hold the bar the template sets: open the URL before asking for its value, use `a
 - `bash -n <script>`; run `shellcheck` if available.
 - `chmod +x <script>`.
 - Don't run it end-to-end yourself: it opens browsers and blocks on human input. Trace it statically instead: every value from step 1 is captured and lands where step 1 said, and every `set_secret` name exactly matches a `secrets.*` reference in CI.
-- Tell the user how to run it. If it's a repeatable setup path, commit it and link it from the README so the next person runs the script instead of asking an AI.
+- Tell the user to run it in their own terminal, not as a `!` command in the chat. A `!` command gets no keyboard input, so anything that reads stdin hangs. If it's a repeatable setup path, commit it and link it from the README so the next person runs the script instead of asking an AI.
+- A single secret needs no wizard. Hand over one `!` line that reads the value from the clipboard or a file, never from a prompt, such as `pbpaste | gcloud secrets versions add NAME --data-file=-`.

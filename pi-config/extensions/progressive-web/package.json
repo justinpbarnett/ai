@@ -1,0 +1,41 @@
+{
+  "name": "pi-progressive-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Brave web search, four-tier scraping, and bounded crawling for Pi",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "node --check cli.mjs && tsc --noEmit && prettier --check \"*.ts\" cli.mjs package.json tsconfig.json README.md",
+    "browser:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@mozilla/readability": "0.6.0",
+    "ipaddr.js": "2.5.0",
+    "jsdom": "31.0.1",
+    "playwright": "1.65.1",
+    "robots-parser": "3.0.1",
+    "turndown": "7.2.5",
+    "turndown-plugin-gfm": "1.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@types/jsdom": "30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/turndown": "5.0.6",
+    "prettier": "3.10.1",
+    "typebox": "1.4.7",
+    "typescript": "^5.9.0"
+  }
+}

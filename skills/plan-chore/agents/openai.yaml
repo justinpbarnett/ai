@@ -1,0 +1,5 @@
+interface:
+  display_name: "Plan Chore"
+  short_description: "Plan focused maintenance and tooling work"
+policy:
+  allow_implicit_invocation: false

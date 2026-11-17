@@ -1,0 +1,5 @@
+interface:
+  display_name: "Plan Bugfix"
+  short_description: "Reproduce a failure and plan a root-cause fix"
+policy:
+  allow_implicit_invocation: false

@@ -1,6 +1,6 @@
 import { convertToLlm, estimateTokens, serializeConversation } from "@earendil-works/pi-coding-agent";
 import type { CompactionEntryDraft, ExtensionContext, ProjectedSessionEntry, TurnEndEvent } from "@earendil-works/pi-coding-agent";
-import { bounded } from "./policy.js";
+import { bounded } from "./requests.js";
 
 const MAX_SUMMARY_TOKENS = 2048;
 const SUMMARY_DEADLINE = 45_000;

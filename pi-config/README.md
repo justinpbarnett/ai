@@ -9,6 +9,7 @@ Tracked items are copied from or linked into the target pi config directory:
 - `settings.json`
 - `keybindings.json`
 - `extensions/self-compact/`
+- `extensions/tool-explainer/`
 - the repository's global `skills/` directory
 
 ## Self-compaction
@@ -47,6 +48,51 @@ The agent tool and native compaction still work with JEV off.
 The portable installer includes the extension; run `/reload` in a live TUI or restart Pi to discover it.
 To try it without installing, run `pi -ne -e "$HOME/dev/ai/pi-config/extensions/self-compact/index.ts"`.
 The uninstaller removes the managed directory symlink, not copies made with `--mode copy`.
+
+## Tool explanations
+
+By default, Pi replaces every two new tool calls with one inline line, such as `Read README.md and CONTEXT.md · ctrl+o to expand`.
+A partial batch is shown when the agent finishes.
+Use Pi's normal `Ctrl+O` to switch between explanations and original tool output, or `/explain-tools recent` to review earlier batches and see which writer was used.
+The extension leaves existing transcript history and Pi's native inline image rendering alone.
+
+Automatic explanations run only in trusted TUI sessions and do not block the agent's tool loop.
+Pi formats file operations, recognized commands, and failures without a model.
+For ambiguous shell commands, the selected writer can refine the line in the background.
+The default Ollama writer receives short command text on loopback only, with obvious secrets and protected paths excluded.
+The hosted writer receives fixed operation hints only: no raw commands, filenames, user prompts, or tool output are sent automatically.
+If the writer is unavailable or times out, the initial summary stays in place.
+`--offline` disables hosted writing, not local Ollama writing.
+
+Run `/explain-tools` or `/explain-tools 1` for a more detailed explanation of the latest calls on the active branch.
+Pi shows the tool text excerpts first; press `S` to send or Escape to cancel.
+After approval JEV classifies the results and `google/gemini-2.5-flash-lite` writes the explanation, both through OpenRouter.
+Obvious credentials and non-text results stay local, but the filter cannot guarantee redaction.
+Do not approve excerpts containing sensitive or restricted material.
+Manual explanations and the optional hosted writer use Pi's OpenRouter login or `OPENROUTER_API_KEY` and may incur OpenRouter charges.
+
+Use `/explain-tools status` to see the effective settings, `/explain-tools off` to pause until reload or session replacement, or `/explain-tools on` to resume.
+For persistent defaults, keep `tool-explainer.json` in the global Pi agent directory (`~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set):
+
+```json
+{
+  "auto": true,
+  "count": 2,
+  "writer": "ollama",
+  "ollamaModel": "qwen3.5:2b",
+  "openrouterModel": "google/gemini-2.5-flash-lite"
+}
+```
+
+Set `writer` to `ollama`, `openrouter`, or `off`.
+`off` keeps automatic summaries on but makes no automatic model calls.
+For `ollama`, start Ollama on `127.0.0.1:11434` and run `ollama pull qwen3.5:2b`, or set `ollamaModel` to another installed local model tag.
+For `openrouter`, `openrouterModel` must be a chat model available in Pi's OpenRouter catalog.
+Neither model ID needs to be specified if you want the defaults above.
+The count can be 1 to 10; launch with `--explain-tools-count 4` or `--explain-tools-no-auto` for one-off overrides.
+The portable installer links the extension and leaves the settings file local.
+Restart Pi or run `/reload` after installing or changing that file.
+To try it without installation, use `pi -ne -e "$HOME/dev/ai/pi-config/extensions/tool-explainer/index.ts"`.
 
 ## Improve a codebase
 

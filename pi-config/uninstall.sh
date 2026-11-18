@@ -13,6 +13,7 @@ TOP_LEVEL_FILES=(
 
 TOP_LEVEL_DIRS=(
   skills
+  extensions/self-compact
 )
 
 usage() {

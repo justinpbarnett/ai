@@ -8,7 +8,44 @@ Tracked items are copied from or linked into the target pi config directory:
 
 - `settings.json`
 - `keybindings.json`
+- `extensions/self-compact/`
 - the repository's global `skills/` directory
+
+## Self-compaction
+
+The `self_compact` tool lets the coding agent request a background checkpoint with a short handoff.
+When context reaches the notice threshold, Pi can also prepare one checkpoint in the background using the active chat model, without waiting for JEV or for the summary to finish.
+At a later turn boundary, Pi applies a ready checkpoint after a tool request, a confident JEV task switch, or when context reaches the warning threshold.
+The checkpoint replaces only the older history before the original cut, not the history through the point of application.
+All messages and tool results added while it ran are kept verbatim, as is the handoff supplied to the tool.
+If the result finishes while Pi is idle, it waits for the next completed turn; it does not start a turn on its own.
+Pi discards an unsafe or stale result, including after a model or branch switch, a context edit, or native compaction.
+Native `/compact`, threshold compaction, and overflow recovery still work; if Pi reaches its cutoff before the background job is ready, it does not wait for it.
+
+`/self-compact status` shows context usage, thresholds, background progress, the last checkpoint source, and JEV mode.
+`/self-compact now [focus]` uses Pi's normal manual compaction and only runs while idle.
+The model tool also works in print and RPC sessions when active.
+An unfinished checkpoint is discarded when Pi exits; one-shot print mode does not wait for it.
+
+By default, the model gets a notice at 60% and a warning at 80% **of the native cutoff** (`context window - reserveTokens`).
+Override these with `--self-compact-notice-at` and `--self-compact-warn-at`, using whole tokens (`6000`), `k` shorthand (`6k`), or a percentage **of the context window** (`60%`).
+Require `0 < notice < warning < native cutoff`; an invalid pair disables extension automation without disabling the tool or changing Pi's native settings.
+Turning off Pi's automatic compaction also disables proactive background work and notices; the explicit tool still works.
+
+**JEV is on by default in trusted TUI sessions** when Pi has OpenRouter credentials and the `typesafe/jev-1.14` classifier is available.
+Under context pressure, Pi can send up to 512 characters each from two consecutive new user prompts to OpenRouter and its upstream model provider.
+Use Pi's OpenRouter login or `OPENROUTER_API_KEY`; no direct TypeSafe credentials are needed.
+JEV checks for an independent task switch, not what to put in the summary.
+Pi skips queued prompts, commands, attachments and obvious credentials, but that filter is not a guarantee of redaction.
+For work that cannot send prompt excerpts off-machine, start Pi with `--no-self-compact-jev`, or run `/self-compact jev off` before submitting prompts.
+The command clears stored excerpts and turns JEV off for the loaded extension; the launch flag keeps it off by default across reloads.
+With missing credentials or an unavailable model, Pi shows `JEV off (unavailable)` without sending a request.
+If a request fails or times out, JEV also switches off and stops retrying; `/self-compact jev on` lets you retry.
+The agent tool and native compaction still work with JEV off.
+
+The portable installer includes the extension; run `/reload` in a live TUI or restart Pi to discover it.
+To try it without installing, run `pi -ne -e "$HOME/dev/ai/pi-config/extensions/self-compact/index.ts"`.
+The uninstaller removes the managed directory symlink, not copies made with `--mode copy`.
 
 ## Improve a codebase
 

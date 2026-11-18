@@ -16,6 +16,7 @@ TOP_LEVEL_FILES=(
 
 TOP_LEVEL_DIRS=(
   skills
+  extensions/self-compact
 )
 
 usage() {
@@ -161,6 +162,10 @@ install_dir() {
     ln -s "$source" "$target"
     log "LINK $rel -> $source"
     return
+  fi
+
+  if [ -L "$target" ]; then
+    backup_target "$target" "$rel"
   fi
 
   mkdir -p "$target"

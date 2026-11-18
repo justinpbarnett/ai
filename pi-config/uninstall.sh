@@ -15,6 +15,7 @@ TOP_LEVEL_DIRS=(
   skills
   extensions/self-compact
   extensions/tool-explainer
+  extensions/working-summary
 )
 
 usage() {

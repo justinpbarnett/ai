@@ -1,0 +1,131 @@
+import type { UserMessage } from "@earendil-works/pi-ai";
+import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
+import { replaceControlCharacters, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+
+export const SLOTS = ["session", "prompt"] as const;
+export type Slot = (typeof SLOTS)[number];
+export type Labels = Partial<Record<Slot, string>>;
+
+export const SUMMARY_WORD_LIMIT = 6;
+
+const SEPARATOR = "  |  ";
+const EXCERPT_LENGTH = 384;
+const FILE_BLOCK = /<file name="/;
+const FILE_END = /<\/file>(?:\r?\n|$)/g;
+const IMAGE_NOTE = /^\[Image(?: converted from| omitted:|: original )[^\]\r\n]*\][\t ]*\r?$/gm;
+const FILE_REFERENCE = /(?:^|\s)@[^\s]|\bfile:\/\//i;
+const CODE_FENCE = /```|~~~/;
+const SECRET_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
+
+export interface PromptPreview {
+	label?: string;
+	topicSeed?: string;
+	excerpt?: string;
+}
+
+function plainLine(text: string): string {
+	return replaceControlCharacters(stripTerminalSequences(text))
+		.replace(/[\u202a-\u202e\u2066-\u2069]/gu, "")
+		.replace(/\s+/gu, " ")
+		.trim();
+}
+
+function cleanLabel(value: string): string | undefined {
+	const text = plainLine(value);
+	if (text && !SECRET_LIKE.test(text) && visibleWidth(text) > 0) return text;
+}
+
+function labelWords(text: string): string[] {
+	return text.split(" ", SUMMARY_WORD_LIMIT + 1);
+}
+
+export function parseSummaryLabel(value: unknown): string | undefined {
+	if (typeof value !== "string") return;
+	const text = cleanLabel(value);
+	if (text && labelWords(text).length <= SUMMARY_WORD_LIMIT) return text;
+}
+
+function localLabel(value: string): string | undefined {
+	const text = cleanLabel(value);
+	if (!text) return;
+	const words = labelWords(text);
+	return words.length <= SUMMARY_WORD_LIMIT ? text : `${words.slice(0, SUMMARY_WORD_LIMIT).join(" ")}…`;
+}
+
+function excerpt(text: string): string {
+	let end = 0;
+	let characters = 0;
+	for (const character of text) {
+		if (characters++ === EXCERPT_LENGTH) break;
+		end += character.length;
+	}
+	return text.slice(0, end);
+}
+
+function afterFileBlocks(text: string): string {
+	let end = 0;
+	for (const match of text.matchAll(FILE_END)) end = match.index! + match[0].length;
+	return end ? text.slice(end).trim() : "";
+}
+
+function inspectPrompt(content: UserMessage["content"]) {
+	let text = stripTerminalSequences(typeof content === "string" ? content : content.flatMap((block) =>
+		block.type === "text" ? [block.text] : []).join("\n")).trim();
+	let hasImage = typeof content !== "string" && content.some((block) => block.type === "image");
+	const hasFile = FILE_BLOCK.test(text);
+	if (hasFile) text = afterFileBlocks(text);
+	text = text.replace(IMAGE_NOTE, () => {
+		hasImage = true;
+		return "";
+	}).trim();
+	const skill = parseSkillBlock(text);
+	const request = skill ? skill.userMessage ?? "" : text;
+	const line = plainLine(request);
+	const safeLine = SECRET_LIKE.test(line) ? undefined : line;
+	return { request, skillName: skill?.name, safeLine, hasImage, hasFile };
+}
+
+function remoteExcerpt({ request, safeLine, hasImage, hasFile }: ReturnType<typeof inspectPrompt>): string | undefined {
+	if (!safeLine || hasImage || hasFile || CODE_FENCE.test(request) || FILE_REFERENCE.test(request)) return;
+	return excerpt(safeLine);
+}
+
+export function previewPrompt(content: UserMessage["content"]): PromptPreview {
+	const prompt = inspectPrompt(content);
+	const { request, skillName, safeLine, hasImage, hasFile } = prompt;
+	if (safeLine === undefined) return { label: "Sensitive prompt" };
+
+	const source = skillName !== undefined && !request ? skillName : request.split(CODE_FENCE, 1)[0]!.trim();
+	const topicSeed = localLabel(source.split(/[\r\n\u2028\u2029]/u, 1)[0]!);
+	const label = localLabel(source) ?? (hasImage ? "Image prompt" : hasFile ? "File prompt" : undefined);
+	return { label, topicSeed, excerpt: remoteExcerpt(prompt) };
+}
+
+export function earlierExcerpts(branch: readonly UserMessage["content"][], latest: string): string[] {
+	const earlier = new Set<string>();
+	const add = (content: UserMessage["content"]) => {
+		const text = remoteExcerpt(inspectPrompt(content));
+		if (!text || text === latest || earlier.has(text)) return false;
+		earlier.add(text);
+		return true;
+	};
+	for (const content of branch) {
+		add(content);
+		if (earlier.size === 2) break;
+	}
+	for (let index = branch.length - 1; index >= 0; index--) {
+		if (add(branch[index]!)) break;
+	}
+	return [...earlier];
+}
+
+export function formatSummary({ session, prompt }: Labels, width?: number): string {
+	if (!session || !prompt) {
+		const label = session ?? prompt ?? "";
+		return width === undefined ? label : truncateToWidth(label, width, "…");
+	}
+	if (width === undefined) return `${session}${SEPARATOR}${prompt}`;
+	const promptWidth = width - visibleWidth(session) - SEPARATOR.length;
+	if (promptWidth < 2) return truncateToWidth(session, width, "…");
+	return `${session}${SEPARATOR}${truncateToWidth(prompt, promptWidth, "…")}`;
+}

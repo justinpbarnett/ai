@@ -10,6 +10,7 @@ Tracked items are copied from or linked into the target pi config directory:
 - `keybindings.json`
 - `extensions/self-compact/`
 - `extensions/tool-explainer/`
+- `extensions/working-summary/`
 - the repository's global `skills/` directory
 
 ## Self-compaction
@@ -97,6 +98,47 @@ The count can be 1 to 10; launch with `--explain-tools-count 4` or `--explain-to
 The portable installer links the extension and leaves the settings file local.
 Restart Pi or run `/reload` after installing or changing that file.
 To try it without installation, use `pi -ne -e "$HOME/dev/ai/pi-config/extensions/tool-explainer/index.ts"`.
+
+## Working summaries
+
+Pi shows two labels in the existing editor-border indicator while it works: `⠋ Working · Saved search UX  |  Fix default sort`.
+The first describes the session topic, and the second is a short preview that changes when Pi starts processing a new user prompt, not when you queue it.
+Each label uses at most six words, and the one-line bar can still clip it if the terminal is too narrow.
+When work finishes, the labels stay in the editor's top border, matching its color and without a spinner.
+Both labels are on by default and use short local excerpts unless you enable remote summaries.
+
+```text
+/working-summary status
+/working-summary session off
+/working-summary prompt off
+/working-summary remote on
+```
+
+Use `on` or `off` for each switch independently.
+Commands apply to the loaded session until reload or session replacement.
+For persistent defaults, save `working-summary.json` in the Pi agent directory (`~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set).
+This example enables both labels and opts into remote summaries:
+
+```json
+{
+  "session": true,
+  "prompt": true,
+  "remote": true
+}
+```
+
+Remote summaries run in the background only in trusted interactive sessions, using Pi's OpenRouter login or `OPENROUTER_API_KEY`.
+OpenRouter and its providers can receive up to four 384-character excerpts from the active branch: TypeSafe's `typesafe/jev-1.14` classifies the request and Google's `google/gemini-2.5-flash-lite` writes the labels.
+Both calls can incur charges.
+Only the latest prompt is used when the session label is off; when the session label is on, new prompts can still be used as topic evidence even if the prompt label is off.
+The extension skips attachments, fenced code, and obvious credentials, but these filters are not a guarantee of redaction.
+Expanded prompt template text can look like ordinary prompt text and may be included.
+Keep `remote` off or launch Pi with `--offline` when prompt excerpts must stay local for this feature.
+Missing credentials, provider failures, and timeouts leave the local labels available without interrupting the foreground agent.
+
+The portable installer includes the extension and leaves the preferences file local.
+Restart Pi or run `/reload` to load it or apply changed file defaults.
+To try it without installing, run `pi -ne -e "$HOME/dev/ai/pi-config/extensions/working-summary/index.ts"`.
 
 ## Improve a codebase
 

@@ -1,7 +1,9 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { shellLabel } from "./shell-label.js";
 
 const SECRET = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
 const PRIVATE_PATH = /(?:^|[\s/\\'"=@])(?:\.env(?:\.[\w.-]+)?|\.ssh|\.aws|\.gnupg|auth\.json|credentials(?:\.json)?|id_(?:rsa|ed25519))(?:$|[\s/\\'";])/i;
@@ -56,6 +58,27 @@ function workspacePath(path: string, cwd: string): string | undefined {
 	if (target !== ".." && !target.startsWith("../") && !isAbsolute(target)) return plain(target || ".");
 }
 
+function safeLabel(text: string): boolean {
+	return !/[\p{Cc}\p{Cf}]/u.test(text) && !SECRET.test(text) && !PRIVATE_PATH.test(text);
+}
+
+function pathLabel(raw: string, cwd: string): string | undefined {
+	if (!safeLabel(raw)) return;
+	const path = raw.replace(/^@/, "");
+	if (!path) return;
+	const home = homedir();
+	const target = path === "~" ? home : path.startsWith(`~${sep}`) ? resolve(home, path.slice(2)) : resolve(cwd, path);
+	if (!safeLabel(target)) return;
+	const inWorkspace = workspacePath(target, cwd);
+	const inHome = inWorkspace ? undefined : workspacePath(target, home);
+	const preferred = inWorkspace ?? (inHome === "." ? "~" : inHome ? `~${sep}${inHome}` : target);
+	const max = 42;
+	if (preferred.length <= max) return preferred;
+	const suffix = preferred.slice(-(max - 1));
+	const nextSeparator = suffix.indexOf(sep);
+	return nextSeparator >= 0 ? `…${suffix.slice(nextSeparator)}` : `…${sep}${suffix.slice(1)}`;
+}
+
 const verbs = {
 	read: ["Read a file", "Could not read a file"],
 	edit: ["Edited a file", "Could not edit a file"],
@@ -67,7 +90,7 @@ const verbs = {
 	gitLog: ["Inspected commit history", "Could not inspect commit history"],
 	test: ["Ran a test command", "The test command returned an error"],
 	print: ["Ran a command to print text", "The print command failed"],
-	shell: ["Ran a shell command", "The shell command returned an error"],
+	shell: ["Ran shell code with no visible command name", "Shell code failed"],
 	webSearch: ["Searched the web", "Web search failed"],
 	webRead: ["Fetched web content", "Could not fetch web content"],
 	tool: ["Completed a tool call", "The tool returned an error"],
@@ -107,16 +130,14 @@ export function autoRow(call: Call, cwd: string): AutoRow {
 	const action = actionFor(call);
 	const image = content.some((block) => block.type === "image");
 	const text = content.some((block) => block.type === "text" && Boolean(block.text.trim()));
-	const path = action === "read" || action === "edit" || action === "write" || action === "search" || action === "list"
+	const path = isFileAction(action) || action === "search" || action === "list"
 		? stringArg(call, "path") : undefined;
-	const target = path && !/[\n\r]/.test(path) && !SECRET.test(path) && !PRIVATE_PATH.test(path) ? workspacePath(path, cwd) : undefined;
-	const python = action === "shell" && /^(?:uv\s+run\s+)?python[\d.]*(?:\s|$)/.test(stringArg(call, "command")?.trimStart() ?? "");
-	const label = action === "tool" ? safeName(toolName) : python ? "Python" : target && clip(target, 65);
+	const command = action === "shell" ? stringArg(call, "command") : undefined;
+	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : path ? pathLabel(path, cwd) : undefined;
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
-	return {
-		facts: { action, failed: isError }, label,
-		text: `${verbs[action][isError ? 1 : 0]}${label ? ` (${label})` : ""}.${suffix}`,
-	};
+	const description = action === "shell" ? describeShell(label ? [label] : [], Number(!label), isError)
+		: `${verbs[action][isError ? 1 : 0]}${label ? ` (${label})` : ""}`;
+	return { facts: { action, failed: isError }, label, text: `${description}.${suffix}` };
 }
 
 export function shellCommand(call: Call): string | undefined {
@@ -130,7 +151,37 @@ function listLabels(labels: string[]) {
 	return new Intl.ListFormat("en", { type: "conjunction" }).format(labels);
 }
 
-export function summarizeRows(rows: AutoRow[], interpretation?: { rows: Set<AutoRow>; text: string }): string {
+function describeShell(labels: string[], unnamed: number, failed: boolean): string {
+	if (!labels.length) {
+		if (unnamed > 1) return failed ? `${unnamed} shell calls failed` : `Ran shell code in ${unnamed} calls`;
+		return verbs.shell[failed ? 1 : 0];
+	}
+	const details = listLabels(unnamed ? [...labels, unnamed === 1 ? "one other call" : `${unnamed} other calls`] : labels);
+	return failed ? `Shell error: ${details}` : `Ran ${details}`;
+}
+
+function isFileAction(action: Action): boolean {
+	return action === "read" || action === "edit" || action === "write";
+}
+
+type Interpretation = { rows: Set<AutoRow>; text: string };
+export type BatchSummary = { full: string; compact: string };
+
+export function summarizeBatch(rows: AutoRow[], interpretation?: Interpretation): BatchSummary {
+	return { full: summarizeRows(rows, interpretation, false), compact: summarizeRows(rows, interpretation, true) };
+}
+
+function summarizeRows(rows: AutoRow[], interpretation: Interpretation | undefined, shortPaths: boolean): string {
+	const pathsByName = new Map<string, Set<string>>();
+	if (shortPaths) {
+		for (const { facts, label } of rows) {
+			if (!label || !isFileAction(facts.action)) continue;
+			const name = basename(label);
+			const paths = pathsByName.get(name) ?? new Set<string>();
+			paths.add(label);
+			pathsByName.set(name, paths);
+		}
+	}
 	const parts: string[] = [];
 	let group: AutoRow[] = [];
 	let interpreted = false;
@@ -141,15 +192,14 @@ export function summarizeRows(rows: AutoRow[], interpretation?: { rows: Set<Auto
 		const labels = [...new Set(group.flatMap(({ label }) => label ? [label] : []))];
 		const unnamed = group.filter(({ label }) => !label).length;
 		const verb = verbs[action][failed ? 1 : 0];
-		if (action === "read" || action === "edit" || action === "write") {
-			if (unnamed) labels.push(unnamed === 1 && !labels.length ? "a file" : `${unnamed}${labels.length ? " other" : ""} ${unnamed === 1 ? "file" : "files"}`);
-			parts.push(`${verb.replace(/ a file$/, "")} ${listLabels(labels)}`);
+		if (isFileAction(action)) {
+			const files = labels.map((path) => pathsByName.get(basename(path))?.size === 1 ? basename(path) : path);
+			if (unnamed) files.push(unnamed === 1 && !files.length ? "a file" : `${unnamed}${files.length ? " other" : ""} ${unnamed === 1 ? "file" : "files"}`);
+			parts.push(`${verb.replace(/ a file$/, "")} ${listLabels(files)}`);
 		} else if (action === "tool" && labels.length) {
 			parts.push(`${failed ? "Error from" : "Ran"} ${listLabels(labels)}`);
 		} else if (action === "shell") {
-			const kind = unnamed ? "shell" : labels[0];
-			if (group.length === 1) parts.push(failed ? `The ${kind} command returned an error` : `Ran a ${kind} command`);
-			else parts.push(failed ? `${group.length} ${kind} commands returned errors` : `Ran ${group.length} ${kind} commands`);
+			parts.push(describeShell(labels, unnamed, failed));
 		} else if (labels.length) {
 			parts.push(`${verb} (${listLabels(labels)})`);
 		} else {

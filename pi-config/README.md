@@ -58,6 +58,8 @@ The extension leaves existing transcript history and Pi's native inline image re
 
 Automatic explanations run only in trusted TUI sessions and do not block the agent's tool loop.
 Pi formats file operations, recognized commands, and failures without a model.
+File summaries show short paths, including files outside the current workspace, except for protected paths.
+When a shell call has no clearer summary, Pi shows its recognizable command names and selected details, such as `Ran wc -l README.md | head`, without showing the full arguments or output.
 For ambiguous shell commands, the selected writer can refine the line in the background.
 The default Ollama writer receives short command text on loopback only, with obvious secrets and protected paths excluded.
 The hosted writer receives fixed operation hints only: no raw commands, filenames, user prompts, or tool output are sent automatically.

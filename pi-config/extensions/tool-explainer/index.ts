@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { autoRow, manualRows, pairCalls, recentCalls, shellCommand, summarizeRows } from "./evidence.js";
+import { autoRow, manualRows, pairCalls, recentCalls, shellCommand, summarizeBatch } from "./evidence.js";
 import { ExplanationError } from "./explain.js";
 import { batchTitle, InlineToolOutput, type Batch, type InlineRow } from "./inline.js";
 import { collectExplanation, explanationText, preview, showView } from "./view.js";
@@ -107,7 +107,7 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const text = await writeSummary(registry, request, signal);
 					if (signal.aborted) break;
-					batch.summary = summarizeRows(batch.rows, { rows: targets, text });
+					batch.summary = summarizeBatch(batch.rows, { rows: targets, text });
 					batch.route = `${request.kind}/${request.model}`;
 					inline.update(batch);
 				} catch (error) {
@@ -124,7 +124,7 @@ export default function (pi: ExtensionAPI) {
 		if (!pending.length) return;
 		const session = active;
 		const rows = pending.map(({ row }) => row);
-		const batch: Batch = { rows, summary: summarizeRows(rows), route: "no model" };
+		const batch: Batch = { rows, summary: summarizeBatch(rows), route: "no model" };
 		const job = prepareJob(batch, pending, settings.writer);
 		if (job?.request.kind === "openrouter" && offline()) batch.route = "no model: Pi is offline";
 		else if (job && session.queue.length + Number(session.running) >= MAX_AUTO_REQUESTS) batch.route = "no model: writer queue is full";

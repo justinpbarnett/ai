@@ -1,21 +1,28 @@
 ---
 name: pattern-html
-description: Pattern, the default look for every HTML made for Justin, built from this skill's kit. Use before writing or restyling an HTML page or Artifact, before changing a template or code that generates HTML, and before drawing a diagram, a chart, or an annotated reference image for one.
+description: Use the Pattern kit when Justin explicitly asks for the Pattern look, or when styling a new standalone HTML deliverable for his personal use with no other look specified. Includes templates and visuals for those deliverables. Otherwise skip employer or client work, existing sites and apps, HTML email, and routine edits to HTML-generating code.
 ---
 
 # Pattern HTML
 
-Every HTML page made for Justin takes one look: the page he approved on 2026 10 01, reference board 01, packed here as a **kit**. **Pattern** is his design language, and the look's values are decisions recorded in `~/dev/design/decisions.md`. Where the kit and a decision disagree, the decision wins and the kit gets fixed.
+**Pattern** is Justin's design language, based on reference board 01, which he approved on 2026 10 01.
+The kit implements the look recorded in `~/dev/design/decisions.md`.
+Where the kit and a decision disagree, the decision wins and the kit gets fixed.
 
 `kit/` sits beside this file. Commands below write its path as `KIT`.
 
 ## Scope
 
-The kit dresses everything made for Justin or under his own name: a report, a reference board, a dashboard, a gallery, a tool, an Artifact, and any template or script that writes such pages. It takes the place of the page style that another skill, a template, or habit would supply: that skill gives the page its content and its structure, and the kit gives it its look. A look that Justin asks for in the request comes first. Three cases keep their own look:
+Pattern is the default look for a new standalone personal HTML deliverable: a report, a reference board, a dashboard, a gallery, a tool, or an HTML Artifact.
+Use the kit for the deliverable's visual design, including the templates and figures that give it that look.
+Other skills can still supply its content and structure.
+A look Justin specifies takes precedence.
 
-- **Another organization's work.** A page about an employer's or a client's work, or one its people may read, carries that organization's brand, even when the request is his and he reads it first. Take the colors and faces from the organization's own site, and ask when its brand is unclear.
-- **An app or site with a look of its own.** It keeps that look until Justin asks for the restyle.
-- **HTML email.** Mail clients drop embedded fonts and most style blocks, so an email carries the token colors as inline styles and lets the faces fall back. Say so at the handover.
+- **Employer or client work** uses the organization's brand, even when Justin is the first reader.
+- **Existing sites and apps, and routine edits to HTML-generating code** keep their current style.
+- **HTML email** uses its own styling by default.
+  If Justin explicitly requests Pattern for an email, use token colors inline and let the fonts fall back instead of using the page kit.
+  Note the fallback at handover.
 
 ## 1. Start from the kit
 
@@ -103,7 +110,8 @@ The check's `glyph` WARN catches each of these. Writing them right the first tim
 
 ## Beside other skills
 
-`de-design-slop` and `artifact-design` both put the user's own design system first, and Pattern is that system. Its dark ground, monospace reading face, tracked capitals, numbered sections, and 1 px rules are decisions Justin recorded on 2026 09 24, so they stay.
+When Pattern applies, `de-design-slop` and `artifact-design` defer to its dark ground, monospace reading face, tracked capitals, numbered sections, and 1 px rules.
+Justin recorded those decisions on 2026 09 24.
 
 ## Keeping the kit
 

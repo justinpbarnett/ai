@@ -1,9 +1,9 @@
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import { plain, type AutoRow, type BatchSummary } from "./evidence.js";
+import { plain, type AutoRow } from "./evidence.js";
 
 export type InlineRow = AutoRow & { callId: string };
-export type Batch = { rows: InlineRow[]; summary: BatchSummary; route: string };
+export type Batch = { rows: InlineRow[]; summary: string; route: string };
 type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
 type Context = Parameters<RenderCall>[2];
 type Theme = Parameters<RenderCall>[1];
@@ -13,7 +13,7 @@ type Row = { batch?: Batch; view?: WeakRef<View> };
 const VIEW = Symbol("tool-explainer-row");
 
 export function batchTitle(batch: Batch) {
-	return `${batch.summary.full} · ${batch.route}`;
+	return `${batch.summary} · ${batch.route}`;
 }
 
 function summary(batch: Batch, theme: Theme, context: Context): Component {
@@ -21,15 +21,12 @@ function summary(batch: Batch, theme: Theme, context: Context): Component {
 	const box = new Box(context.outputPad, 0, (text) => theme.bg(background, text));
 	const hint = context.keyHint("app.tools.expand", "to expand");
 	const suffix = hint ? `${theme.fg("muted", " · ")}${hint}` : "";
-	const { full, compact } = batch.summary;
-	const fullWidth = visibleWidth(full);
-	const color = background === "toolErrorBg" ? "error" : "accent";
+	const suffixWidth = visibleWidth(suffix);
+	const text = theme.fg(background === "toolErrorBg" ? "error" : "accent", batch.summary);
 	box.addChild({
 		render(width) {
-			const showHint = width - visibleWidth(suffix) > 8;
-			const textWidth = showHint ? width - visibleWidth(suffix) : width;
-			const text = theme.fg(color, fullWidth <= textWidth ? full : compact);
-			return [truncateToWidth(text, textWidth) + (showHint ? suffix : "")];
+			const labelWidth = width - suffixWidth;
+			return [labelWidth > 8 ? truncateToWidth(text, labelWidth) + suffix : truncateToWidth(text, width)];
 		},
 		invalidate() {},
 	});

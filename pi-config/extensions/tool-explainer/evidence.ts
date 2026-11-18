@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
@@ -62,21 +62,20 @@ function safeLabel(text: string): boolean {
 	return !/[\p{Cc}\p{Cf}]/u.test(text) && !SECRET.test(text) && !PRIVATE_PATH.test(text);
 }
 
-function pathLabel(raw: string, cwd: string): string | undefined {
+function safeTarget(raw: string, cwd: string): string | undefined {
 	if (!safeLabel(raw)) return;
 	const path = raw.replace(/^@/, "");
 	if (!path) return;
-	const home = homedir();
-	const target = path === "~" ? home : path.startsWith(`~${sep}`) ? resolve(home, path.slice(2)) : resolve(cwd, path);
-	if (!safeLabel(target)) return;
-	const inWorkspace = workspacePath(target, cwd);
-	const inHome = inWorkspace ? undefined : workspacePath(target, home);
-	const preferred = inWorkspace ?? (inHome === "." ? "~" : inHome ? `~${sep}${inHome}` : target);
-	const max = 42;
-	if (preferred.length <= max) return preferred;
-	const suffix = preferred.slice(-(max - 1));
-	const nextSeparator = suffix.indexOf(sep);
-	return nextSeparator >= 0 ? `…${suffix.slice(nextSeparator)}` : `…${sep}${suffix.slice(1)}`;
+	const target = path === "~" ? homedir() : path.startsWith(`~${sep}`) ? resolve(homedir(), path.slice(2)) : resolve(cwd, path);
+	if (safeLabel(target)) return target;
+}
+
+function shortestFileLabel(path: string, paths: string[]): string {
+	let label = basename(path) || ".";
+	for (let parent = dirname(path); parent !== dirname(parent) && paths.some((other) => other !== path && other.endsWith(sep + label)); parent = dirname(parent)) {
+		label = basename(parent) + sep + label;
+	}
+	return label;
 }
 
 const verbs = {
@@ -130,13 +129,15 @@ export function autoRow(call: Call, cwd: string): AutoRow {
 	const action = actionFor(call);
 	const image = content.some((block) => block.type === "image");
 	const text = content.some((block) => block.type === "text" && Boolean(block.text.trim()));
-	const path = isFileAction(action) || action === "search" || action === "list"
-		? stringArg(call, "path") : undefined;
+	const file = isFileAction(action);
+	const path = file || action === "search" || action === "list" ? stringArg(call, "path") : undefined;
+	const target = path ? safeTarget(path, cwd) : undefined;
 	const command = action === "shell" ? stringArg(call, "command") : undefined;
-	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : path ? pathLabel(path, cwd) : undefined;
+	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : target && (file ? target : basename(target) || ".");
+	const display = file && label ? basename(label) || "." : label;
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
 	const description = action === "shell" ? describeShell(label ? [label] : [], Number(!label), isError)
-		: `${verbs[action][isError ? 1 : 0]}${label ? ` (${label})` : ""}`;
+		: `${verbs[action][isError ? 1 : 0]}${display ? ` (${display})` : ""}`;
 	return { facts: { action, failed: isError }, label, text: `${description}.${suffix}` };
 }
 
@@ -165,23 +166,9 @@ function isFileAction(action: Action): boolean {
 }
 
 type Interpretation = { rows: Set<AutoRow>; text: string };
-export type BatchSummary = { full: string; compact: string };
 
-export function summarizeBatch(rows: AutoRow[], interpretation?: Interpretation): BatchSummary {
-	return { full: summarizeRows(rows, interpretation, false), compact: summarizeRows(rows, interpretation, true) };
-}
-
-function summarizeRows(rows: AutoRow[], interpretation: Interpretation | undefined, shortPaths: boolean): string {
-	const pathsByName = new Map<string, Set<string>>();
-	if (shortPaths) {
-		for (const { facts, label } of rows) {
-			if (!label || !isFileAction(facts.action)) continue;
-			const name = basename(label);
-			const paths = pathsByName.get(name) ?? new Set<string>();
-			paths.add(label);
-			pathsByName.set(name, paths);
-		}
-	}
+export function summarizeBatch(rows: AutoRow[], interpretation?: Interpretation): string {
+	const paths = rows.flatMap(({ facts, label }) => label && isFileAction(facts.action) ? [label] : []);
 	const parts: string[] = [];
 	let group: AutoRow[] = [];
 	let interpreted = false;
@@ -193,7 +180,7 @@ function summarizeRows(rows: AutoRow[], interpretation: Interpretation | undefin
 		const unnamed = group.filter(({ label }) => !label).length;
 		const verb = verbs[action][failed ? 1 : 0];
 		if (isFileAction(action)) {
-			const files = labels.map((path) => pathsByName.get(basename(path))?.size === 1 ? basename(path) : path);
+			const files = labels.map((path) => shortestFileLabel(path, paths));
 			if (unnamed) files.push(unnamed === 1 && !files.length ? "a file" : `${unnamed}${files.length ? " other" : ""} ${unnamed === 1 ? "file" : "files"}`);
 			parts.push(`${verb.replace(/ a file$/, "")} ${listLabels(files)}`);
 		} else if (action === "tool" && labels.length) {

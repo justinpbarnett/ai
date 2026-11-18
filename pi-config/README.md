@@ -10,6 +10,24 @@ Tracked items are copied from or linked into the target pi config directory:
 - `keybindings.json`
 - the repository's global `skills/` directory
 
+## Improve a codebase
+
+Use `/skill:improve-codebase` in Pi or `/improve-codebase` in Claude Code, with a path or concern if you want a narrower scope.
+Add `audit only` to inspect and save findings without changing application files.
+Install the isolated parser bundle once with `uv sync --project ~/dev/ai/skills/improve-codebase --locked --extra parsers --group dev`.
+Plain Python can run core inventory and reporting; missing syntax coverage for priority languages makes a run partial.
+
+The skill scans first, reviews the results and module relationships, then verifies improvements against real behavior.
+It keeps findings and completed investigations in the target worktree's ignored `.improve-codebase/` directory, so a later run can focus on new, changed, or pending work.
+The debt score counts confirmed unresolved work, including accepted risk; zero alone does not prove completion.
+See the [CLI reference](../skills/improve-codebase/references/cli.md) for scan, status, refresh, and evidence commands.
+
+To continue across turns, ask the skill to prepare a goal and submit its self-contained objective through `/goal` separately.
+Confirm the scope and enable the auditor; the skill does not start or resume goals on its own.
+The [goal recipe](../skills/improve-codebase/references/goal-loop.md) covers the verification contract, pause/resume, and evidence the auditor can inspect independently.
+This replaces `/skill:refactor` in Pi and `/refactor` in Claude Code; the Fowler checklist is bundled with the new skill.
+Run `/reload` in Pi or start a new Claude Code session to refresh command discovery.
+
 ## What stays local
 
 These are intentionally excluded and should be created on each machine as needed:

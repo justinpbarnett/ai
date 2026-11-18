@@ -1,0 +1,11 @@
+# Provenance
+
+This skill adapts practices, not upstream implementations or prompt text.
+
+- The [retired refactor command](../../../skills-retired/refactor/SKILL.md) supplied the Fowler checklist, behavior-preserving steps, explicit scope, and end-to-end baselines; the guide now ships with this skill.
+- [AIWG codebase-health](https://github.com/jmagly/aiwg/blob/ef753e9ce0f418c56fda2d3c32506567124812ec/agentic/code/plugins/sdlc/skills/codebase-health/SKILL.md) inspired mechanical inventory and hotspots; [decompose-file](https://github.com/jmagly/aiwg/blob/ef753e9ce0f418c56fda2d3c32506567124812ec/agentic/code/plugins/sdlc/skills/decompose-file/SKILL.md) informed relationship mapping without hard output file sizes.
+- Matt Pocock's [architecture improvement](https://github.com/mattpocock/skills/tree/main/skills/engineering/improve-codebase-architecture), [codebase design](https://github.com/mattpocock/skills/tree/main/skills/engineering/codebase-design), and [code review](https://github.com/mattpocock/skills/tree/main/skills/engineering/code-review) practices inform deep interfaces, the deletion test, locality, competing designs, and standards versus contract review.
+- [Desloppify](https://github.com/peteromallet/desloppify) inspired the persistent queue, strict treatment of accepted debt, and scan/fix/rescan loop; this independent implementation does not use its code, scoring algorithm, or runtime and does not assume an MIT license (the inspected source used OSNL 0.2).
+- Pedro Nauck's [refactoring-analysis](https://github.com/pedronauck/skills/tree/main/skills/mine/refactoring-analysis) informed evidence of maintenance cost and caller inspection without permanent audit docs or effort-based dismissal.
+- Wondelai's [refactoring-patterns](https://github.com/wondelai/skills/tree/main/refactoring-patterns) informed named, incremental transformations and the choice between extraction and inlining, without fixed method lengths or per-change commits.
+- The [pinned Tree-sitter language pack](https://github.com/Goldziher/tree-sitter-language-pack/tree/v0.13.0) provides locally installed grammars, and [pi-goal-x](https://github.com/tmonk/pi-goal-x/tree/v0.34.1) remains the host-owned continuation and completion-audit system.

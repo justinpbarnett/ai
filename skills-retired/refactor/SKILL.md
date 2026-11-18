@@ -7,6 +7,8 @@ disable-model-invocation: true
 
 # Refactor
 
+Retired from global discovery in favor of [improve-codebase](../../skills/improve-codebase/SKILL.md).
+
 Improve the design of existing code through small, behavior-preserving transformations, following Martin Fowler's *Refactoring: Improving the Design of Existing Code*, second edition.
 Implement the improvements, not just an audit or a plan, unless the user explicitly requests discovery only.
 Work through every actionable opportunity in scope, including minor ones, and repeat discovery after changes until a complete pass finds no new actionable opportunities.
@@ -52,7 +54,7 @@ If tools, permissions, or dependencies block verification, record the limitation
 
 ## 3. Discover opportunities exhaustively
 
-Read [the smell guide](references/smell-guide.md) before discovery.
+Read [the smell guide](../../skills/improve-codebase/references/smell-guide.md) before discovery.
 Use all 24 smells as a review checklist, adapting the transformations to the language and repository rather than imposing an object-oriented design.
 
 Review every inventoried source file and the relationships between modules.

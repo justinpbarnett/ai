@@ -8,11 +8,79 @@ Tracked items are copied from or linked into the target pi config directory:
 
 - `settings.json`
 - `keybindings.json`
+- `extensions/inline-commands.ts`
+- `extensions/jev-router/`
 - `extensions/self-compact/`
 - `extensions/shared/`
 - `extensions/tool-explainer/`
 - `extensions/working-summary/`
 - the repository's global `skills/` directory
+
+## Inline skills and slash commands
+
+The global `inline-commands` extension lets you invoke a command anywhere in a prompt and opens Pi's normal command-completion menu at the cursor.
+Type `/`, narrow the results, then use Tab or Enter to accept a completion.
+Command argument completions, file attachments, and path completions still use Pi's existing providers.
+
+```text
+Investigate the missing search results /skill:plan-bugfix
+Please /skill:implement /path/to/plan.md
+Review this change /review concurrency
+Build the agreed feature /goal
+Please /model openai/gpt-6.1-sol
+Open /settings
+```
+
+`/review` in this example requires a prompt template with that name.
+The first recognized, unquoted command is promoted to the beginning before Pi handles the submission.
+For skills, prompt templates, and extension commands, the text before and after the command becomes its arguments in the original order.
+This also means positional template arguments include any preceding prose.
+Commands already at the beginning retain Pi's native behavior, and multiple commands are not executed as a chain.
+Built-in controls such as `/model` and `/settings` use only the arguments after the command; preceding prose is not sent to the agent.
+
+A slash must start a whitespace-delimited token, so URLs and multi-segment paths are not treated as commands.
+Use backticks, quotes, or an escaped slash such as `\/settings` to mention a command literally.
+Unknown command names and shell submissions beginning with `!` or `!!` are left alone.
+In print and RPC modes, inline skills and prompt templates are supported, but interactive controls and extension-command promotion are TUI-only.
+Extension-injected messages are not rewritten.
+
+The extension uses Pi's native command catalog, expansion, and execution rather than duplicating skill loading or template substitution.
+Pi 1.5.2 exposes provider composition but hardcodes the editor's natural slash trigger to the beginning of a message.
+A guarded editor adapter requests the existing autocomplete menu for inline commands; if a future editor removes that hook, Pi warns and Tab completion remains available.
+No installed Pi package files are patched.
+Run `/reload` in an idle Pi session, or restart Pi, after installation or updates to this extension.
+
+## JEV model routing
+
+Select `jev/auto` (`JEV Auto`) in `/model`, or start with `pi --model jev/auto`.
+JEV chooses a model tier and a thinking level on each new user turn.
+For a focused task where you want to avoid downgrades between related turns, select `jev/upgrade` (`JEV Upgrade Only`) instead.
+Pi clamps thinking to the chosen model's supported levels and displays the actual route in its footer.
+Tool follow-ups and retries keep the physical model and effort for that request.
+`JEV Upgrade Only` still asks JEV to classify each eligible turn, but only raises the model tier or thinking level during the session; it does not detect goal changes.
+Select `jev/auto` or a physical model when a new goal should be allowed to downgrade.
+The router does not change Pi's startup model; press `Ctrl+S` in `/model` to make a selection the default.
+
+Edit `~/.pi/agent/jev-router.json` (or the file in `PI_CODING_AGENT_DIR`) and run `/reload` to swap any tier.
+Each value is a Pi `provider/model-id`, including models on other providers.
+For example, `{"B": "openrouter/moonshotai/kimi-k2.6"}` overrides just B.
+The defaults are:
+
+| Tier | Model |
+| --- | --- |
+| S+ | `openai/gpt-6.2-astra` |
+| S | `openai/gpt-6.2-sol` |
+| A | `openai/gpt-6.1-terra` |
+| B | `openai/gpt-6-luna` |
+
+Only JEV runs through OpenRouter by default, using Pi's OpenRouter login or `OPENROUTER_API_KEY` and `typesafe/jev-1.14`.
+Eligible requests in trusted sessions send up to 2,000 characters of the new user prompt to OpenRouter and TypeSafe, which may incur charges.
+The classifier does not receive conversation history, tool results, attachments, or expanded templates.
+The obvious-credential filter is not a guarantee of redaction; select a physical model to avoid routing sensitive prompts through JEV.
+If JEV is skipped, unavailable, or times out, the router uses tier A at medium effort.
+`--offline` skips classification but does not change the provider of the dispatched chat model.
+A missing or unauthenticated target reports which tier needs fixing instead of silently switching providers.
+The portable installer includes the extension and leaves the tier overrides local.
 
 ## Self-compaction
 

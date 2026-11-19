@@ -11,6 +11,9 @@ from pathlib import Path
 from .inventory import STATE_DIR, digest, git
 
 SCHEMA_VERSION = 1
+RUNS_TABLE = (
+    "CREATE TABLE IF NOT EXISTS runs (name TEXT PRIMARY KEY, payload BLOB NOT NULL)"
+)
 DEBT = {"open", "in_progress", "pending_verification", "blocked", "accepted_risk"}
 SEVERITIES = {"critical": 16, "high": 8, "medium": 3, "low": 1}
 MAX_INPUT_BYTES = 32 * 1024 * 1024
@@ -161,7 +164,7 @@ def safe_state_dir(root, is_git, requested, write):
 class Store:
     def __init__(self, path, root, scopes, thresholds, *, write=False):
         self.path = path
-        self.key = digest([scopes, thresholds])
+        self.select(scopes, thresholds)
         self.connection = None
         if not write and not path.exists():
             return
@@ -202,6 +205,31 @@ class Store:
         except BaseException:
             self.close()
             raise
+
+    def select(self, scopes, thresholds, base=None):
+        profile = [scopes, thresholds]
+        self.key = digest([*profile, base] if base else profile)
+
+    def runs(self):
+        if (
+            self.connection is None
+            or not self.connection.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'runs'"
+            ).fetchone()
+        ):
+            return {}
+        return {
+            name: unpacked(payload)
+            for name, payload in self.connection.execute(
+                "SELECT name, payload FROM runs ORDER BY name"
+            )
+        }
+
+    def save_run(self, name, configuration):
+        self.connection.execute(RUNS_TABLE)
+        self.connection.execute(
+            "INSERT INTO runs VALUES (?, ?)", (name, packed(configuration))
+        )
 
     def close(self):
         if self.connection is not None:
@@ -336,7 +364,7 @@ class Store:
             receipt = unpacked(payload)
             if scope == self.key:
                 current[unit][stage] = receipt
-            elif not receipt["findings"]:
+            elif not receipt["findings"] and not receipt.get("observations"):
                 shared[unit][scope][stage] = receipt
         for unit, scopes in shared.items():
             if not current[unit]:

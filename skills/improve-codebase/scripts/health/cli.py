@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 from functools import partial
+from itertools import islice
 from pathlib import Path
 
 from .detectors import scan_sources, settings
@@ -29,15 +30,18 @@ from .review import (
     triage,
     units_for,
 )
+from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scoring import evaluate
 from .state import (
     Store,
+    array,
     detect_moves,
     object_value,
     observe,
     read_json,
     require,
     safe_state_dir,
+    string,
 )
 
 SKILL = Path(__file__).resolve().parents[2]
@@ -58,6 +62,7 @@ def options(parser):
         "--state-dir",
         help="explicit state directory; default is <root>/.improve-codebase",
     )
+    parser.add_argument("--run", help="resume a named run or slice in this worktree")
     parser.add_argument(
         "--thresholds",
         type=Path,
@@ -87,6 +92,12 @@ def arguments(argv):
             command.add_argument(
                 "--core-only", action="store_true", help="run without optional parsers"
             )
+        if cmd != "doctor" and cmd != "report":
+            command.add_argument(
+                "--summary",
+                action="store_true",
+                help="omit detailed inventories and queues",
+            )
         if cmd == "scan":
             command.add_argument(
                 "--full", action="store_true", help="recompute every mechanical result"
@@ -103,6 +114,31 @@ def arguments(argv):
                 default=0,
                 help="report a debt target without changing clean completion",
             )
+    runs = sub.add_parser(
+        "run", help="save or list resumable worktree runs and slices"
+    ).add_subparsers(dest="action", required=True)
+    start = runs.add_parser(
+        "start", help="name a scope and optionally derive it from a Git diff"
+    )
+    options(start)
+    start.add_argument("name")
+    start.add_argument("--base", help="Git base commit for fallout mode")
+    start.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help="additional affected path for fallout mode",
+    )
+    view = runs.add_parser("slice", help="name a view of a parent run's backlog")
+    options(view)
+    view.add_argument("name")
+    view.add_argument(
+        "--path",
+        action="append",
+        required=True,
+        help="path inside the parent scope; repeat as needed",
+    )
+    options(runs.add_parser("list", help="list the runs in this state directory"))
     review = sub.add_parser(
         "review", help="prepare score-blind packets or import review receipts"
     ).add_subparsers(dest="action", required=True)
@@ -112,6 +148,20 @@ def arguments(argv):
     options(packet)
     packet.add_argument("--axis", choices=AXES)
     packet.add_argument("--pass", dest="stage", choices=STAGES)
+    packet.add_argument(
+        "--unit",
+        action="append",
+        default=[],
+        help="select this exact unit ID; repeat as needed",
+    )
+    packet.add_argument(
+        "--path", action="append", help="select units touching a path; repeat as needed"
+    )
+    packet.add_argument(
+        "--receipt-template",
+        action="store_true",
+        help="include an unfilled receipt in JSON output",
+    )
     packet.add_argument(
         "--partition", help="filter to a project partition named in the report"
     )
@@ -154,7 +204,7 @@ def arguments(argv):
             "--input",
             type=Path,
             required=True,
-            help="JSON update with expected revision and current snapshot",
+            help="JSON with revision and snapshot plus a single event or an atomic updates/records array",
         )
     importer = sub.add_parser(
         "import-diagnostics", help="import a local machine-readable diagnostic report"
@@ -199,14 +249,12 @@ def rubric_version():
 
 def scope_evidence(live, analyzed, profile, rubric):
     units = units_for(live, analyzed, rubric)
-    context, partitions, relationships = {}, set(), set()
+    context, relationships = {}, set()
     for unit in units.values():
         context.update(unit["context"])
-        if unit["partition_fingerprint"] is not None:
-            partitions.add(unit["partition_fingerprint"])
         relationships.update(unit["relationships"])
     scope_inputs = digest(
-        [live["scope_fingerprint"], context, sorted(partitions), sorted(relationships)]
+        [live["scope_fingerprint"], context, [], sorted(relationships)]
     )
     snapshot = digest(
         [
@@ -247,8 +295,8 @@ def scan(args, store, state, thresholds, collect, root, is_git, scopes):
     if snapshot != state.get("snapshot"):
         state["previous_units"] = {
             key: {
-                "inputs": unit["inputs"],
-                "files": [unit["context"][p] for p in unit["files"]],
+                **unit,
+                "file_hashes": [unit["context"][p] for p in unit["files"]],
             }
             for key, unit in old_units.items()
         }
@@ -266,6 +314,12 @@ def scan(args, store, state, thresholds, collect, root, is_git, scopes):
             for event in store.history()
         ):
             state["baseline_inputs"] = scope_inputs
+    if (
+        state.get("baseline_inputs")
+        and state["baseline_inputs"] == state.get("scope_inputs")
+        and previous_inventory.get("fingerprint") == live["fingerprint"]
+    ):
+        state["baseline_inputs"] = scope_inputs
     changed_parser = state.get("parser_profile") != parser_profile
     state.update(
         root=str(root),
@@ -353,19 +407,104 @@ def current_inventory(store, state, thresholds, collect):
     return current, scan_is_current(store, state, current, files, thresholds)
 
 
+def configure_run(args, store, root, is_git, state_dir, scopes, thresholds):
+    if args.action == "list":
+        require(
+            not (args.run or args.scope or args.thresholds),
+            "run list does not take a run, scope, or thresholds",
+        )
+        return {"runs": store.runs()}
+    name = run_name(args.name)
+    require(
+        name not in store.runs(), f"run {name!r} already exists; resume it with --run"
+    )
+    if args.action == "slice":
+        require(args.run, "pass --run with the parent run name")
+        configuration = slice_configuration(
+            root, args.run, current_run(store, args.run), args.path
+        )
+    else:
+        require(not args.run, "pass the new run name as a positional argument")
+        require(args.base or not args.include, "--include requires --base")
+        configuration = {"root": str(root), "scope": scopes, "thresholds": thresholds}
+        if args.base:
+            require(is_git, "fallout mode requires a Git worktree")
+            paths, fallout = fallout_scope(
+                root, state_dir, scopes, args.base, args.include
+            )
+            configuration.update(scope=paths, fallout=fallout)
+    with store.transaction():
+        require(
+            name not in store.runs(),
+            f"run {name!r} already exists; resume it with --run",
+        )
+        store.save_run(name, configuration)
+    return {"run": name, "configuration": configuration}
+
+
+def record_batch(args, store, state, document, entries, root, state_dir):
+    finding = args.command == "finding"
+    key = "updates" if finding else "records"
+    kind = "finding" if finding else "verification"
+    if key in document:
+        require(
+            document.keys() == {"revision", "snapshot", key},
+            "batch requires only revision, snapshot, and event list",
+        )
+        events = array(document, key)
+        require(events, "batch must not be empty")
+    else:
+        events = [document]
+    results, seen = [], set()
+    for value in events:
+        event = object_value(value, "batch event")
+        require(key not in event, "nested batches are not supported")
+        if key in document:
+            require(
+                not {"revision", "snapshot"} & event.keys(),
+                "put revision and snapshot on the batch, not each event",
+            )
+            identifier = (
+                None
+                if not finding and event.get("kind") == "manifest"
+                else string(event, "id")
+            )
+            require(
+                identifier not in seen, "duplicate event for the same ID in a batch"
+            )
+            seen.add(identifier)
+            event = event | {"snapshot": document["snapshot"]}
+        results.append(
+            triage(store, state, event, state_dir, entries)
+            if finding
+            else record_verification(state, event, root, state_dir)
+        )
+    result = results if key in document else results[0]
+    if key in document:
+        store.save(state, f"{kind}_batch", {key: result})
+    else:
+        store.save(state, kind, {"finding" if finding else "record": result})
+    return result
+
+
 def execute(args, envelope):
     root, is_git = discover_root(args.root)
+    require(
+        not args.run or not (args.scope or args.thresholds),
+        "named runs already specify scope and thresholds",
+    )
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
-    writes = args.command in {
+    run_write = args.command == "run" and args.action != "list"
+    writes = run_write or args.command in {
         "scan",
         "review",
         "import-diagnostics",
         "finding",
         "verification",
     }
-    # Only a scan initializes an ignored state location.
-    state_dir = safe_state_dir(root, is_git, args.state_dir, args.command == "scan")
+    initialize = not args.run and (args.command == "scan" or run_write)
+    state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
     envelope.update(
         root=str(root),
         git_worktree=is_git,
@@ -396,15 +535,31 @@ def execute(args, envelope):
             else "not a Git worktree",
             "thresholds": thresholds,
         }, 0
-    if writes and args.command != "scan":
+    if writes and not initialize:
         require(
-            (state_dir / "state.sqlite3").is_file(), "scan before recording evidence"
+            (state_dir / "state.sqlite3").is_file(),
+            "no named run ledger in this worktree"
+            if args.run
+            else "scan before recording evidence",
         )
         state_dir = safe_state_dir(root, is_git, args.state_dir, True)
-    collect = partial(inventory, root, is_git, scopes, state_dir)
     store = Store(state_dir / "state.sqlite3", root, scopes, thresholds, write=writes)
     try:
+        if args.command == "run":
+            return configure_run(
+                args, store, root, is_git, state_dir, scopes, thresholds
+            ), 0
+        run = current_run(store, args.run) if args.run else {}
+        view = run.get("slice")
+        base = run.get("fallout", {}).get("base")
+        if run:
+            scopes, thresholds = run["scope"], run["thresholds"]
+            store.select(scopes, thresholds, base)
+            envelope.update(run=args.run, scope=scopes, fallout=run.get("fallout"))
+        collect = partial(inventory, root, is_git, scopes, state_dir)
         state = store.load()
+        if base:
+            state["fallout_base"] = base
         target = getattr(args, "target", 0)
         require(target >= 0, "debt target must not be negative")
         if args.command == "scan":
@@ -433,6 +588,10 @@ def execute(args, envelope):
                         full=args.full,
                         exclude=args.exclude_unit,
                         partition=args.partition,
+                        include=args.unit,
+                        paths=normalize_scope(root, args.path) if args.path else [],
+                        slice_paths=view["paths"] if view else [],
+                        template=args.receipt_template,
                     )
                 return result, 0
             document = object_value(
@@ -477,12 +636,10 @@ def execute(args, envelope):
                         result = ingest(
                             store, state, root, args.tool, args.input, document
                         )
-                    elif args.command == "finding":
-                        result = triage(store, state, document, state_dir, entries)
-                        store.save(state, "finding", {"finding": result})
                     else:
-                        result = record_verification(state, document, root, state_dir)
-                        store.save(state, "verification", {"record": result})
+                        result = record_batch(
+                            args, store, state, document, entries, root, state_dir
+                        )
                 current_again, _ = collect()
                 require(
                     current_again["fingerprint"] == current["fingerprint"],
@@ -501,6 +658,8 @@ def execute(args, envelope):
             fresh,
             REF.is_file(),
             target,
+            view=view,
+            summary=getattr(args, "summary", False),
         )
         report.update(
             revision=state["revision"],
@@ -509,7 +668,7 @@ def execute(args, envelope):
             profile=store.key,
         )
         report["command"] = args.command
-        if args.command in {"scan", "report"}:
+        if args.command in {"scan", "report"} and not getattr(args, "summary", False):
             report.update(
                 inventory=current if fresh else state.get("inventory", current),
                 scan=state.get("scan"),
@@ -525,7 +684,7 @@ def execute(args, envelope):
                 history=store.history(),
                 diagnostic_runs=state.get("diagnostic_runs", {}),
             )
-        if args.command == "next":
+        if args.command == "next" and not args.summary:
             report["backlog"] = [
                 f
                 for f in state["findings"].values()
@@ -551,6 +710,17 @@ def render_text(output):
             f"Next: {output['next_phase']}",
         )
     )
+    if output.get("run"):
+        lines.append(f"Run: {output['run']}")
+    if view := output.get("slice"):
+        counts = view["coverage"]
+        lines.append(
+            f"Slice: {counts['discovery']}/{counts['total']} discovery, {counts['confirmation']}/{counts['total']} confirmation; {'verified' if view['verified'] else 'partial'}. The completion gate applies to {view['parent']}."
+        )
+    if output.get("fallout"):
+        lines.append(
+            f"Fallout base: {output['fallout']['base']}; classifications: {output.get('change_relations', {})}"
+        )
     if output["unmet"]:
         lines.append("Unmet: " + ", ".join(output["unmet"]))
     for item in output["verification_unmet"]:
@@ -558,7 +728,7 @@ def render_text(output):
     failures = output["capability_failures"]
     for item in failures[:12]:
         lines.append(
-            f"  {item['path']!r}: {item['surface']} {item['kind']} ({item.get('reason', 'see range in JSON')})"
+            f"  Scanner gap {item['path']!r}: {item['surface']} {item['kind']} ({item.get('reason', 'see range in JSON')})"
         )
     if len(failures) > 12:
         lines.append(
@@ -591,6 +761,19 @@ def render_text(output):
             for key in ("reused", "new", "changed", "invalidated", "pending")
         )
     )
+    if output["command"] == "next" and isinstance(work.get("discovery"), list):
+        due = (
+            item
+            for stage in STAGES
+            for item in work[stage]
+            if item.get("changed_inputs")
+        )
+        for item in islice(due, 3):
+            details = {
+                key: value[:5] if isinstance(value, list) else value
+                for key, value in item["changed_inputs"].items()
+            }
+            lines.append(f"  {item['axis']} {item['id']}: {details!r}")
     if output["other_scope_or_profile_debt"]:
         lines.append(
             f"Known debt in {len(output['other_scope_or_profile_debt'])} other scope/profile run(s); this result does not close them."

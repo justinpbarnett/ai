@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .detectors import project_context
 from .inventory import content_hash, digest, is_project_guide, read_source, safe_file
+from .runs import WIRING_LANGUAGES, change_relation, in_paths
 from .state import (
     SEVERITIES,
     array,
@@ -20,7 +21,7 @@ AXES = ("smells", "architecture", "contracts")
 STAGES = ("discovery", "confirmation")
 VERIFICATION_KINDS = {"baseline", "check", "flow", "final_diff"}
 SATISFACTORY_RESULTS = {"passed", "not_applicable"}
-REVIEW_VERSION = 2
+REVIEW_VERSION = 3
 VERIFICATION_VERSION = 1
 
 
@@ -39,48 +40,52 @@ def units_for(inv, scan, rubric):
         if projects[0] != projects[1]:
             project_neighbors[projects[0]].add(projects[1])
             project_neighbors[projects[1]].add(projects[0])
-    units, partition_hashes = {}, {}
-    guides = defaultdict(set)
+    units, partition_inputs, uncertain_files = {}, {}, defaultdict(set)
+    guides, rules_by_directory = defaultdict(set), defaultdict(set)
     for path, entry in entries.items():
         if entry["disposition"] == "reference" and is_project_guide(path):
             guides[Path(path).parent].add(path)
-    governing = digest([rubric, inv["rules"]])
+    for path in inv["rules"]:
+        rules_by_directory[Path(path).parent].add(path)
 
-    def partition_fingerprint(project):
-        if project not in partition_hashes:
-            # Project references can change consumers without touching the project files themselves.
+    def partition_paths(project):
+        if project not in partition_inputs:
             linked, pending = set(), [project]
-            context = set()
             while pending:
                 name = pending.pop()
                 if name not in linked:
                     linked.add(name)
                     pending.extend(project_neighbors[name] - linked)
-                    context.update(project_context(name, entries))
-            fingerprint = digest(
-                {path: entries[path]["hash"] for path in sorted(context)}
-            )
-            partition_hashes.update(dict.fromkeys(linked, fingerprint))
-        return partition_hashes[project]
+            inputs = set().union(*(project_context(name, entries) for name in linked))
+            partition_inputs.update(dict.fromkeys(linked, inputs))
+        return partition_inputs[project]
 
-    def register(axis, files, related, partition=None):
+    def register(axis, files, related, *, wiring=None):
         files = sorted(files)
         context_paths = set(files) | set(related)
-        documentation = {
-            guide
-            for path in context_paths
-            for parent in Path(path).parents
-            for guide in guides.get(parent, ())
+        directories = {
+            parent for path in context_paths for parent in Path(path).parents
         }
+        documentation = {
+            guide for directory in directories for guide in guides.get(directory, ())
+        }
+        rules = {
+            path: inv["rules"][path]
+            for directory in directories
+            for path in rules_by_directory.get(directory, ())
+        }
+        governing = digest([rubric, rules])
         context = {p: entries[p]["hash"] for p in sorted(context_paths | documentation)}
-        identifier = digest([axis, files])[:24]
+        identifier = digest(
+            [axis, files] if wiring is None else [axis, "wiring", wiring]
+        )[:24]
         edges = sorted({edge for path in files for edge in relationships[path]})
         limits = {
             path: scan["limitations"][path]
             for path in context_paths
             if path in scan["limitations"]
         }
-        inputs = digest([identifier, context, governing, partition, edges, limits])
+        inputs = digest([identifier, context, governing, wiring, edges, limits])
         units[identifier] = {
             "id": identifier,
             "axis": axis,
@@ -89,40 +94,33 @@ def units_for(inv, scan, rubric):
             "context": context,
             "relationships": edges,
             "project_partitions": sorted({entries[path]["project"] for path in files}),
-            "partition_fingerprint": partition,
+            "wiring_partition": wiring,
+            "governing": governing,
+            "rule_hashes": rules,
+            "rubric": rubric,
+            "limitations": limits,
         }
 
     for path in sorted(source):
         entry = entries[path]
+        if entry["language"] in WIRING_LANGUAGES or scan["limitations"].get(path):
+            uncertain_files[entry["project"]].add(path)
         for axis in AXES:
-            partition = None
-            uncertain = entry["language"] in {
-                "unknown",
-                "generic",
-                "csharp",
-                "html",
-                "vue",
-                "css",
-                "scss",
-            } or bool(scan["limitations"].get(path))
-            if axis != "smells" and uncertain:
-                partition = partition_fingerprint(entry["project"])
-            register(axis, [path], adjacent[path], partition)
+            register(axis, [path], adjacent[path])
     for left, right, kind in scan["edges"]:
         if left != right and (left in source or right in source):
-            partition = (
-                partition_fingerprint(entries[left]["project"])
-                if kind == "project"
-                else None
-            )
+            if kind == "project":
+                for path in {left, right} & source:
+                    uncertain_files[entries[path]["project"]].add(path)
             for axis in ("architecture", "contracts"):
-                register(
-                    axis, [left, right], adjacent[left] | adjacent[right], partition
-                )
+                register(axis, [left, right], adjacent[left] | adjacent[right])
+    for project, files in sorted(uncertain_files.items()):
+        for axis in ("architecture", "contracts"):
+            register(axis, files, partition_paths(project), wiring=project)
     return units
 
 
-def matching_receipts(store, state, entries, *, completion=False):
+def matching_receipts(store, state, entries, *, completion=False, stale_inputs=None):
     units = state.get("units", {})
     receipts = store.receipts({unit["inputs"] for unit in units.values()})
     valid = {}
@@ -130,14 +128,18 @@ def matching_receipts(store, state, entries, *, completion=False):
         passes = {}
         for stage in STAGES:
             saved = receipts[unit["inputs"]].get(stage)
-            if (
-                saved is not None
-                and (saved.get("profile") == store.key or not saved["findings"])
-                and all(
-                    entries.get(path, {}).get("hash") == stamp
-                    for path, stamp in saved["reads"].items()
-                )
+            if saved is not None and (
+                saved.get("profile") == store.key or not saved["findings"]
             ):
+                changed = sorted(
+                    path
+                    for path, stamp in saved["reads"].items()
+                    if entries.get(path, {}).get("hash") != stamp
+                )
+                if changed:
+                    if stale_inputs is not None:
+                        stale_inputs.setdefault(unit_id, {})[stage] = changed
+                    continue
                 if completion and stage == "confirmation" and saved["found_new_work"]:
                     continue
                 if stage == "confirmation" and (
@@ -150,7 +152,45 @@ def matching_receipts(store, state, entries, *, completion=False):
     return valid
 
 
-def review_work(state, receipts):
+def changed_keys(old, new):
+    return sorted(
+        key for key in old.keys() | new.keys() if old.get(key) != new.get(key)
+    )
+
+
+def unit_changes(old, new):
+    changes = {}
+    if old.get("context") is not None:
+        paths = changed_keys(old["context"], new["context"])
+        if paths:
+            changes["context_paths"] = paths
+    if old.get("relationships") != new.get("relationships"):
+        before = {tuple(edge) for edge in old.get("relationships", [])}
+        after = {tuple(edge) for edge in new.get("relationships", [])}
+        changes["relationships"] = {
+            "added": sorted(after - before),
+            "removed": sorted(before - after),
+        }
+    rules = changed_keys(old.get("rule_hashes", {}), new.get("rule_hashes", {}))
+    if rules:
+        changes["governing_paths"] = rules
+    if old.get("rubric") != new.get("rubric"):
+        changes["review_rubric_changed"] = True
+    limits = changed_keys(old.get("limitations", {}), new.get("limitations", {}))
+    if limits:
+        changes["limitation_paths"] = limits
+    if old.get("wiring_partition") != new.get("wiring_partition") or old.get(
+        "partition_fingerprint"
+    ):
+        changes["wiring_coverage_changed"] = True
+    return changes
+
+
+def unit_matches_paths(unit, paths):
+    return any(in_paths(path, paths) for path in unit["files"])
+
+
+def review_work(state, receipts, *, stale_inputs=None):
     old_units = state.get("previous_units", {})
     result = {stage: [] for stage in STAGES}
     result.update({"reused": 0, "new": 0, "changed": 0, "invalidated": 0, "pending": 0})
@@ -166,9 +206,9 @@ def review_work(state, receipts):
         elif identifier not in old_units:
             reason = "new or never-investigated unit"
             result["new"] += 1
-        elif old_units[identifier].get("files") != [
-            unit["context"][p] for p in unit["files"]
-        ]:
+        elif old_units[identifier].get(
+            "file_hashes", old_units[identifier].get("files")
+        ) != [unit["context"][p] for p in unit["files"]]:
             reason = "source content changed"
             result["changed"] += 1
         elif old_units[identifier]["inputs"] != unit["inputs"]:
@@ -177,32 +217,61 @@ def review_work(state, receipts):
         else:
             reason = "review unfinished or declared supporting evidence changed"
             result["pending"] += 1
+        details = {}
+        prior = old_units.get(identifier)
+        if prior and prior["inputs"] != unit["inputs"]:
+            details = unit_changes(prior, unit)
+        if stale_inputs and stale_inputs.get(identifier):
+            details["declared_reads_changed"] = stale_inputs[identifier]
         result[stage].append(
             {
                 "id": identifier,
                 "axis": unit["axis"],
                 "files": unit["files"],
+                "wiring_partition": unit.get("wiring_partition"),
                 "reason": reason,
+                **({"changed_inputs": details} if details else {}),
             }
         )
     return result
 
 
 def prepare(
-    store, state, entries, *, root, axis, stage, limit, full, exclude, partition
+    store,
+    state,
+    entries,
+    *,
+    root,
+    axis,
+    stage,
+    limit,
+    full,
+    exclude,
+    partition,
+    include,
+    paths,
+    slice_paths,
+    template,
 ):
     require(state.get("snapshot"), "scan before preparing reviews")
     work = review_work(state, matching_receipts(store, state, entries, completion=True))
     valid = matching_receipts(store, state, entries)
     units = state["units"]
     require(
-        all(identifier in units for identifier in exclude),
-        "excluded unit no longer exists",
+        all(identifier in units for identifier in [*include, *exclude]),
+        "requested unit does not exist on this scan",
     )
+    require(
+        not set(include) & set(exclude), "unit cannot be both requested and excluded"
+    )
+    require(len(set(include)) <= limit, "requested unit count exceeds the packet limit")
 
     def selected(unit):
         return (
             unit["id"] not in exclude
+            and (not include or unit["id"] in include)
+            and (not paths or unit_matches_paths(unit, paths))
+            and (not slice_paths or unit_matches_paths(unit, slice_paths))
             and (not axis or unit["axis"] == axis)
             and (
                 not partition
@@ -229,15 +298,30 @@ def prepare(
         ]
     else:
         ids = [item["id"] for item in work[stage] if selected(units[item["id"]])]
+    if include:
+        require(
+            set(ids) == set(include) and len({units[key]["axis"] for key in ids}) == 1,
+            "requested units must be eligible for the same pass and axis; use --full to revisit covered units",
+        )
     if not ids:
         return {"packet": None, "remaining": 0, "pass": stage}
     axis = axis or units[ids[0]]["axis"]
     ids = sorted(
         (key for key in ids if units[key]["axis"] == axis),
-        key=lambda key: units[key]["files"],
+        key=lambda key: (
+            units[key].get("wiring_partition") is not None,
+            units[key]["files"],
+        ),
     )
     packet_id = uuid.uuid4().hex
-    rules = list(state["inventory"]["rules"])
+    assigned = [units[key] for key in ids[:limit]]
+    rules = sorted(
+        {
+            path
+            for unit in assigned
+            for path in unit.get("rule_hashes", state["inventory"]["rules"])
+        }
+    )
     packet = {
         "id": packet_id,
         "sweep_id": digest([state["snapshot"], stage]),
@@ -245,22 +329,46 @@ def prepare(
         "root": str(root),
         "axis": axis,
         "pass": stage,
-        "units": [units[key] for key in ids[:limit]],
+        "units": assigned,
+        "fallout_base": state.get("fallout_base"),
         "governing_paths": rules,
         "created_at": now(),
     }
     stored = packet | {
+        "prior_receipts": {
+            key: valid[key].get(stage, {}).get("packet_id") for key in ids[:limit]
+        },
         "discovery_packets": {
             key: valid[key]["discovery"]["packet_id"]
             for key in ids[:limit]
             if stage == "confirmation"
-        }
+        },
     }
     store.connection.execute(
         "INSERT INTO packets VALUES (?, ?, 0, ?)",
         (packet_id, store.key, packed(stored)),
     )
-    return {"packet": packet, "remaining": len(ids) - len(packet["units"])}
+    result = {"packet": packet, "remaining": len(ids) - len(packet["units"])}
+    if template:
+        result["receipt_template"] = {
+            "packet_id": packet_id,
+            "snapshot": packet["snapshot"],
+            "sweep_id": packet["sweep_id"],
+            "axis": axis,
+            "reviewer": "",
+            "independence": "sequential",
+            "units": [
+                {
+                    "id": unit["id"],
+                    "inputs": unit["inputs"],
+                    "reads": unit["context"],
+                    "evidence": "",
+                    "findings": [],
+                }
+                for unit in packet["units"]
+            ],
+        }
+    return result
 
 
 def location(document, entries):
@@ -310,7 +418,7 @@ def confirmed_fields(obj):
     }
 
 
-def semantic_finding(doc, entries, unit, reads):
+def semantic_finding(doc, entries, unit, reads, *, fallout=False):
     obj = object_value(doc, "semantic finding")
     primary = location(obj.get("location"), entries)
     require(
@@ -340,7 +448,30 @@ def semantic_finding(doc, entries, unit, reads):
         "observation": {"axis": unit["axis"]},
         "review_unit": unit["id"],
         **fields,
+        **(change_relation(obj) if fallout else {}),
     }
+
+
+def outside_observations(item, entries, reads):
+    return (
+        [
+            outside_observation(value, entries, reads)
+            for value in array(item, "observations")
+        ]
+        if "observations" in item
+        else []
+    )
+
+
+def outside_observation(value, entries, reads):
+    obj = object_value(value, "out-of-scope observation")
+    loc = location(obj.get("location"), entries)
+    path = loc["path"]
+    require(
+        path in reads and entries[path]["disposition"] == "context",
+        "observation must cite reviewed source outside the run scope",
+    )
+    return {"location": loc, "evidence": string(obj, "evidence")}
 
 
 def import_review(store, state, document, entries):
@@ -352,8 +483,8 @@ def import_review(store, state, document, entries):
     require(row is not None and not row[1], "unknown or already imported review packet")
     packet = unpacked(row[0])
     require(
-        packet["snapshot"] == state.get("snapshot") == document.get("snapshot"),
-        "review packet snapshot is stale",
+        packet["snapshot"] == document.get("snapshot"),
+        "receipt snapshot does not match its packet",
     )
     require(
         packet["axis"] == document.get("axis")
@@ -379,21 +510,39 @@ def import_review(store, state, document, entries):
     )
     valid = matching_receipts(store, state, entries)
     stage = packet["pass"]
+    rebased = packet["snapshot"] != state["snapshot"]
+    require(
+        not rebased or "prior_receipts" in packet,
+        "legacy packet is stale; prepare a fresh packet",
+    )
     receipts, observed = [], []
     for identifier, item in incoming.items():
         unit = expected[identifier]
+        current = state["units"].get(identifier)
+        require(current is not None, f"review unit no longer exists: {identifier}")
+        if current["inputs"] != unit["inputs"]:
+            raise ValueError(
+                f"review unit inputs changed: {identifier}; {unit_changes(unit, current)}"
+            )
         require(
             item.get("inputs") == unit["inputs"],
             "unit input fingerprint does not match packet",
         )
-        reads = object_value(item.get("reads"), "reads")
+        current_stage = valid[identifier].get(stage, {})
+        prior = packet.get("prior_receipts")
         require(
-            reads
-            and all(
-                entries.get(path, {}).get("hash") == stamp and isinstance(stamp, str)
-                for path, stamp in reads.items()
-            ),
-            "review input paths or hashes are stale or invalid",
+            prior is None or current_stage.get("packet_id") == prior.get(identifier),
+            f"a newer {stage} receipt exists for unit {identifier}; prepare a fresh packet",
+        )
+        reads = object_value(item.get("reads"), "reads")
+        stale_reads = sorted(
+            path
+            for path, stamp in reads.items()
+            if not isinstance(stamp, str) or entries.get(path, {}).get("hash") != stamp
+        )
+        require(
+            reads and not stale_reads,
+            f"review input paths or hashes are stale or invalid: {stale_reads!r}",
         )
         require(
             all(reads.get(path) == hashed for path, hashed in unit["context"].items()),
@@ -401,7 +550,9 @@ def import_review(store, state, document, entries):
         )
         evidence = string(item, "evidence")
         findings = [
-            semantic_finding(value, entries, unit, reads)
+            semantic_finding(
+                value, entries, unit, reads, fallout=bool(state.get("fallout_base"))
+            )
             for value in array(item, "findings")
         ]
         discovery_packet = packet["discovery_packets"].get(identifier)
@@ -441,6 +592,8 @@ def import_review(store, state, document, entries):
             "reads": reads,
             "evidence": evidence,
             "findings": identifiers,
+            "observations": outside_observations(item, entries, reads),
+            "packet_snapshot": packet["snapshot"],
             "found_new_work": changed,
             "at": now(),
             "revision": state["revision"] + 1,
@@ -465,7 +618,7 @@ def import_review(store, state, document, entries):
             "findings": observed,
         },
     )
-    return {"accepted_units": len(incoming), "findings": observed}
+    return {"accepted_units": len(incoming), "findings": observed, "rebased": rebased}
 
 
 def record_manifest(state, document):
@@ -686,6 +839,10 @@ def triage(store, state, document, state_dir, entries):
     after = dict(before)
     if status == "open" and before["status"] in {"candidate", "superseded"}:
         after.update(confirmed_fields(document), triaged_at=now())
+        if state.get("fallout_base"):
+            after.update(change_relation(document))
+    elif state.get("fallout_base") and "change_relation" in document:
+        after.update(change_relation(document))
     if status == "open" and "dependencies" in document:
         from .state import validate_dependencies
 
@@ -841,11 +998,16 @@ def verify_resolution(store, state, finding, doc, state_dir, entries):
         )
         require(
             state["scan_revision"] >= pending
-            and not state["scan"]["gaps"]
             and not any(
-                item["disposition"] == "incomplete" for item in entries.values()
+                gap["path"] in required_paths or finding["rule"] == "dependency-cycle"
+                for gap in state["scan"]["gaps"]
+            )
+            and not any(
+                entry["disposition"] == "incomplete"
+                and (path in required_paths or finding["rule"] == "dependency-cycle")
+                for path, entry in entries.items()
             ),
-            "a successful applicable scan after pending verification is required",
+            "a successful scan of the affected detector inputs after marking pending is required",
         )
     if finding["origin"] == "diagnostic":
         result = state.get("diagnostic_runs", {}).get(finding["tool"], {})

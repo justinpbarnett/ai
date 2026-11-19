@@ -15,7 +15,7 @@ Use this structure, substituting real paths and commands before submission:
 Improve the first-party code under <absolute root>, scoped to <paths or whole worktree>, using <absolute SKILL.md>; preserve existing work and observable contracts, and make only authorized changes.
 Use <absolute state path> for finding, review, and verification evidence; continue from the ledger after interruptions.
 Reproduce defects end to end before changing behavior, keep refactors separate, and exercise <actual project checks and real CLI/API/UI flows>.
-Verification contract: From <absolute root>, run <absolute Python executable> <absolute scanner script> complete --root <absolute root> <exact scope/state/threshold args> --format json and require exit 0 and complete=true; inspect report with the same arguments, actual source/diff, baseline and current required checks/flows/artifacts, zero candidates and strict debt, and both complete review passes; verify no missing capabilities, hidden suppression, or unsupported scope changes.
+Verification contract: From <absolute root>, run <absolute Python executable> <absolute scanner script> complete --root <absolute root> <parent --run NAME and state path, or exact scope/state/threshold args> --format json and require exit 0 and complete=true; inspect report with the same arguments, actual source/diff, baseline and current required checks/flows/artifacts, zero candidates and strict debt, and both complete review passes; verify no missing capabilities, hidden suppression, or unsupported scope changes.
 ```
 
 Submit the objective separately via `/goal <objective>` and require human confirmation with the independent completion auditor enabled.

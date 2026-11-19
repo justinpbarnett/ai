@@ -13,7 +13,9 @@ A passing conventions review does not substitute for a contract review.
 Investigate every assigned file and relationship, including out-of-scope callers when necessary for context.
 For `unknown` input, inspect representative content to classify it safely and record its disposition; if it is code, review it semantically.
 Include relevant additional inputs in the receipt; if wiring is dynamic or ambiguous, read the corresponding project partition rather than relying on an import graph.
-If actual contracts or coverage cannot be determined, do not fabricate a clean receipt; split the packet or report what remains pending.
+If actual contracts or coverage cannot be determined, split the packet or report what remains pending.
+Review a `wiring_partition` unit for implicit wiring that ordinary file and static relationship units cannot cover.
+For a wiring unit, inspect the actual registration, loading, dispatch, and consumer paths across the supplied partition, and cite the inputs that establish the contract.
 
 ## Deepening and safe destinations
 
@@ -39,7 +41,8 @@ Assign two to four workers per wave with a distinct axis, files and cross-partit
 For confirmation give the fresh reviewer no score targets or earlier verdicts.
 Have reviewers return compact findings, source-linked verdicts, exact coverage, and blockers; keep full logs local.
 The coordinator reconciles overlaps and contradictions, imports completed packets, and requeues stale or incomplete work.
-A narrative summary is not a receipt.
+Use the CLI's receipt template for each reviewer so the coordinator does not retype packet metadata.
+Fill every unit's evidence with what was observed; a populated hash is not evidence of a read.
 
 Delegate edits only after shared contracts, prerequisites, and baselines are known.
 Give workers exclusive file ownership or isolated worktrees, a specific finding, and focused checks; shared callers, migrations, and coupled interfaces stay sequential.
@@ -51,6 +54,8 @@ Do not launch nested agent CLIs to manufacture delegation.
 ## Convergence
 
 Use the queue for safe priority order, not as a quota; a low-severity confirmed issue still matters.
+For fallout, compare the real behavior or an observed source contract against the pinned base before calling an issue a regression.
+Keep pre-existing issues and outside-scope observations visible without claiming the change caused them.
 Mark a finding pending before rescan, then cite fresh source/caller review and behavioral evidence to resolve it.
 Preserve justified dismissals unless the evidence they rely on changes.
 Keep accepted risk and blocked findings visible and in debt.

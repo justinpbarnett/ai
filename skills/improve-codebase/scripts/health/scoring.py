@@ -1,6 +1,7 @@
 from collections import Counter
 
-from .review import checks, matching_receipts, review_work
+from .review import STAGES, changed_keys, checks, matching_receipts, review_work
+from .runs import slice_status
 from .state import DEBT, SEVERITIES
 
 
@@ -38,7 +39,18 @@ def ready_findings(findings):
     )
 
 
-def evaluate(store, state, current, state_dir, current_source, guide_available, target):
+def evaluate(
+    store,
+    state,
+    current,
+    state_dir,
+    current_source,
+    guide_available,
+    target,
+    *,
+    view=None,
+    summary=False,
+):
     findings = state["findings"]
     counts = Counter(f["status"] for f in findings.values())
     points = sum(
@@ -47,8 +59,22 @@ def evaluate(store, state, current, state_dir, current_source, guide_available, 
     inventory = current if current_source else state.get("inventory", {})
     entries = inventory.get("entries", {})
     inv_counts = dict(Counter(item["disposition"] for item in entries.values()))
-    valid = matching_receipts(store, state, current["entries"], completion=True)
-    review = review_work(state, valid)
+    stale_inputs = {}
+    valid = matching_receipts(
+        store, state, current["entries"], completion=True, stale_inputs=stale_inputs
+    )
+    review = review_work(state, valid, stale_inputs=stale_inputs)
+    outside = {
+        (row["location"]["path"], row["location"].get("line", 0), row["evidence"]): row
+        for passes in valid.values()
+        for receipt in passes.values()
+        for row in receipt.get("observations", [])
+    }
+    change_relations = Counter(
+        f.get("change_relation", "unclassified")
+        for f in findings.values()
+        if f.get("triaged_at") and f["status"] not in {"false_positive", "candidate"}
+    )
     discoveries = sum("discovery" in passes for passes in valid.values())
     confirmations = sum("confirmation" in passes for passes in valid.values())
     total = len(state.get("units", {}))
@@ -81,6 +107,18 @@ def evaluate(store, state, current, state_dir, current_source, guide_available, 
     if not total or confirmations != total:
         reasons.append("confirmation_review_incomplete")
     verification_reasons, valid_checks = checks(state, state_dir)
+    slice_result = (
+        slice_status(
+            state,
+            entries,
+            valid,
+            view,
+            verification_reasons,
+            current_source and guide_available,
+        )
+        if view
+        else None
+    )
     if verification_reasons:
         reasons.append("verification_incomplete")
     clean = not reasons
@@ -124,13 +162,7 @@ def evaluate(store, state, current, state_dir, current_source, guide_available, 
         phase = "verify_completion"
     old = {path: item.get("hash") for path, item in entries.items()}
     new = {path: item.get("hash") for path, item in current["entries"].items()}
-    changed = (
-        sorted(
-            path for path in old.keys() | new.keys() if old.get(path) != new.get(path)
-        )
-        if not current_source
-        else []
-    )
+    changed = changed_keys(old, new) if not current_source else []
     profile_conflicts = store.other_profiles()
     independence = Counter(
         passes["confirmation"]["independence"]
@@ -157,7 +189,21 @@ def evaluate(store, state, current, state_dir, current_source, guide_available, 
             "confirmation": confirmations,
             "independence": dict(independence),
         },
-        "review_work": review,
+        "review_work": {
+            key: len(value) if key in STAGES else value for key, value in review.items()
+        }
+        if summary
+        else review,
+        **({"slice": slice_result} if view else {}),
+        **(
+            {"change_relations": dict(change_relations)}
+            if state.get("fallout_base")
+            else {}
+        ),
+        "out_of_scope_observation_count": len(outside),
+        **(
+            {"out_of_scope_observations": list(outside.values())} if not summary else {}
+        ),
         "convergence_passes": (
             int(discoveries == total and not actionable and not counts["candidate"])
             + int(confirmations == total and not actionable and not counts["candidate"])

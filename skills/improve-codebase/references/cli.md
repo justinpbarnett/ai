@@ -12,29 +12,67 @@ Use the following examples from the target root; substitute the absolute skill p
 ```bash
 SKILL="$HOME/dev/ai/skills/improve-codebase"
 CLI="$SKILL/scripts/improve_codebase.py"
-"$SKILL/.venv/bin/python" "$CLI" doctor
-"$SKILL/.venv/bin/python" "$CLI" scan --root "$PWD" --format json
-python3 "$CLI" next --root "$PWD" --format json
-python3 "$CLI" report --root "$PWD" --format json
-python3 "$CLI" complete --root "$PWD" --format json
+PY="$SKILL/.venv/bin/python"
+"$PY" "$CLI" doctor
+"$PY" "$CLI" scan --root "$PWD" --format json
+"$PY" "$CLI" next --root "$PWD" --format json
+"$PY" "$CLI" report --root "$PWD" --format json
+"$PY" "$CLI" complete --root "$PWD" --format json
 ```
 
 Pass common options after the leaf subcommand.
-Repeat root-relative `--scope` to select specific paths and use the same arguments throughout the run.
+Use `--summary --format json` on `scan`, `status`, `next`, or `complete` for counts and gates without the full queues and inventory.
 `--thresholds FILE` takes a JSON object of numeric overrides to the defaults printed by `doctor`; this selects a separate profile, not a way to resolve current debt.
 Use `--target N` on status commands to report an interim target without changing the clean predicate.
 Standard output is parseable JSON with `--format json`, including on runtime errors; argument parsing prints usage on stderr.
 Exit 0 means successful execution, not necessarily low debt; `complete` alone uses exit 1 for valid incomplete work.
 Exit 2 means invalid or stale input/state, and 3 means operational failure.
 
+## Named runs, fallout, and slices
+
+From the target root, save the scope and thresholds once; use `--run NAME` on later commands.
+Repeat `--root` and any alternate `--state-dir` if running outside the target root or default ledger.
+`run list` shows saved names and their exact configurations.
+A plain named run reuses the unnamed ledger for the same scope and thresholds.
+Existing unnamed commands still work with repeated `--scope` options.
+
+```bash
+"$PY" "$CLI" run start repo
+"$PY" "$CLI" scan --run repo --summary
+"$PY" "$CLI" run slice editor --run repo --path client/src/components
+"$PY" "$CLI" next --run editor --summary --format json
+"$PY" "$CLI" review prepare --run editor --axis contracts --format json --receipt-template
+"$PY" "$CLI" complete --run repo
+```
+
+A slice selects review work and shows its own coverage, unresolved findings, and verification status against the full parent ledger.
+Even with a verified slice, `complete --run SLICE` still applies the parent gate.
+
+```bash
+"$PY" "$CLI" run start fallout --base BASE_COMMIT \
+    --scope client --include client/src/affected-runtime-caller.ts
+"$PY" "$CLI" scan --run fallout --summary
+```
+
+Fallout pins the supplied commit, includes staged, unstaged, and visible untracked first-party changes, and proposes direct callers from current and base static wiring.
+`--scope` fences the proposal, and `--include` adds confirmed manual paths inside that fence.
+Check `absent_paths`, `outside_fence`, `graph_limits`, and `requires_wiring_review` before acting; imports cannot prove coverage of dynamic wiring or consumers outside the repository.
+Inspect the base and current entry points and add affected paths at setup when the graph cannot find them.
+The saved scope is fixed; if investigation changes the authorized area materially, name the expanded run explicitly rather than silently replacing the original.
+For each promoted or semantic finding in a fallout run, add `change_relation: regression|pre_existing|unclassified` and `relation_evidence` grounded in comparison with the pinned base or explaining why that comparison is unavailable.
+Paths seen only as context can be recorded as observations, but never count as findings for this scope.
+
 ## State and refresh
 
 The default worktree-local database is `.improve-codebase/state.sqlite3`.
 The first write protects the directory through Git's local exclude file, with no tracked `.gitignore` edit.
+When upgrading a ledger, rescan before importing; the wiring rubric upgrade needs new review evidence, but does not reset findings or recorded baselines.
 For non-Git projects it is still local, but no Git ignore protection is available.
 Keep receipt inputs, logs, and screenshots in that directory; use `umask 077` for new local artifacts and redact credentials or sensitive outputs.
 `--state-dir` selects an alternate location; an in-worktree override must already be ignored and untracked.
-Use `status` or `next` to see the saved revision, baseline/current fingerprints, review work reasons, and unmet verification.
+Use `status` or `next` to see the saved revision, baseline/current fingerprints, exact changed inputs for due units, and unmet verification.
+Review receipts follow the unit's source, relationships, governing rules, and declared reads.
+Full checks and final diff still belong to the current run snapshot.
 `report` includes inventory dispositions, source hashes, graph limits, metric ranks, review/finding history, and verification records; filter with a JSON query to keep output small.
 The scan checks the whole inventory for cross-scope relationships and reuses compatible parser results.
 An unrelated out-of-scope edit does not expire scoped evidence.
@@ -48,16 +86,22 @@ If state is corrupt or incompatible, stop, preserve it for recovery, and ask bef
 ## Reviews
 
 `review prepare --axis smells|architecture|contracts --pass discovery|confirmation --format json` emits one bounded `packet` with `id`, `snapshot`, `sweep_id`, `axis`, `pass`, `governing_paths`, and `units`.
-Omit the pass/axis to select pending work, use `--partition` to focus a component, and repeat `--exclude-unit` to avoid assigning units already delegated.
-`--full` includes previously covered units for the selected pass; paginate by passing completed unit IDs (not packet IDs) to `--exclude-unit`.
+Omit the pass or axis to select pending work.
+Use `--path` to target files or directories, `--unit` for exact IDs on the same axis and pass, `--partition` to focus a project, or `--exclude-unit` to skip assignments already delegated.
+`--full` makes previously covered units eligible for the selected pass.
+A `wiring_partition` unit covers the dynamic or unresolved relationships in that partition and may be much larger than other units; delegate it separately.
+Ordinary file and relationship reviews are due only when their own inputs change.
 Read each unit's `files` and its `context` mapping of all required paths to hashes, and read the relevant rules and any additional callers needed to substantiate the claim.
 Parent `README`, `CONTRIBUTING`, and `CONTRACTS` documents are included as review context, not scanned as source code.
 Other inventoried documentation can be cited by path and hash when it supports a review.
 For relationship units the assigned `files` include both ends; for partition fallback consult relevant project wiring beyond static imports.
 
-Write an explicit response file and use `review import --input RECEIPT`.
-Copy the packet identifiers and unit input fingerprints exactly; every assigned unit needs an entry, including reviews with no findings.
-Declare all inspected source and documentation dependencies and their hashes in `reads` (at least the packet's `context`).
+Prepare with `--format json --receipt-template` and use `.receipt_template` as the response for `review import --input RECEIPT`.
+Fill the reviewer and each unit's source-linked evidence; the template deliberately leaves them blank.
+Record each relevant inspected source or document outside the supplied context in `reads` with its observed hash.
+For an outside-scope observation, add a unit's optional `observations` array of `{ "location": { "path": "…", "line": 12 }, "evidence": "…" }` entries pointing to a declared `reads` path outside the run scope.
+A rescan can leave a packet importable when its exact inputs and declared reads are unchanged and no newer receipt superseded it.
+Reprepare a rejected packet; do not stamp it with a new snapshot or replace observed hashes.
 Use `independence: independent` for a separate reviewer with a distinct identity; otherwise use `sequential`.
 
 ```json
@@ -83,6 +127,8 @@ A complete import is atomic; submit separate packets to checkpoint completed wor
 ## Findings
 
 Use `finding update --input FILE` with `revision`, `snapshot`, finding `id`, destination `status`, and `reason`.
+For multiple finding events, pass `{ "revision": N, "snapshot": "…", "updates": [ … ] }` with one event per finding ID and no per-event revision or snapshot.
+A batch advances the revision once or rolls back entirely; refresh `status --summary` before reconciling any stale batch.
 A candidate promoted to `open` requires `severity` (`critical`, `high`, `medium`, `low`), `confidence` (`high`, `medium`, `low`), `evidence`, `impact`, `transformation`, `contracts` (nonempty array of strings), and `verification` (planned checks or flows).
 An `open` update may set `dependencies` to other confirmed finding IDs.
 `false_positive` and `blocked` require concrete `evidence`; `accepted_risk` requires the actual `human_authorization` and remains debt.
@@ -92,6 +138,8 @@ Mark `pending_verification` with `evidence` before editing, then rescan with the
 Use a bounded `review prepare --full` if a cached review cannot demonstrate that a fix was independently rechecked after going pending.
 For `resolved`, include `evidence`, current passing focused `verification_ids`, and fresh `review_units` covering each affected source path.
 Diagnostic findings require a fresh import of the same tool profile on the affected scope.
+Scanner findings require current detector coverage of their affected paths; dependency cycles also require graph-wide coverage.
+An unrelated scanner gap does not block that individual resolution, but still blocks whole-scope completion.
 A disappearing detector observation, a skipped file, or a move across the scope boundary is not a resolution.
 For a deliberate in-scope deletion such as removing a forwarding module, include `removal` with exactly the deleted `paths`, reviewed `surviving_paths`, and `evidence` for the deletion and ownership transfer.
 
@@ -100,6 +148,8 @@ For a deliberate in-scope deletion such as removing a forwarding module, include
 Use `verification record --input FILE` with `revision`, `snapshot`, `kind: manifest`, and `requirements` covering `baseline`, `check`, `flow`, and `final_diff`.
 Each requirement has `id`, `kind`, `description`, and `discovered_from` (the instruction, configuration, or observed entry point).
 List every applicable check or flow separately.
+Use `{ "revision": N, "snapshot": "…", "records": [ … ] }` to record a manifest followed by baseline observations or to record related current checks together.
+A batch accepts at most one manifest and one event per requirement ID; each non-baseline observation still needs its recorded `baseline_snapshot`.
 Updating the manifest requires a `reason`; use justified not-applicable records rather than removing requirements.
 
 Record observations with `revision`, `snapshot`, `id`, `kind`, `result` (`passed`, `failed`, `unavailable`, `not_applicable`), absolute project `cwd`, literal `interaction`, `expected`, `observed`, and `exit_status` when applicable.

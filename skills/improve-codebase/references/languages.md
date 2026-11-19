@@ -16,7 +16,9 @@ No grammar downloads or project tool invocations happen while scanning.
 
 Ranges are 1-based Unicode columns, with exclusive end coordinates.
 Vue ranges use original SFC bytes before translating to line/column; CRLF and preceding non-ASCII text do not shift the reported location.
-Unsupported preprocessors, parser errors, and missing priority grammars remain visible as completion gaps.
+Unsupported preprocessors, parser errors, and missing priority grammars remain visible as scanner gaps, separate from findings.
+Check whether the project's compiler or runtime accepts the input before treating a parser failure as a product defect.
+If the project accepts it, keep the source unchanged and report the scanner limitation unless there is a separate, verified reason to change the source.
 Unresolved references are reported as limitations, not guessed edges; unresolved Vue external blocks are capability gaps.
 
 ## Signals and refresh
@@ -30,5 +32,6 @@ Grouped occurrences are candidates, not evidence that their responsibilities sho
 
 The scanner retains exact or explicitly unresolved dependency edges and derives strongly connected components from resolved paths only.
 Review receipts depend on source hashes, graph context, applicable rules and reviewer-declared supporting inputs.
-When static resolution cannot bound a relationship, re-review the affected project partition and record additional callers as supporting inputs.
+When static resolution cannot bound a relationship, use the partition wiring unit, and declare any supporting inputs not already in its context.
+Do not claim complete coverage behind a missing parser or unreviewed wiring unit.
 A new language without a syntax adapter uses the generic path; add an adapter only when it delivers useful evidence with documented limits and direct verification.

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
@@ -22,18 +23,22 @@ function clip(text: string, max: number): string {
 	return `${text.slice(0, half)} … ${text.slice(-half)}`;
 }
 
+export function* callsIn(messages: Iterable<AgentMessage>): Generator<Call> {
+	let args = new Map<string, Record<string, unknown>>();
+	for (const message of messages) {
+		if (message.role === "assistant") {
+			args = new Map(message.content.filter((block) => block.type === "toolCall").map((call) => [call.id, call.arguments]));
+		} else if (message.role === "toolResult") {
+			yield { result: message, args: args.get(message.toolCallId) };
+		}
+	}
+}
+
 export function recentCalls(ctx: ExtensionContext, count: number): Call[] {
 	const calls: Call[] = [];
-	let args = new Map<string, Record<string, unknown>>();
-	for (const { messages } of ctx.sessionManager.buildSessionProjection().entries) {
-		for (const message of messages) {
-			if (message.role === "assistant") {
-				args = new Map(message.content.filter((block) => block.type === "toolCall").map((call) => [call.id, call.arguments]));
-			} else if (message.role === "toolResult") {
-				calls.push({ result: message, args: args.get(message.toolCallId) });
-				if (calls.length > count) calls.shift();
-			}
-		}
+	for (const call of callsIn(ctx.sessionManager.buildSessionProjection().messages)) {
+		calls.push(call);
+		if (calls.length > count) calls.shift();
 	}
 	return calls;
 }
@@ -58,7 +63,7 @@ function workspacePath(path: string, cwd: string): string | undefined {
 	if (target !== ".." && !target.startsWith("../") && !isAbsolute(target)) return plain(target || ".");
 }
 
-function safeLabel(text: string): boolean {
+export function safeLabel(text: string): boolean {
 	return !/[\p{Cc}\p{Cf}]/u.test(text) && !SECRET.test(text) && !PRIVATE_PATH.test(text);
 }
 
@@ -68,14 +73,6 @@ function safeTarget(raw: string, cwd: string): string | undefined {
 	if (!path) return;
 	const target = path === "~" ? homedir() : path.startsWith(`~${sep}`) ? resolve(homedir(), path.slice(2)) : resolve(cwd, path);
 	if (safeLabel(target)) return target;
-}
-
-function shortestFileLabel(path: string, paths: string[]): string {
-	let label = basename(path) || ".";
-	for (let parent = dirname(path); parent !== dirname(parent) && paths.some((other) => other !== path && other.endsWith(sep + label)); parent = dirname(parent)) {
-		label = basename(parent) + sep + label;
-	}
-	return label;
 }
 
 const verbs = {
@@ -96,8 +93,6 @@ const verbs = {
 } as const;
 
 export type Action = keyof typeof verbs;
-export type AutoRow = { facts: { action: Action; failed: boolean }; label?: string; text: string };
-
 function actionFor(call: Call): Action {
 	switch (call.result.toolName) {
 		case "read": case "edit": case "write": return call.result.toolName;
@@ -124,7 +119,38 @@ function actionFor(call: Call): Action {
 	}
 }
 
-export function autoRow(call: Call, cwd: string): AutoRow {
+const activityNames = {
+	read: ["file read", "file reads"],
+	edit: ["file edit", "file edits"],
+	write: ["file write", "file writes"],
+	search: ["workspace search", "workspace searches"],
+	list: ["directory listing", "directory listings"],
+	gitStatus: ["Git status check", "Git status checks"],
+	gitDiff: ["Git diff", "Git diffs"],
+	gitLog: ["Git history lookup", "Git history lookups"],
+	test: ["test command", "test commands"],
+	print: ["print command", "print commands"],
+	shell: ["shell command", "shell commands"],
+	webSearch: ["web search", "web searches"],
+	webRead: ["web fetch", "web fetches"],
+} satisfies Record<Exclude<Action, "tool">, [string, string]>;
+
+export type ToolActivity = { singular: string; plural: string; target?: string };
+export const genericActivity: ToolActivity = { singular: "tool call", plural: "tool calls" };
+
+export function toolActivity(call: Call, cwd: string): ToolActivity {
+	const action = actionFor(call);
+	if (action === "tool") {
+		const name = safeName(call.result.toolName);
+		return name === "tool" || !safeLabel(name) ? genericActivity : { singular: `call to ${name}`, plural: `calls to ${name}` };
+	}
+	const [singular, plural] = activityNames[action];
+	const rawPath = isFileAction(action) ? stringArg(call, "path") : undefined;
+	const path = rawPath ? safeTarget(rawPath, cwd) : undefined;
+	return { singular, plural, target: path ? purposeExcerpt(basename(path)) : undefined };
+}
+
+function manualDescription(call: Call, cwd: string): string {
 	const { content, isError, toolName } = call.result;
 	const action = actionFor(call);
 	const image = content.some((block) => block.type === "image");
@@ -136,82 +162,48 @@ export function autoRow(call: Call, cwd: string): AutoRow {
 	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : target && (file ? target : basename(target) || ".");
 	const display = file && label ? basename(label) || "." : label;
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
-	const description = action === "shell" ? describeShell(label ? [label] : [], Number(!label), isError)
+	const description = action === "shell" ? describeShell(label, isError)
 		: `${verbs[action][isError ? 1 : 0]}${display ? ` (${display})` : ""}`;
-	return { facts: { action, failed: isError }, label, text: `${description}.${suffix}` };
+	return `${description}.${suffix}`;
 }
 
-export function shellCommand(call: Call): string | undefined {
+function shellCommand(call: Call): string | undefined {
+	if (call.result.toolName !== "bash" && call.result.toolName !== "powershell") return;
 	const command = stringArg(call, "command");
 	if (!command || Buffer.byteLength(command, "utf8") > 512) return;
 	const screened = plain(command).trim();
 	if (screened && !SECRET.test(screened) && !PRIVATE_PATH.test(screened)) return screened;
 }
 
-function listLabels(labels: string[]) {
-	return new Intl.ListFormat("en", { type: "conjunction" }).format(labels);
+export function purposeExcerpt(value: string): string | undefined {
+	if (value.length > 16_384 || /```|~~~|<(?:file\s|skill\b)|(?:^|\s)@\S|\bfile:\/\//i.test(value)) return;
+	const text = plain(value).replace(/\s+/gu, " ").trim();
+	if (text && safeLabel(text)) return clip(text, 300);
 }
 
-function describeShell(labels: string[], unnamed: number, failed: boolean): string {
-	if (!labels.length) {
-		if (unnamed > 1) return failed ? `${unnamed} shell calls failed` : `Ran shell code in ${unnamed} calls`;
-		return verbs.shell[failed ? 1 : 0];
-	}
-	const details = listLabels(unnamed ? [...labels, unnamed === 1 ? "one other call" : `${unnamed} other calls`] : labels);
-	return failed ? `Shell error: ${details}` : `Ran ${details}`;
+export type PurposeCall = { operation: Action; tool?: string; command?: string; target?: string; search?: string };
+
+export function purposeCall(call: Call, cwd: string): PurposeCall {
+	const operation = actionFor(call);
+	const tool = operation === "tool" ? safeName(call.result.toolName) : undefined;
+	const command = shellCommand(call);
+	const rawPath = stringArg(call, "path");
+	const path = rawPath && safeTarget(rawPath, cwd);
+	const target = path ? purposeExcerpt(workspacePath(path, cwd) ?? basename(path)) : undefined;
+	const query = stringArg(call, "query") ?? stringArg(call, "pattern");
+	return { operation, tool, command, target, search: query ? purposeExcerpt(query) : undefined };
+}
+
+function describeShell(label: string | undefined, failed: boolean): string {
+	return label ? `${failed ? "Shell error:" : "Ran"} ${label}` : verbs.shell[failed ? 1 : 0];
 }
 
 function isFileAction(action: Action): boolean {
 	return action === "read" || action === "edit" || action === "write";
 }
 
-type Interpretation = { rows: Set<AutoRow>; text: string };
-
-export function summarizeBatch(rows: AutoRow[], interpretation?: Interpretation): string {
-	const paths = rows.flatMap(({ facts, label }) => label && isFileAction(facts.action) ? [label] : []);
-	const parts: string[] = [];
-	let group: AutoRow[] = [];
-	let interpreted = false;
-	function flush() {
-		const first = group[0];
-		if (!first) return;
-		const { action, failed } = first.facts;
-		const labels = [...new Set(group.flatMap(({ label }) => label ? [label] : []))];
-		const unnamed = group.filter(({ label }) => !label).length;
-		const verb = verbs[action][failed ? 1 : 0];
-		if (isFileAction(action)) {
-			const files = labels.map((path) => shortestFileLabel(path, paths));
-			if (unnamed) files.push(unnamed === 1 && !files.length ? "a file" : `${unnamed}${files.length ? " other" : ""} ${unnamed === 1 ? "file" : "files"}`);
-			parts.push(`${verb.replace(/ a file$/, "")} ${listLabels(files)}`);
-		} else if (action === "tool" && labels.length) {
-			parts.push(`${failed ? "Error from" : "Ran"} ${listLabels(labels)}`);
-		} else if (action === "shell") {
-			parts.push(describeShell(labels, unnamed, failed));
-		} else if (labels.length) {
-			parts.push(`${verb} (${listLabels(labels)})`);
-		} else {
-			parts.push(verb);
-		}
-		group = [];
-	}
-	for (const row of rows) {
-		if (interpretation?.rows.has(row)) {
-			if (!interpreted) {
-				flush();
-				parts.push(interpretation.text);
-				interpreted = true;
-			}
-			continue;
-		}
-		if (group.length && (group[0].facts.action !== row.facts.action || group[0].facts.failed !== row.facts.failed)) flush();
-		group.push(row);
-	}
-	flush();
-	return parts.join("; ");
-}
-
 export type Evidence = { id: number; tool: string; operation: Action; failed: boolean; target?: string; output?: string; clipped?: true };
-export type ManualRow = AutoRow & { id: number; evidence?: Evidence; note?: string };
+export type ManualRow = { id: number; failed: boolean; text: string; evidence?: Evidence; note?: string };
 
 function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence" | "note"> {
 	if (!call.args) return { note: "No matching call arguments in this branch; kept local." };
@@ -239,14 +231,14 @@ function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence
 export function manualRows(calls: Call[], cwd: string): ManualRow[] {
 	const evidence: Evidence[] = [];
 	return calls.map((call, index) => {
-		const id = index + 1;
-		const row = excerpt(call, cwd, id);
-		if (row.evidence) {
-			if (Buffer.byteLength(JSON.stringify([...evidence, row.evidence]), "utf8") > MAX_BATCH_BYTES) {
-				return { ...autoRow(call, cwd), id, note: "Batch evidence limit; kept local." };
+		const row = { id: index + 1, failed: call.result.isError, text: manualDescription(call, cwd) };
+		const details = excerpt(call, cwd, row.id);
+		if (details.evidence) {
+			if (Buffer.byteLength(JSON.stringify([...evidence, details.evidence]), "utf8") > MAX_BATCH_BYTES) {
+				return { ...row, note: "Batch evidence limit; kept local." };
 			}
-			evidence.push(row.evidence);
+			evidence.push(details.evidence);
 		}
-		return { ...autoRow(call, cwd), id, ...row };
+		return { ...row, ...details };
 	});
 }

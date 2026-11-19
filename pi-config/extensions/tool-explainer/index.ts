@@ -2,17 +2,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
-import { autoRow, manualRows, pairCalls, recentCalls, shellCommand, summarizeBatch } from "./evidence.js";
+import { manualRows, pairCalls, purposeCall, purposeExcerpt, recentCalls, toolActivity, type PurposeCall } from "./evidence.js";
 import { ExplanationError } from "./explain.js";
+import { loadBatches, saveBatch, visibleToolResults } from "./history.js";
 import { batchTitle, InlineToolOutput, type Batch, type InlineRow } from "./inline.js";
 import { collectExplanation, explanationText, preview, showView } from "./view.js";
-import { commandHints, DEFAULT_OPENROUTER_MODEL, writeSummary, type Writer, type WritingRequest } from "./writer.js";
+import { operationHints, DEFAULT_OPENROUTER_MODEL, writeSummary, type Writer, type WritingRequest } from "./writer.js";
 
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
-const DEFAULT_COUNT = 2;
+const DEFAULT_COUNT = 3;
 const MAX_HISTORY = 12;
-const MAX_AUTO_REQUESTS = 4;
+const MAX_AUTO_REQUESTS = MAX_HISTORY;
+const MAX_LOCAL_EVIDENCE_BYTES = 6 * 1024;
 const USAGE = "/explain-tools [1–10 | on | off | status | recent]";
 
 function parseCount(value: unknown): number | undefined {
@@ -52,27 +54,36 @@ function offline(): boolean {
 	return /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "");
 }
 
-type PendingRow = { row: InlineRow; command?: string; hints?: string[] };
-type Job = { batch: Batch; request: WritingRequest; targets: Set<InlineRow> };
+type PendingRow = { row: InlineRow; call?: PurposeCall; hints?: string[]; request?: string; assistantNote?: string };
+type Job = { batch: Batch; request: WritingRequest };
+
+type MessageContent = string | ReadonlyArray<{ type: string; text?: string }>;
+
+function textExcerpt(content: MessageContent): string | undefined {
+	if (typeof content === "string") return purposeExcerpt(content);
+	if (content.some((block) => block.type === "image")) return;
+	return purposeExcerpt(content.flatMap((block) => block.type === "text" && block.text ? [block.text] : []).join("\n"));
+}
 
 function state() {
 	return {
 		controller: new AbortController(), pending: [] as PendingRow[], history: [] as Batch[],
-		queue: [] as Job[], running: false, manual: false,
+		queue: [] as Job[], running: false, manual: false, persistenceWarningShown: false,
 	};
 }
 
-function prepareJob(batch: Batch, pending: PendingRow[], writer: Writer): Job | undefined {
-	if (writer.kind === "off") return;
+function writingRequest(pending: PendingRow[], writer: Writer): WritingRequest | undefined {
 	if (writer.kind === "ollama") {
-		const candidates = pending.filter((item): item is PendingRow & { command: string } => Boolean(item.command));
-		const commands = candidates.map(({ command }) => command);
-		if (!commands.length || Buffer.byteLength(JSON.stringify(commands), "utf8") > 2_048) return;
-		return { batch, request: { ...writer, kind: "ollama", commands }, targets: new Set(candidates.map(({ row }) => row)) };
+		const calls = pending.flatMap(({ call }) => call ? [call] : []);
+		const singleCall = calls.length === 1 ? calls[0] : undefined;
+		const hasSpecificSingleTarget = singleCall && (singleCall.target || singleCall.command || singleCall.search);
+		const context = pending.findLast(({ assistantNote }) => assistantNote)?.assistantNote ?? pending.at(-1)?.request;
+		const evidence = { background: hasSpecificSingleTarget ? undefined : context, calls };
+		if (calls.length && Buffer.byteLength(JSON.stringify(evidence), "utf8") <= MAX_LOCAL_EVIDENCE_BYTES) return { ...writer, evidence };
+	} else if (writer.kind === "openrouter") {
+		const hints = pending.flatMap((item) => item.hints ? [item.hints] : []);
+		if (hints.length) return { ...writer, hints };
 	}
-	const candidates = pending.filter((item): item is PendingRow & { hints: string[] } => Boolean(item.hints?.length));
-	if (!candidates.length) return;
-	return { batch, request: { ...writer, kind: "openrouter", hints: candidates.map(({ hints }) => hints) }, targets: new Set(candidates.map(({ row }) => row)) };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -80,7 +91,8 @@ export default function (pi: ExtensionAPI) {
 	let active = state();
 	let settings = defaults;
 	let auto = true;
-	let renderInline = false;
+	// Pi can rebuild tool rows before session_start during /reload.
+	let renderInline = true;
 
 	pi.registerFlag(COUNT_FLAG, { type: "string", description: "Completed tool calls per explanation (1–10)" });
 	pi.registerFlag(NO_AUTO_FLAG, { type: "boolean", description: "Start with automatic tool explanations off" });
@@ -97,6 +109,28 @@ export default function (pi: ExtensionAPI) {
 		inline.clear(redraw);
 	}
 
+	function persist(ctx: ExtensionContext, batch: Batch) {
+		try {
+			saveBatch(pi, batch);
+		} catch {
+			if (active.persistenceWarningShown) return;
+			active.persistenceWarningShown = true;
+			ctx.ui.notify("Could not save tool summaries. New summaries may not survive a reload.", "warning");
+		}
+	}
+
+	function restore(ctx: ExtensionContext) {
+		if (ctx.mode !== "tui" || !ctx.isProjectTrusted()) return;
+		const batches = loadBatches(ctx);
+		active.history = batches.slice(-MAX_HISTORY).reverse();
+		const visible = visibleToolResults(ctx);
+		inline.retain(visible);
+		if (!autoEnabled(ctx)) return;
+		for (const batch of batches) {
+			if (batch.rows.every(({ callId }) => visible.has(callId))) inline.place(batch);
+		}
+	}
+
 	async function drain(ctx: ExtensionContext, session: ReturnType<typeof state>) {
 		if (session.running) return;
 		session.running = true;
@@ -104,17 +138,20 @@ export default function (pi: ExtensionAPI) {
 		const registry = ctx.modelRegistry;
 		try {
 			while (!signal.aborted && session.queue.length) {
-				const { batch, request, targets } = session.queue.shift()!;
+				const { batch, request } = session.queue.shift()!;
 				try {
-					const text = await writeSummary(registry, request, signal);
+					const purpose = await writeSummary(registry, request, signal);
 					if (signal.aborted) break;
-					batch.summary = summarizeBatch(batch.rows, { rows: targets, text });
+					batch.purpose = purpose;
 					batch.route = `${request.kind}/${request.model}`;
-					inline.update(batch);
 				} catch (error) {
+					if (signal.aborted) break;
 					const reason = error instanceof ExplanationError ? error.message : `Could not reach ${request.kind}.`;
-					batch.route = `no model: ${reason}`;
+					batch.route = `no summary: ${reason}`;
 				}
+				batch.pending = false;
+				inline.update(batch);
+				persist(ctx, batch);
 			}
 		} finally {
 			session.running = false;
@@ -125,17 +162,19 @@ export default function (pi: ExtensionAPI) {
 		if (!pending.length) return;
 		const session = active;
 		const rows = pending.map(({ row }) => row);
-		const batch: Batch = { rows, summary: summarizeBatch(rows), route: "no model" };
-		const job = prepareJob(batch, pending, settings.writer);
-		if (job?.request.kind === "openrouter" && offline()) batch.route = "no model: Pi is offline";
-		else if (job && session.queue.length + Number(session.running) >= MAX_AUTO_REQUESTS) batch.route = "no model: writer queue is full";
-		else if (job) {
-			batch.route = `${job.request.kind}/${job.request.model} pending`;
-			session.queue.push(job);
+		const batch: Batch = { rows, route: settings.writer.kind === "off" ? "writer off" : "no summary: insufficient evidence" };
+		const request = writingRequest(pending, settings.writer);
+		if (request?.kind === "openrouter" && offline()) batch.route = "no summary: Pi is offline";
+		else if (request && session.queue.length + Number(session.running) >= MAX_AUTO_REQUESTS) batch.route = "no summary: writer queue is full";
+		else if (request) {
+			batch.pending = true;
+			batch.route = `${request.kind}/${request.model} pending`;
+			session.queue.push({ batch, request });
 		}
 		session.history.unshift(batch);
 		if (session.history.length > MAX_HISTORY) session.history.pop();
 		inline.place(batch);
+		persist(ctx, batch);
 		if (session.queue.length) void drain(ctx, session);
 	}
 
@@ -144,25 +183,29 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", (_event, ctx) => {
-		if (ctx.mode !== "tui") return;
+		renderInline = ctx.mode === "tui";
+		if (!renderInline) return;
 		const loaded = config();
 		settings = loaded;
 		auto = settings.auto && !pi.getFlag(NO_AUTO_FLAG);
-		renderInline = autoEnabled(ctx);
+		restore(ctx);
 		if (loaded.warning) ctx.ui.notify(loaded.warning, "warning");
 		if (count() === undefined) ctx.ui.notify(`--${COUNT_FLAG} must be 1 to 10. Automatic explanations are disabled.`, "warning");
 	});
-	pi.on("session_shutdown", () => { renderInline = false; reset(); });
-	pi.on("session_tree", () => reset(true));
+	pi.on("session_shutdown", () => reset());
+	pi.on("session_tree", (_event, ctx) => {
+		reset(true);
+		restore(ctx);
+	});
 	pi.on("session_compact", (_event, ctx) => {
-		if (!autoEnabled(ctx)) return;
-		const retained = new Set(ctx.sessionManager.buildContextEntries().flatMap((entry) =>
-			entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.toolCallId] : []));
+		if (ctx.mode !== "tui") return;
+		const retained = visibleToolResults(ctx);
 		inline.retain(retained);
 		active.pending = active.pending.filter(({ row }) => retained.has(row.callId));
 		active.queue = active.queue.filter(({ batch }) => {
 			if (batch.rows.every(({ callId }) => retained.has(callId))) return true;
-			batch.route = "no model: batch compacted";
+			batch.pending = false;
+			batch.route = "no summary: batch compacted";
 			return false;
 		});
 	});
@@ -173,21 +216,31 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_start", (event, ctx) => {
 		if (autoEnabled(ctx) && !event.parentToolCallId) inline.track(event.toolCallId);
 	});
+	pi.on("message_start", (event, ctx) => {
+		if (autoEnabled(ctx) && event.message.role === "user") queueBatch(ctx, active.pending.splice(0));
+	});
 	pi.on("turn_end", (event, ctx) => {
-		if (!autoEnabled(ctx) || event.message.role !== "assistant") return;
+		if (!autoEnabled(ctx) || event.message.role !== "assistant" || !event.toolResults.length) return;
 		const size = count()!;
+		const writer = settings.writer.kind;
+		const local = writer === "ollama";
+		const latestUser = local ? event.context.contextMessages.findLast((message) => message.role === "user") : undefined;
+		const request = latestUser ? textExcerpt(latestUser.content) : undefined;
+		const assistantNote = local ? textExcerpt(event.message.content) : undefined;
 		const calls = event.message.content.filter((block) => block.type === "toolCall");
 		for (const call of pairCalls(event.toolResults, calls)) {
-			const row = { ...autoRow(call, ctx.cwd), callId: call.result.toolCallId };
-			const writer = settings.writer.kind;
-			const command = row.facts.action === "shell" && !row.facts.failed && writer !== "off"
-				? shellCommand(call) : undefined;
-			active.pending.push({
-				row,
-				command: writer === "ollama" ? command : undefined,
-				hints: writer === "openrouter" && command ? commandHints(command) : undefined,
-			});
-			if (active.pending.length === size) queueBatch(ctx, active.pending.splice(0));
+			const row = { callId: call.result.toolCallId, failed: call.result.isError, activity: toolActivity(call, ctx.cwd) };
+			const evidence = writer === "off" ? undefined : purposeCall(call, ctx.cwd);
+			const pending: PendingRow = writer === "openrouter" && evidence
+				? { row, hints: operationHints(evidence) }
+				: { row, call: evidence, request, assistantNote };
+			if (row.failed) {
+				queueBatch(ctx, active.pending.splice(0));
+				queueBatch(ctx, [pending]);
+			} else {
+				active.pending.push(pending);
+				if (active.pending.length === size) queueBatch(ctx, active.pending.splice(0));
+			}
 		}
 	});
 	pi.on("agent_settled", (_event, ctx) => {
@@ -198,7 +251,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("explain-tools", {
 		description: "Explain recent tool output, control automatic explanations, or show batch history",
-		getArgumentCompletions: (prefix) => ["1", "2", "on", "off", "status", "recent"]
+		getArgumentCompletions: (prefix) => ["1", "2", "3", "on", "off", "status", "recent"]
 			.filter((value) => prefix && value.startsWith(prefix) && value !== prefix).map((value) => ({ value, label: value })),
 		async handler(args, ctx) {
 			if (ctx.mode !== "tui") return;
@@ -206,7 +259,7 @@ export default function (pi: ExtensionAPI) {
 			if (input === "status") {
 				const { writer } = settings;
 				const route = !ctx.isProjectTrusted() ? "untrusted project"
-					: writer.kind === "off" ? "no model"
+					: writer.kind === "off" ? "off"
 						: `${writer.kind}/${writer.model}${writer.kind === "openrouter" && offline() ? " (disabled offline)" : ""}`;
 				ctx.ui.notify(`Automatic explanations: ${autoEnabled(ctx) ? "on" : "off"} · batch size: ${count() ?? "invalid"} · writer: ${route}`);
 				return;
@@ -217,8 +270,8 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				auto = input === "on";
-				renderInline = autoEnabled(ctx);
 				reset(true);
+				restore(ctx);
 				ctx.ui.notify(`Automatic tool explanations ${auto ? "on" : "off"} for this session.`);
 				return;
 			}
@@ -232,7 +285,7 @@ export default function (pi: ExtensionAPI) {
 				if (!session.history.length) { ctx.ui.notify("No automatic explanations in this session yet."); return; }
 				session.manual = true;
 				try {
-					const text = session.history.map((batch) => [batchTitle(batch), ...batch.rows.map(({ text }) => `  ${text}`)].join("\n")).join("\n\n");
+					const text = session.history.map(batchTitle).join("\n\n");
 					await showView(ctx, "Recent tool explanations", text, signal);
 				} finally { session.manual = false; }
 				return;

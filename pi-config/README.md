@@ -53,21 +53,24 @@ The uninstaller removes the managed directory symlink, not copies made with `--m
 
 ## Tool explanations
 
-By default, Pi replaces every two new tool calls with one inline line, such as `Read README.md and CONTEXT.md · ctrl+o to expand`.
-A partial batch is shown when the agent finishes.
-Use Pi's normal `Ctrl+O` to switch between explanations and original tool output, or `/explain-tools recent` to review earlier batches and see which writer was used.
-The extension leaves existing transcript history and Pi's native inline image rendering alone.
+By default, Pi summarizes the purpose of every three successful tool calls in one inline line, such as `Compare the backup and restore paths · ctrl+o to expand`.
+Each failed call gets its own error line, such as `Tool failed: Locate the restore policy`.
+A failure flushes any pending successes so the lines stay in tool-call order.
+Partial batches are also shown before a new user message or when the agent finishes.
+Use Pi's normal `Ctrl+O` to switch between explanations and original tool output, or `/explain-tools recent` to review earlier summaries and see which writer was used.
+Pi saves purpose labels and batch membership with the active session branch, so both inline summaries and recent history survive `/reload` and resume without rerunning the writer.
+The saved records are display metadata, not model context.
+If Pi reloads or closes before a label is ready, it restores the batch with a factual tool label rather than restarting the writer.
+Unrecorded tool calls and Pi's native inline image rendering are left alone.
 
 Automatic explanations run only in trusted TUI sessions and do not block the agent's tool loop.
-Pi formats file operations, recognized commands, and failures without a model.
-File summaries show filenames, even for files outside the workspace.
-When names match, Pi includes only enough parent directories to tell the files apart.
-Protected paths stay hidden.
-When a shell call has no clearer summary, Pi shows its recognizable command names and selected details, such as `Ran wc -l README.md | head`, without showing the full arguments or output.
-For ambiguous shell commands, the selected writer can refine the line in the background.
-The default Ollama writer receives short command text on loopback only, with obvious secrets and protected paths excluded.
-The hosted writer receives fixed operation hints only: no raw commands, filenames, user prompts, or tool output are sent automatically.
-If the writer is unavailable or times out, the initial summary stays in place.
+The default Ollama writer receives selected tool arguments and, when needed, a short excerpt of the assistant's visible notes or user request, on loopback only.
+Pi excludes tool output, hidden reasoning, and obvious secrets and protected paths from these requests, but its filters do not guarantee redaction.
+The optional hosted writer receives fixed operation hints only: no raw commands, filenames, prompts, notes, or tool output are sent automatically.
+If the writer fails or returns an unusable label, Pi tries once more with a shorter target length without blocking the agent.
+If neither attempt works or the writer is turned off, Pi shows what ran without guessing why, such as `Shell command completed`, `File read: README.md`, or `2 shell commands, 1 file read`.
+Failed calls get a separate label such as `Shell command failed`.
+Fallbacks do not include raw shell commands or tool output.
 `--offline` disables hosted writing, not local Ollama writing.
 
 Run `/explain-tools` or `/explain-tools 1` for a more detailed explanation of the latest calls on the active branch.
@@ -83,7 +86,7 @@ For persistent defaults, keep `tool-explainer.json` in the global Pi agent direc
 ```json
 {
   "auto": true,
-  "count": 2,
+  "count": 3,
   "writer": "ollama",
   "ollamaModel": "qwen3.5:2b",
   "openrouterModel": "google/gemini-2.5-flash-lite"
@@ -91,7 +94,7 @@ For persistent defaults, keep `tool-explainer.json` in the global Pi agent direc
 ```
 
 Set `writer` to `ollama`, `openrouter`, or `off`.
-`off` keeps automatic summaries on but makes no automatic model calls.
+`off` keeps collapsed tool batches and standalone failures but makes no automatic model calls.
 For `ollama`, start Ollama on `127.0.0.1:11434` and run `ollama pull qwen3.5:2b`, or set `ollamaModel` to another installed local model tag.
 For `openrouter`, `openrouterModel` must be a chat model available in Pi's OpenRouter catalog.
 Neither model ID needs to be specified if you want the defaults above.

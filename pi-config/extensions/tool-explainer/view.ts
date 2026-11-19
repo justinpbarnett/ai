@@ -71,11 +71,11 @@ export function explanationText(rows: ManualRow[], result?: Explanation, error?:
 		"",
 		...rows.map((row) => {
 			const generated = result?.items.get(row.id);
-			const kind = row.facts.failed ? "Error" : "Completed";
+			const kind = row.failed ? "Error" : "Completed";
 			const notes = [row.note, row.evidence?.clipped && "Excerpt clipped."].filter(Boolean).join(" ");
 			// A prose model can turn a printed success string into an unsupported test claim.
 			const text = result && row.evidence?.operation === "print"
-				? (!row.facts.failed && row.evidence.output?.trim() ? `Printed: ${row.evidence.output.trim()}` : row.text)
+				? (!row.failed && row.evidence.output?.trim() ? `Printed: ${row.evidence.output.trim()}` : row.text)
 				: generated ?? row.text;
 			return `${row.id}. ${kind}: ${text}${notes ? ` ${notes}` : ""}`;
 		}),

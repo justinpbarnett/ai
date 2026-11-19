@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
 import { autoRow, manualRows, pairCalls, recentCalls, shellCommand, summarizeBatch } from "./evidence.js";
 import { ExplanationError } from "./explain.js";
 import { batchTitle, InlineToolOutput, type Batch, type InlineRow } from "./inline.js";
 import { collectExplanation, explanationText, preview, showView } from "./view.js";
-import { commandHints, DEFAULT_OLLAMA_MODEL, DEFAULT_OPENROUTER_MODEL, writeSummary, type Writer, type WritingRequest } from "./writer.js";
+import { commandHints, DEFAULT_OPENROUTER_MODEL, writeSummary, type Writer, type WritingRequest } from "./writer.js";
 
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
@@ -32,7 +33,7 @@ function config(): Settings {
 		if (!value || Array.isArray(value) || typeof value !== "object" ||
 			(value.count !== undefined && (typeof value.count !== "number" || !parseCount(value.count))) ||
 			(value.auto !== undefined && typeof value.auto !== "boolean") ||
-			(value.ollamaModel !== undefined && (!validModel(value.ollamaModel) || /(?:[:-])cloud$/i.test(value.ollamaModel))) ||
+			(value.ollamaModel !== undefined && !isLocalOllamaModel(value.ollamaModel)) ||
 			(value.openrouterModel !== undefined && !validModel(value.openrouterModel))) throw new Error("Invalid settings");
 		const kind = value.writer === undefined ? "ollama" : value.writer;
 		let writer: Writer;

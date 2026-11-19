@@ -9,6 +9,7 @@ Tracked items are copied from or linked into the target pi config directory:
 - `settings.json`
 - `keybindings.json`
 - `extensions/self-compact/`
+- `extensions/shared/`
 - `extensions/tool-explainer/`
 - `extensions/working-summary/`
 - the repository's global `skills/` directory
@@ -105,36 +106,51 @@ Pi shows two labels in the existing editor-border indicator while it works: `⠋
 The first describes the session topic, and the second is a short preview that changes when Pi starts processing a new user prompt, not when you queue it.
 Each label uses at most six words, and the one-line bar can still clip it if the terminal is too narrow.
 When work finishes, the labels stay in the editor's top border, matching its color and without a spinner.
-Both labels are on by default and use short local excerpts unless you enable remote summaries.
+Both labels are on by default, with Ollama's `qwen3.5:2b` as the writer, just like the tool explainer.
+Pi shows a fallback immediately and replaces it when the model finishes in the background.
+Ollama titles the session from its first eligible request, such as `improve-codebase skill walkthrough`, and summarizes the latest eligible request separately.
+After the title is ready, a follow-up only needs a new prompt label.
+Start Ollama on `127.0.0.1:11434` and run `ollama pull qwen3.5:2b` if the model isn't installed.
+The local writer uses loopback, rejects cloud models, and works with `--offline`.
+If Ollama is unavailable or times out, the fallback stays visible.
+Model summaries run in the background only in trusted interactive sessions.
+The extension skips attachments, fenced code, and obvious credentials, but these filters are not a guarantee of redaction.
+Expanded prompt template text can look like ordinary prompt text and may be included.
 
 ```text
 /working-summary status
 /working-summary session off
 /working-summary prompt off
+/working-summary ollama off
 /working-summary remote on
 ```
 
 Use `on` or `off` for each switch independently.
+`status` shows the selected writer and whether each label came from a model or the fallback.
 Commands apply to the loaded session until reload or session replacement.
 For persistent defaults, save `working-summary.json` in the Pi agent directory (`~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set).
-This example enables both labels and opts into remote summaries:
+These are the defaults:
 
 ```json
 {
   "session": true,
   "prompt": true,
-  "remote": true
+  "ollama": true,
+  "ollamaModel": "qwen3.5:2b",
+  "remote": false
 }
 ```
 
-Remote summaries run in the background only in trusted interactive sessions, using Pi's OpenRouter login or `OPENROUTER_API_KEY`.
+Set `ollamaModel` to another installed local model tag, or keep both `ollama` and `remote` off to use only the fallback.
+Setting `remote` to `true` uses OpenRouter instead of Ollama.
+OpenRouter uses Pi's OpenRouter login or `OPENROUTER_API_KEY`.
 OpenRouter and its providers can receive up to four 384-character excerpts from the active branch: TypeSafe's `typesafe/jev-1.14` classifies the request and Google's `google/gemini-2.5-flash-lite` writes the labels.
 Both calls can incur charges.
-Only the latest prompt is used when the session label is off; when the session label is on, new prompts can still be used as topic evidence even if the prompt label is off.
-The extension skips attachments, fenced code, and obvious credentials, but these filters are not a guarantee of redaction.
-Expanded prompt template text can look like ordinary prompt text and may be included.
-Keep `remote` off or launch Pi with `--offline` when prompt excerpts must stay local for this feature.
-Missing credentials, provider failures, and timeouts leave the local labels available without interrupting the foreground agent.
+OpenRouter uses only the latest prompt when the session label is off.
+When the session label is on, new prompts can still be used as topic evidence even if the prompt label is off.
+Keep `remote` off when prompt excerpts must stay local for this feature.
+`--offline` blocks OpenRouter; if `remote` is on, that leaves only the fallback.
+Missing credentials, provider failures, and timeouts leave the fallback available without interrupting the foreground agent.
 
 The portable installer includes the extension and leaves the preferences file local.
 Restart Pi or run `/reload` to load it or apply changed file defaults.

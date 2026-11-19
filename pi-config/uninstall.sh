@@ -14,6 +14,7 @@ TOP_LEVEL_FILES=(
 TOP_LEVEL_DIRS=(
   skills
   extensions/self-compact
+  extensions/shared
   extensions/tool-explainer
   extensions/working-summary
 )

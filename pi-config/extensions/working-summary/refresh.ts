@@ -1,5 +1,5 @@
 import type { Labels } from "./labels.js";
-import type { SummaryResult } from "./openrouter.js";
+import type { SummaryResult } from "./writer.js";
 
 const DEADLINE_MS = 5_000;
 const COOLDOWN_MS = 60_000;
@@ -9,7 +9,7 @@ interface Job {
 	timeout: ReturnType<typeof setTimeout>;
 }
 
-export class RemoteRefresh {
+export class SummaryRefresh {
 	private pending?: Job;
 	private failure?: string;
 	private retryAfter = 0;
@@ -19,9 +19,9 @@ export class RemoteRefresh {
 	}
 
 	status(): string {
-		if (this.pending) return "OpenRouter (working)";
-		if (!this.failure) return "OpenRouter (ready)";
-		return `OpenRouter (${this.failure}${this.coolingDown ? ", cooldown" : ""})`;
+		if (this.pending) return "working";
+		if (!this.failure) return "ready";
+		return `${this.failure}${this.coolingDown ? ", cooldown" : ""}`;
 	}
 
 	cancel(): void {
@@ -67,7 +67,7 @@ export class RemoteRefresh {
 				const result = await request(signal);
 				if (!isCurrent()) return;
 				if (result.failure) this.recordFailure(result.failure);
-				else this.failure = undefined;
+				else this.failure = result.warning;
 				publish(result.labels);
 			} catch {
 				if (isCurrent()) this.recordFailure("summary request failed");

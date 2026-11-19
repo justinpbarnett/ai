@@ -1,10 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
 import { plain } from "./evidence.js";
 import { ExplanationError, withinDeadline, WRITER } from "./explain.js";
 
-const OLLAMA_URL = "http://127.0.0.1:11434";
 const MAX_TOKENS = 32;
-export const DEFAULT_OLLAMA_MODEL = "qwen3.5:2b";
 export const DEFAULT_OPENROUTER_MODEL = WRITER;
 
 export type Writer = { kind: "ollama" | "openrouter"; model: string } | { kind: "off" };
@@ -34,26 +33,13 @@ const systemPrompt = [
 	"No Markdown, heading, or trailing period. Give a purpose beyond running a command or script. If you cannot infer one, output UNKNOWN.",
 ].join("\n");
 
-async function ollamaPost(path: string, body: object, signal: AbortSignal) {
-	const response = await fetch(`${OLLAMA_URL}${path}`, {
-		method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal, redirect: "error",
-	});
-	if (!response.ok) throw new ExplanationError("Ollama request failed; check that the model is installed and Ollama is running.");
-	return response.json();
-}
-
 async function writeLocally(model: string, commands: string[], signal: AbortSignal): Promise<string> {
-	const info = await ollamaPost("/api/show", { model }, signal);
-	if (info?.remote_host || info?.remote_model || !info?.model_info?.["general.architecture"]) {
-		throw new ExplanationError("Ollama writer requires a locally installed, non-cloud model.");
+	try {
+		return await writeWithOllama({ model, systemPrompt, evidence: { commands }, maxTokens: MAX_TOKENS }, signal);
+	} catch (error) {
+		if (error instanceof OllamaWriterError) throw new ExplanationError(error.message);
+		throw error;
 	}
-	const response = await ollamaPost("/api/chat", {
-		model, stream: false, think: false,
-		messages: [{ role: "system", content: systemPrompt }, { role: "user", content: JSON.stringify({ commands }) }],
-		options: { temperature: 0, num_predict: MAX_TOKENS, num_ctx: 4096 },
-	}, signal);
-	if (response?.done_reason !== "stop") throw new ExplanationError("Ollama did not finish the summary.");
-	return response.message?.content;
 }
 
 async function writeRemotely(registry: ExtensionContext["modelRegistry"], id: string, hints: string[][], signal: AbortSignal): Promise<string> {

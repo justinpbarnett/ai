@@ -16,6 +16,12 @@ const IMAGE_NOTE = /^\[Image(?: converted from| omitted:|: original )[^\]\r\n]*\
 const FILE_REFERENCE = /(?:^|\s)@[^\s]|\bfile:\/\//i;
 const CODE_FENCE = /```|~~~/;
 const SECRET_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
+const TOPIC_REQUESTS = [
+	{ prefix: /^(?:walk (?:me |us )?through|give (?:me|us) a walkthrough of) /i, kind: "walkthrough" },
+	{ prefix: /^give (?:me|us) (?:a quick overview|an overview) of /i, kind: "overview" },
+];
+const REQUEST_LEAD_IN = /^(?:(?:(?:can|could|would) you|please) )+/i;
+const RECENT_WORK_ASIDE = / (?:that )?(?:we|you|I) (?:(?:just|recently) )?(?:added|built|created|made|wrote)(?: (?:recently|earlier|yesterday|last week))?$/i;
 
 export interface PromptPreview {
 	label?: string;
@@ -52,6 +58,20 @@ function localLabel(value: string): string | undefined {
 	return words.length <= SUMMARY_WORD_LIMIT ? text : `${words.slice(0, SUMMARY_WORD_LIMIT).join(" ")}…`;
 }
 
+function localSessionTitle(firstLine: string): string | undefined {
+	const request = plainLine(firstLine).replace(REQUEST_LEAD_IN, "");
+	for (const { prefix, kind } of TOPIC_REQUESTS) {
+		if (!prefix.test(request)) continue;
+		const subject = request.replace(prefix, "").split(/[.!?](?= |$)/, 1)[0]!
+			.replace(RECENT_WORK_ASIDE, "")
+			.replace(/^(?:the|a|an|our|my)(?: |$)/i, "")
+			.replace(/`([^`]+)`/g, "$1");
+		if (subject && !/^(?:how|why|what|when|where|whether)\b/i.test(subject)) {
+			return parseSummaryLabel(`${subject} ${kind}`);
+		}
+	}
+}
+
 function excerpt(text: string): string {
 	let end = 0;
 	let characters = 0;
@@ -85,7 +105,7 @@ function inspectPrompt(content: UserMessage["content"]) {
 	return { request, skillName: skill?.name, safeLine, hasImage, hasFile };
 }
 
-function remoteExcerpt({ request, safeLine, hasImage, hasFile }: ReturnType<typeof inspectPrompt>): string | undefined {
+function modelExcerpt({ request, safeLine, hasImage, hasFile }: ReturnType<typeof inspectPrompt>): string | undefined {
 	if (!safeLine || hasImage || hasFile || CODE_FENCE.test(request) || FILE_REFERENCE.test(request)) return;
 	return excerpt(safeLine);
 }
@@ -96,15 +116,16 @@ export function previewPrompt(content: UserMessage["content"]): PromptPreview {
 	if (safeLine === undefined) return { label: "Sensitive prompt" };
 
 	const source = skillName !== undefined && !request ? skillName : request.split(CODE_FENCE, 1)[0]!.trim();
-	const topicSeed = localLabel(source.split(/[\r\n\u2028\u2029]/u, 1)[0]!);
+	const firstLine = source.split(/[\r\n\u2028\u2029]/u, 1)[0]!;
+	const topicSeed = localSessionTitle(firstLine) ?? localLabel(firstLine);
 	const label = localLabel(source) ?? (hasImage ? "Image prompt" : hasFile ? "File prompt" : undefined);
-	return { label, topicSeed, excerpt: remoteExcerpt(prompt) };
+	return { label, topicSeed, excerpt: modelExcerpt(prompt) };
 }
 
 export function earlierExcerpts(branch: readonly UserMessage["content"][], latest: string): string[] {
 	const earlier = new Set<string>();
 	const add = (content: UserMessage["content"]) => {
-		const text = remoteExcerpt(inspectPrompt(content));
+		const text = modelExcerpt(inspectPrompt(content));
 		if (!text || text === latest || earlier.has(text)) return false;
 		earlier.add(text);
 		return true;

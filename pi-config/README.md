@@ -109,7 +109,9 @@ When work finishes, the labels stay in the editor's top border, matching its col
 Both labels are on by default, with Ollama's `qwen3.5:2b` as the writer, just like the tool explainer.
 Pi shows a fallback immediately and replaces it when the model finishes in the background.
 Ollama titles the session from its first eligible request, such as `improve-codebase skill walkthrough`, and summarizes the latest eligible request separately.
-After the title is ready, a follow-up only needs a new prompt label.
+Later requests update the session title when they start independent work or replace the main deliverable.
+Follow-ups, refinements, verification, and wrap-up keep the current title.
+Pi saves the active title on its conversation branch so it survives reopening the session.
 Start Ollama on `127.0.0.1:11434` and run `ollama pull qwen3.5:2b` if the model isn't installed.
 The local writer uses loopback, rejects cloud models, and works with `--offline`.
 If Ollama is unavailable or times out, the fallback stays visible.
@@ -122,6 +124,7 @@ Expanded prompt template text can look like ordinary prompt text and may be incl
 /working-summary session off
 /working-summary prompt off
 /working-summary ollama off
+/working-summary jev on
 /working-summary remote on
 ```
 
@@ -137,19 +140,24 @@ These are the defaults:
   "prompt": true,
   "ollama": true,
   "ollamaModel": "qwen3.5:2b",
+  "jev": false,
   "remote": false
 }
 ```
 
 Set `ollamaModel` to another installed local model tag, or keep both `ollama` and `remote` off to use only the fallback.
-Setting `remote` to `true` uses OpenRouter instead of Ollama.
+With `jev` on, OpenRouter's `typesafe/jev-1.14` checks for mission changes on new prompts while Ollama still writes both labels.
+This opt-in can send the current title and two excerpts of up to 384 characters each to OpenRouter and TypeSafe and may incur charges.
+If JEV is unavailable or Pi is offline, Ollama checks for mission changes instead.
+When reopening a session, Pi restores the saved mission title without contacting JEV.
+Setting `remote` to `true` uses OpenRouter instead of Ollama for the full summary, independently of the `jev` switch.
 OpenRouter uses Pi's OpenRouter login or `OPENROUTER_API_KEY`.
 OpenRouter and its providers can receive up to four 384-character excerpts from the active branch: TypeSafe's `typesafe/jev-1.14` classifies the request and Google's `google/gemini-2.5-flash-lite` writes the labels.
 Both calls can incur charges.
 OpenRouter uses only the latest prompt when the session label is off.
 When the session label is on, new prompts can still be used as topic evidence even if the prompt label is off.
-Keep `remote` off when prompt excerpts must stay local for this feature.
-`--offline` blocks OpenRouter; if `remote` is on, that leaves only the fallback.
+Keep `remote` and `jev` off when prompt excerpts must stay local for this feature.
+`--offline` blocks OpenRouter; if the full `remote` writer is selected, that leaves only the fallback.
 Missing credentials, provider failures, and timeouts leave the fallback available without interrupting the foreground agent.
 
 The portable installer includes the extension and leaves the preferences file local.

@@ -4,22 +4,27 @@ import type { UserMessage } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
 import { installSummaryBorder } from "./editor.js";
-import { earlierExcerpts, formatSummary, previewPrompt, SLOTS, type Labels, type Slot } from "./labels.js";
+import { earlierExcerpts, formatSummary, parseSummaryLabel, previewPrompt, SLOTS, type Labels, type Slot } from "./labels.js";
 import { summarizeWithOllama } from "./ollama.js";
-import { openRouterBlocker, summarizeWithOpenRouter } from "./openrouter.js";
+import { classifyMissionWithJev, jevBlocker, openRouterBlocker, summarizeWithOpenRouter } from "./openrouter.js";
 import { SummaryRefresh } from "./refresh.js";
 
 const SETTINGS_FILE = "working-summary.json";
-const DEFAULTS = { session: true, prompt: true, ollama: true, remote: false, ollamaModel: DEFAULT_OLLAMA_MODEL };
-const SWITCHES = [...SLOTS, "ollama", "remote"] as const;
+const DEFAULTS = { session: true, prompt: true, ollama: true, jev: false, remote: false, ollamaModel: DEFAULT_OLLAMA_MODEL };
+const SWITCHES = [...SLOTS, "ollama", "jev", "remote"] as const;
 const WRITER_NAMES = { ollama: "Ollama", openrouter: "OpenRouter" };
 const COMMAND = "working-summary";
+const MISSION_ENTRY = `${COMMAND}.mission`;
 const COMMAND_ARGS = ["status", ...SWITCHES.flatMap((name) => [`${name} on`, `${name} off`])];
 const REMOTE_NOTICE = "Remote summaries on. On the next eligible prompt, OpenRouter and its model providers may receive up to four 384-character prompt excerpts. Use /working-summary remote off to stop.";
+const JEV_NOTICE = "JEV mission checks on. OpenRouter and TypeSafe can receive the mission title and up to two 384-character prompt excerpts. This does not change the label writer. Use /working-summary jev off to stop.";
 
 type Settings = typeof DEFAULTS;
 type Setting = (typeof SWITCHES)[number];
 type Writer = keyof typeof WRITER_NAMES;
+type PromptExcerpt = { text: string; timestamp: number };
+type MissionCheckpoint = { title: string; requestAt: number };
+type Branch = ReturnType<ExtensionContext["sessionManager"]["getBranch"]>;
 
 function isSetting(key: string): key is Setting {
 	return SWITCHES.some((setting) => setting === key);
@@ -48,9 +53,22 @@ function parseCommand(args: string) {
 	if (key && isSetting(key) && (value === "on" || value === "off") && !extra) return { key, value };
 }
 
-function branchPrompts(ctx: ExtensionContext): UserMessage["content"][] {
-	return ctx.sessionManager.getBranch().flatMap((entry) =>
-		entry.type === "message" && entry.message.role === "user" ? [entry.message.content] : []);
+function branchPrompts(branch: Branch): UserMessage[] {
+	return branch.flatMap((entry) => entry.type === "message" && entry.message.role === "user" ? [entry.message] : []);
+}
+
+function savedMission(branch: Branch): MissionCheckpoint | undefined {
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry?.type !== "custom" || entry.customType !== MISSION_ENTRY || !entry.data || typeof entry.data !== "object") continue;
+		const { title, requestAt } = entry.data as Partial<MissionCheckpoint>;
+		const label = parseSummaryLabel(title);
+		if (label && typeof requestAt === "number" && Number.isFinite(requestAt)) return { title: label, requestAt };
+	}
+}
+
+function excerptAt(message: UserMessage | undefined, text: string | undefined): PromptExcerpt | undefined {
+	if (message && text) return { text, timestamp: message.timestamp };
 }
 
 class WorkingSummary {
@@ -58,10 +76,14 @@ class WorkingSummary {
 	private configInvalid = false;
 	private fallback: Labels = {};
 	private generated: Labels = {};
-	private openingExcerpt?: string;
+	private openingExcerpt?: PromptExcerpt;
+	private missionExcerpt?: PromptExcerpt;
+	private pendingMission?: MissionCheckpoint;
 	private displayedLabels: Labels = {};
 	private redrawBorder?: () => void;
 	private readonly refresh = new SummaryRefresh();
+
+	constructor(private readonly pi: ExtensionAPI) {}
 
 	start(ctx: ExtensionContext) {
 		const loaded = loadSettings();
@@ -76,19 +98,28 @@ class WorkingSummary {
 	restore(ctx: ExtensionContext) {
 		this.refresh.cancel();
 		this.generated = {};
-		const prompts = branchPrompts(ctx);
+		const branch = ctx.sessionManager.getBranch();
+		const prompts = branchPrompts(branch);
 		const latest = prompts.at(-1);
-		const preview = latest === undefined ? undefined : previewPrompt(latest);
+		const preview = latest && previewPrompt(latest.content);
 		this.fallback = { prompt: preview?.label };
-		this.openingExcerpt = undefined;
-		for (const content of prompts) {
-			const { topicSeed, excerpt } = previewPrompt(content);
+		this.openingExcerpt = this.missionExcerpt = undefined;
+		this.pendingMission = undefined;
+		for (const message of prompts) {
+			const { topicSeed, excerpt } = previewPrompt(message.content);
 			this.fallback.session ??= topicSeed;
-			this.openingExcerpt ??= excerpt;
+			this.openingExcerpt ??= excerptAt(message, excerpt);
 			if (this.fallback.session && this.openingExcerpt) break;
 		}
+		const local = this.writer() === "ollama";
+		const saved = local ? savedMission(branch) : undefined;
+		if (saved) {
+			this.generated.session = saved.title;
+			const source = prompts.findLast((message) => message.timestamp === saved.requestAt);
+			if (source) this.missionExcerpt = excerptAt(source, previewPrompt(source.content).excerpt);
+		}
 		this.render(ctx);
-		if (this.writer() === "ollama") this.queueSummary(ctx, preview?.excerpt);
+		if (local) this.queueSummary(ctx, excerptAt(latest, preview?.excerpt), false);
 	}
 
 	shutdown() {
@@ -99,21 +130,29 @@ class WorkingSummary {
 
 	settle(aborted: boolean) {
 		if (aborted) this.refresh.cancel();
+		this.persistMission();
 		this.redrawBorder?.();
 	}
 
-	deliver(ctx: ExtensionContext, content: UserMessage["content"]) {
+	private persistMission() {
+		if (!this.pendingMission) return;
+		this.pi.appendEntry(MISSION_ENTRY, this.pendingMission);
+		this.pendingMission = undefined;
+	}
+
+	deliver(ctx: ExtensionContext, message: UserMessage) {
 		this.refresh.cancel();
-		const preview = previewPrompt(content);
+		const preview = previewPrompt(message.content);
+		const latest = excerptAt(message, preview.excerpt);
 		this.fallback.session ??= preview.topicSeed;
-		this.openingExcerpt ??= preview.excerpt;
+		this.openingExcerpt ??= latest;
 		this.fallback.prompt = preview.label;
 		delete this.generated.prompt;
 		this.render(ctx);
-		this.queueSummary(ctx, preview.excerpt);
+		this.queueSummary(ctx, latest, true);
 	}
 
-	private queueSummary(ctx: ExtensionContext, latest: string | undefined) {
+	private queueSummary(ctx: ExtensionContext, latest: PromptExcerpt | undefined, checkMission: boolean) {
 		const writer = this.writer();
 		if (!writer || this.refresh.coolingDown || this.writerBlocker(ctx, writer)) return;
 		const publish = (labels: Labels) => {
@@ -121,21 +160,48 @@ class WorkingSummary {
 			this.render(ctx);
 		};
 		if (writer === "ollama") {
-			const openingRequest = this.settings.session && !this.generated.session ? this.openingExcerpt : undefined;
-			const latestRequest = this.settings.prompt ? latest : undefined;
-			const fields = SLOTS.filter((slot) => slot === "session" ? openingRequest : latestRequest);
-			if (!fields.length) return;
-			const { ollamaModel } = this.settings;
-			this.refresh.start(ctx.signal, (signal) => summarizeWithOllama(ollamaModel, fields, { openingRequest, latest: latestRequest }, signal), publish);
+			this.queueLocal(ctx, latest, checkMission, publish);
 		} else if (latest) {
 			const fields = SLOTS.filter((slot) => this.settings[slot]);
 			this.refresh.start(ctx.signal, (signal) => {
 				const evidence = fields.includes("session")
-					? { latest, earlier: earlierExcerpts(branchPrompts(ctx), latest), previousTopic: this.generated.session }
-					: { latest };
+					? { latest: latest.text, earlier: earlierExcerpts(branchPrompts(ctx.sessionManager.getBranch()).map((message) => message.content), latest.text), previousTopic: this.generated.session }
+					: { latest: latest.text };
 				return summarizeWithOpenRouter(ctx.modelRegistry, fields, evidence, signal);
 			}, publish);
 		}
+	}
+
+	private queueLocal(ctx: ExtensionContext, latest: PromptExcerpt | undefined, checkMission: boolean, publish: (labels: Labels) => void) {
+		const title = this.settings.session ? this.generated.session : undefined;
+		const mission = checkMission && title && latest && latest.timestamp !== this.missionExcerpt?.timestamp
+			? { title, request: this.missionExcerpt?.text } : undefined;
+		const opening = this.settings.session && !title ? this.openingExcerpt : undefined;
+		const source = mission ? latest : opening;
+		const includePrompt = this.settings.prompt && !!latest;
+		const fields = SLOTS.filter((slot) => slot === "session" ? !!source : includePrompt);
+		if (!fields.length) return;
+		const { ollamaModel, jev } = this.settings;
+		const useJev = jev && !!mission && !jevBlocker(ctx);
+		this.refresh.start(ctx.signal, async (signal) => {
+			if (useJev && mission && latest) {
+				const decision = await classifyMissionWithJev(ctx.modelRegistry, { mission, latest: latest.text }, signal);
+				if (decision === "switch") {
+					return summarizeWithOllama(ollamaModel, fields, { openingRequest: latest.text, latest: includePrompt ? latest.text : undefined }, signal);
+				}
+				if (decision === "keep") {
+					return includePrompt ? summarizeWithOllama(ollamaModel, ["prompt"], { latest: latest.text }, signal) : { labels: {} };
+				}
+			}
+			return summarizeWithOllama(ollamaModel, fields, { openingRequest: opening?.text, latest: includePrompt || mission ? latest?.text : undefined, mission }, signal);
+		}, (labels) => {
+			if (labels.session && source) {
+				this.missionExcerpt = source;
+				this.pendingMission = { title: labels.session, requestAt: source.timestamp };
+				if (ctx.isIdle()) this.persistMission();
+			}
+			publish(labels);
+		});
 	}
 
 	private displayed(slot: Slot): string | undefined {
@@ -174,29 +240,36 @@ class WorkingSummary {
 		const model = writer === "ollama" ? `/${this.settings.ollamaModel}` : "";
 		const route = writer ? `${WRITER_NAMES[writer]}${model} (${this.writerBlocker(ctx, writer) ?? this.refresh.status()})`
 			: `off (${this.configInvalid ? "invalid settings" : "disabled"})`;
-		return `Working summaries: ${slots.join(" · ")} · writer: ${route}`;
+		const jev = writer === "ollama" && this.settings.jev && this.settings.session;
+		const blocker = jev ? jevBlocker(ctx) : undefined;
+		const mission = writer === "ollama" && this.settings.session ? ` · mission: ${jev && !blocker ? "JEV via OpenRouter" : "Ollama"}${blocker ? ` (${blocker})` : ""}` : "";
+		return `Working summaries: ${slots.join(" · ")} · writer: ${route}${mission}`;
 	}
 
 	command(ctx: ExtensionContext, args: string) {
 		const command = parseCommand(args);
 		if (command === "status") return ctx.ui.notify(this.status(ctx), "info");
-		if (!command) return ctx.ui.notify(`Use /${COMMAND} status or /${COMMAND} <session|prompt|ollama|remote> <on|off>.`, "warning");
+		if (!command) return ctx.ui.notify(`Use /${COMMAND} status or /${COMMAND} <${SWITCHES.join("|")}> <on|off>.`, "warning");
 		const { key, value } = command;
 		const enabled = value === "on";
-		if ((key === "remote" || key === "ollama") && enabled && this.configInvalid) {
+		if ((key === "remote" || key === "ollama" || key === "jev") && enabled && this.configInvalid) {
 			return ctx.ui.notify(`Fix ${SETTINGS_FILE} and reload Pi before enabling model summaries.`, "warning");
 		}
 		if (this.settings[key] !== enabled) this.setSwitch(ctx, key, enabled);
-		ctx.ui.notify(key === "remote" && enabled ? REMOTE_NOTICE : `Working summary ${key} ${value} for this session.`, "info");
+		ctx.ui.notify(key === "remote" && enabled ? REMOTE_NOTICE : key === "jev" && enabled ? JEV_NOTICE : `Working summary ${key} ${value} for this session.`, "info");
 	}
 
 	private setSwitch(ctx: ExtensionContext, key: Setting, enabled: boolean) {
 		const previousWriter = this.writer();
 		this.settings[key] = enabled;
-		if (previousWriter !== this.writer()) {
+		const writer = this.writer();
+		if (previousWriter !== writer) {
 			this.refresh.reset();
+			if (writer === "ollama") return this.restore(ctx);
 			this.generated = {};
-		} else if (key === "session" || key === "prompt") {
+			this.missionExcerpt = undefined;
+			this.pendingMission = undefined;
+		} else if (key === "session" || key === "prompt" || key === "jev") {
 			this.refresh.cancel();
 		}
 		this.render(ctx);
@@ -204,7 +277,7 @@ class WorkingSummary {
 }
 
 export default function (pi: ExtensionAPI) {
-	const summary = new WorkingSummary();
+	const summary = new WorkingSummary(pi);
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode === "tui") summary.start(ctx);
 	});
@@ -214,11 +287,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => summary.shutdown());
 	pi.on("agent_settled", (event) => summary.settle(event.aborted));
 	pi.on("message_start", (event, ctx) => {
-		if (ctx.mode === "tui" && event.message.role === "user") summary.deliver(ctx, event.message.content);
+		if (ctx.mode === "tui" && event.message.role === "user") summary.deliver(ctx, event.message);
 	});
 
 	pi.registerCommand(COMMAND, {
-		description: "Show or toggle Working summaries: status, session on/off, prompt on/off, ollama on/off, remote on/off",
+		description: "Show or toggle Working summaries: status, session/prompt/ollama/jev/remote on or off",
 		getArgumentCompletions: (prefix) => COMMAND_ARGS.filter((arg) => arg !== prefix && arg.startsWith(prefix))
 			.map((arg) => ({ value: arg, label: arg })),
 		async handler(args, ctx) {

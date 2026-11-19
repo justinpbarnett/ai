@@ -7,6 +7,19 @@ const PROVIDER = "openrouter";
 const JEV = "typesafe/jev-1.14";
 const WRITER = "google/gemini-2.5-flash-lite";
 const MIN_CONFIDENCE = 0.8;
+const MISSION_CHECK_TIMEOUT_MS = 2_200;
+const MISSION_SWITCH_PROBABILITY = 0.9;
+
+export type MissionEvidence = { mission: { title: string; request?: string }; latest: string };
+
+const missionQuestion = {
+	type: "bool",
+	instructions: "Compare latest to the stated mission as evidence. Does latest ask for a materially different primary objective?",
+	criteria: {
+		true: "An independent task or an explicit replacement of the primary deliverable, even if it concerns the same subject.",
+		false: "A related follow-up, example, refinement, different approach to the same outcome, verification, acknowledgment, commit or push, or unclear relation.",
+	},
+} satisfies ClassifierQuestion;
 
 const intentQuestion = {
 	type: "choice",
@@ -45,12 +58,34 @@ function openRouterModels(registry: Registry) {
 	};
 }
 
-export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
+export function jevBlocker(ctx: ExtensionContext): string | undefined {
 	if (!ctx.isProjectTrusted()) return "untrusted project";
 	if (/^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")) return "Pi is offline";
 	if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER).configured) return "OpenRouter sign-in needed";
-	const { jev, writer } = openRouterModels(ctx.modelRegistry);
-	if (!jev || writer?.api !== "openai-completions") return "OpenRouter summary models unavailable";
+	if (!ctx.modelRegistry.findOfType("classifier", PROVIDER, JEV)) return "OpenRouter JEV model unavailable";
+}
+
+export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
+	return jevBlocker(ctx) ?? (ctx.modelRegistry.find(PROVIDER, WRITER)?.api === "openai-completions"
+		? undefined : "OpenRouter summary writer unavailable");
+}
+
+export async function classifyMissionWithJev(registry: Registry, evidence: MissionEvidence, signal: AbortSignal): Promise<"switch" | "keep" | undefined> {
+	const jev = registry.findOfType("classifier", PROVIDER, JEV);
+	if (!jev) return;
+	try {
+		const deadline = AbortSignal.any([signal, AbortSignal.timeout(MISSION_CHECK_TIMEOUT_MS)]);
+		const result = await registry.classify(jev, { state: evidence, questions: { mission: missionQuestion } }, { signal: deadline, maxRetries: 0 });
+		signal.throwIfAborted();
+		if (deadline.aborted) return;
+		const answer = result.answers.mission;
+		if (result.stopReason === "stop" && answer?.type === "bool" && Number.isFinite(answer.probability) &&
+			answer.probability >= 0 && answer.probability <= 1) {
+			return answer.probability >= MISSION_SWITCH_PROBABILITY ? "switch" : "keep";
+		}
+	} catch {
+		signal.throwIfAborted();
+	}
 }
 
 function trustedChoice(answer: ClassifierAnswer | undefined, question: typeof intentQuestion | typeof topicQuestion) {

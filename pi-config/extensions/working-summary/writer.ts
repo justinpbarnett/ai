@@ -24,14 +24,19 @@ export function labelSchema(fields: Slot[]) {
 	};
 }
 
-export function parseLabels(text: string, fields: Slot[]): SummaryResult {
+export function parseLabels(text: string, fields: Slot[], { requireMissionSwitch = false } = {}): SummaryResult {
 	let parsed: unknown;
 	try { parsed = JSON.parse(text); } catch { return { labels: {}, warning: "invalid writing response" }; }
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { labels: {}, warning: "invalid writing response" };
+	const response = parsed as Record<string, unknown>;
+	const decideMission = requireMissionSwitch && fields.includes("session");
+	const decided = response.decision === "switch" || response.decision === "keep";
+	const expected = decideMission && response.decision !== "switch" ? fields.filter((field) => field !== "session") : fields;
 	const labels: Labels = {};
-	for (const field of fields) {
-		const label = parseSummaryLabel((parsed as Record<string, unknown>)[field]);
+	for (const field of expected) {
+		const label = parseSummaryLabel(response[field]);
 		if (label) labels[field] = label;
 	}
-	return { labels, warning: fields.every((field) => labels[field]) ? undefined : "incomplete writing response" };
+	if (decideMission && !decided) return { labels, warning: "invalid mission decision" };
+	return { labels, warning: expected.every((field) => labels[field]) ? undefined : "incomplete writing response" };
 }

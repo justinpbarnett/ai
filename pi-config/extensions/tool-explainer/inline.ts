@@ -64,11 +64,12 @@ function liveView(state: CallState, call: Component, theme: Theme, context: Cont
 function closedView(group: Group, failed: number, theme: Theme, context: Context): Component {
 	const count = group.ids.length;
 	const label = theme.fg("muted", `Called ${count} ${count === 1 ? "tool" : "tools"}`);
-	const failures = failed ? theme.fg("error", `, ${failed} failed`) : "";
+	const separator = failed ? theme.fg("muted", ", ") : "";
+	const failures = failed ? theme.fg("error", `${failed} failed`) : "";
 	const box = new Box(context.outputPad, 0);
-	const text = withHint(label + failures, theme, context);
+	const text = withHint(label + separator + failures, theme, context);
 	box.addChild({
-		render: (width) => [visibleWidth(text) <= width ? text : truncateToWidth(label + failures, width)],
+		render: (width) => [visibleWidth(text) <= width ? text : truncateToWidth(label + separator + failures, width)],
 		invalidate() {},
 	});
 	return box;

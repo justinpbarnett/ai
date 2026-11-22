@@ -7,8 +7,10 @@ type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
 type Context = Parameters<RenderCall>[2];
 type Theme = Parameters<RenderCall>[1];
 
-type CallState = { activity: ToolActivity; purpose?: string; pending?: boolean; failed: boolean; running: boolean };
-type Group = { ids: string[]; open: boolean };
+type CallState = { activity: ToolActivity; purpose?: string; pending?: boolean; phase: "queued" | "running" | "done" | "failed" };
+type Group = { ids: string[] };
+type BatchStatus = { running: number; done: number; failed: number };
+type LiveBatch = { id: string; status: BatchStatus; rows: Set<string> };
 type View = { tui: boolean; call?: Component; result?: Component; redraw?: () => void };
 
 const VIEW = Symbol("tool-explainer-row");
@@ -23,9 +25,9 @@ export function activityLabel({ singular, target }: ToolActivity = genericActivi
 	return `${singular.charAt(0).toUpperCase()}${singular.slice(1)}${target ? `: ${target}` : ""}`;
 }
 
-export function callLabel(state: Pick<CallState, "activity" | "purpose" | "failed">): string {
+function callLabel(state: CallState): string {
 	const text = state.purpose ?? activityLabel(state.activity);
-	return state.failed ? `Tool failed: ${text}` : text;
+	return state.phase === "failed" ? `Tool failed: ${text}` : text;
 }
 
 function shown(message: AgentMessage): boolean {
@@ -41,16 +43,27 @@ function withHint(text: string, theme: Theme, context: Context): string {
 	return hint ? `${text}${theme.fg("muted", " · ")}${hint}` : text;
 }
 
-function liveView(state: CallState, call: Component, theme: Theme, context: Context): Component {
-	const background = state.failed ? "toolErrorBg" : state.running ? "toolPendingBg" : "toolSuccessBg";
-	const box = new Box(context.outputPad, 0, (text) => theme.bg(background, text));
-	const label = `${callLabel(state)}${state.pending && !state.purpose ? "…" : ""}`;
-	const head = withHint(theme.fg(state.failed ? "error" : "accent", label), theme, context);
+function liveView(state: CallState, status: BatchStatus, call: Component, theme: Theme, context: Context): Component {
+	const box = new Box(context.outputPad, 0, (text) => theme.bg("toolPendingBg", text));
+	const label = theme.fg("accent", `${state.phase === "running" ? "Running: " : ""}${callLabel(state)}${state.pending ? "…" : ""}`);
+	const separator = theme.fg("muted", " · ");
+	const progress = [
+		status.running > 1 ? theme.fg("muted", `${status.running} running`) : "",
+		status.done ? theme.fg("muted", `${status.done} done`) : "",
+		status.failed ? theme.fg("error", `${status.failed} failed`) : "",
+	].filter(Boolean).join(separator);
+	const head = progress ? label + separator + progress : label;
+	const hinted = withHint(head, theme, context);
+	const headingLines = (width: number) => {
+		if (visibleWidth(hinted) <= width) return [hinted];
+		if (visibleWidth(head) <= width) return [head];
+		return progress ? [...wrapTextWithAnsi(label, width), ...wrapTextWithAnsi(progress, width)] : wrapTextWithAnsi(label, width);
+	};
 	box.addChild({
 		render(width) {
 			const lines = call.render(Math.max(1, width - 2)).map((line) => plain(line).trimEnd()).filter((line) => line.trim());
 			return [
-				...wrapTextWithAnsi(head, width),
+				...headingLines(width),
 				...lines.slice(0, CALL_LINES).map((line) => theme.fg("dim", truncateToWidth(`  ${line}`, width))),
 			];
 		},
@@ -61,8 +74,7 @@ function liveView(state: CallState, call: Component, theme: Theme, context: Cont
 	return box;
 }
 
-function closedView(group: Group, failed: number, theme: Theme, context: Context): Component {
-	const count = group.ids.length;
+function closedView(count: number, failed: number, theme: Theme, context: Context): Component {
 	const label = theme.fg("muted", `Called ${count} ${count === 1 ? "tool" : "tools"}`);
 	const separator = failed ? theme.fg("muted", ", ") : "";
 	const failures = failed ? theme.fg("error", `${failed} failed`) : "";
@@ -79,11 +91,11 @@ export class InlineToolOutput {
 	private readonly groups = new Map<string, Group>();
 	private readonly calls = new Map<string, CallState>();
 	private readonly views = new Map<string, WeakRef<View>>();
-	private open?: Group;
+	private openGroup?: Group;
 	private message?: number;
 	private readonly messageCalls = new Set<string>();
 	private readonly nativeCalls = new Set<string>();
-	private current?: string;
+	private live?: LiveBatch;
 	private lastExpanded?: boolean;
 
 	constructor(private readonly expandedChanged: () => void) {}
@@ -92,11 +104,11 @@ export class InlineToolOutput {
 		const ids = [...this.groups.keys()];
 		this.groups.clear();
 		this.calls.clear();
-		this.open = undefined;
+		this.openGroup = undefined;
 		this.message = undefined;
 		this.messageCalls.clear();
 		this.nativeCalls.clear();
-		this.current = undefined;
+		this.live = undefined;
 		if (redraw) for (const id of ids) this.redraw(id);
 		else this.views.clear();
 	}
@@ -105,19 +117,13 @@ export class InlineToolOutput {
 		const before = [...this.groups.keys()];
 		this.reset(false);
 		for (const message of messages) this.observe(message, cwd);
-		if (this.open) this.open.open = false;
-		this.open = undefined;
-		this.current = undefined;
+		this.close();
 		for (const id of new Set([...before, ...this.groups.keys()])) this.redraw(id);
 	}
 
 	observe(message: AgentMessage, cwd: string) {
 		if (message.role === "toolResult") {
-			const state = this.calls.get(message.toolCallId);
-			if (state) {
-				state.failed = message.isError;
-				state.running = false;
-			}
+			this.finish(message.toolCallId, message.isError);
 			return;
 		}
 		if (message.role !== "assistant") {
@@ -127,8 +133,9 @@ export class InlineToolOutput {
 		if (this.message !== message.timestamp) {
 			this.message = message.timestamp;
 			this.messageCalls.clear();
+			this.refreshLive();
 		}
-		if (shown(message) && this.open?.ids.some((id) => !this.messageCalls.has(id))) this.split();
+		if (shown(message) && this.openGroup?.ids.some((id) => !this.messageCalls.has(id))) this.split(this.openGroup);
 		for (const block of message.content) {
 			if (block.type !== "toolCall") continue;
 			if (shownNatively(block.name)) {
@@ -140,13 +147,11 @@ export class InlineToolOutput {
 			if (state) {
 				if (!state.purpose && activityLabel(state.activity) !== activityLabel(activity)) {
 					state.activity = activity;
-					if (this.current === block.id) this.redraw(block.id);
+					if (this.live?.id === block.id) this.redraw(block.id);
 				}
 				continue;
 			}
-			this.calls.set(block.id, { activity, failed: false, running: false });
-			this.messageCalls.add(block.id);
-			this.join(block.id);
+			this.add(block.id, { activity, phase: "queued" });
 		}
 	}
 
@@ -155,23 +160,24 @@ export class InlineToolOutput {
 			this.passNative(id);
 			return;
 		}
+		const activity = toolActivity(call, cwd);
 		const state = this.calls.get(id);
-		if (state) {
-			state.activity = toolActivity(call, cwd);
-			state.running = true;
-		} else {
-			this.calls.set(id, { activity: toolActivity(call, cwd), failed: false, running: true });
-			this.join(id);
+		if (!state) {
+			this.add(id, { activity, phase: "running" });
+			return;
 		}
-		this.focus(id);
+		state.activity = activity;
+		state.phase = "running";
+		this.refreshLive();
 	}
 
 	finish(id: string, failed: boolean) {
 		const state = this.calls.get(id);
-		if (!state) return;
-		state.failed = failed;
-		state.running = false;
-		this.redraw(id);
+		const phase = failed ? "failed" : "done";
+		if (!state || state.phase === phase) return;
+		state.phase = phase;
+		if (this.messageCalls.has(id)) this.refreshLive();
+		this.redraw(this.groups.get(id)?.ids.at(-1));
 	}
 
 	pending(id: string) {
@@ -195,18 +201,15 @@ export class InlineToolOutput {
 	}
 
 	close() {
-		const group = this.open;
-		if (!group) return;
-		group.open = false;
-		this.open = undefined;
-		this.current = undefined;
-		for (const id of group.ids) this.redraw(id);
+		this.openGroup = undefined;
+		this.messageCalls.clear();
+		this.refreshLive();
 	}
 
 	private passNative(id: string) {
 		if (this.nativeCalls.has(id)) return;
 		this.nativeCalls.add(id);
-		this.close();
+		this.openGroup = undefined;
 	}
 
 	private noteExpanded(expanded: boolean) {
@@ -215,38 +218,51 @@ export class InlineToolOutput {
 		setTimeout(this.expandedChanged, 0);
 	}
 
-	private join(id: string) {
-		this.open ??= { ids: [], open: true };
-		this.open.ids.push(id);
-		this.groups.set(id, this.open);
-		this.focus(id);
+	private add(id: string, state: CallState) {
+		this.calls.set(id, state);
+		this.messageCalls.add(id);
+		const group = this.openGroup ??= { ids: [] };
+		const previousAnchor = group.ids.at(-1);
+		group.ids.push(id);
+		this.groups.set(id, group);
+		this.refreshLive();
+		this.redraw(previousAnchor);
 	}
 
-	private split() {
-		const group = this.open!;
+	private split(group: Group) {
+		const previousAnchor = group.ids.at(-1);
 		const moved = group.ids.filter((id) => this.messageCalls.has(id));
 		group.ids = group.ids.filter((id) => !this.messageCalls.has(id));
-		this.close();
-		if (!moved.length) return;
-		const next: Group = { ids: moved, open: true };
-		for (const id of moved) this.groups.set(id, next);
-		this.open = next;
-		this.focus(moved.at(-1)!);
+		const next = moved.length ? { ids: moved } : undefined;
+		this.openGroup = next;
+		if (next) for (const id of moved) this.groups.set(id, next);
+		this.refreshLive();
+		this.redraw(previousAnchor);
+		this.redraw(group.ids.at(-1));
 	}
 
-	private focus(id: string) {
-		const previous = this.current;
-		this.current = id;
-		if (previous && previous !== id) this.redraw(previous);
-		this.redraw(id);
+	private refreshLive() {
+		let running: string | undefined;
+		let queued: string | undefined;
+		const status = { running: 0, done: 0, failed: 0 };
+		const rows = new Set<string>();
+		for (const id of this.messageCalls) {
+			const phase = this.calls.get(id)?.phase;
+			if (phase === "running") running = id;
+			else if (phase === "queued") queued = id;
+			if (phase && phase !== "queued") status[phase]++;
+			const anchor = this.groups.get(id)?.ids.at(-1);
+			if (anchor !== undefined) rows.add(anchor);
+		}
+		const previous = this.live;
+		const id = running ?? queued;
+		if (id !== undefined) rows.add(id);
+		this.live = id === undefined ? undefined : { id, status, rows };
+		for (const row of new Set([...(previous?.rows ?? []), ...(this.live?.rows ?? [])])) this.redraw(row);
 	}
 
-	private redraw(id: string) {
-		this.views.get(id)?.deref()?.redraw?.();
-	}
-
-	private failures(group: Group): number {
-		return group.ids.filter((id) => this.calls.get(id)?.failed).length;
+	private redraw(id: string | undefined) {
+		if (id !== undefined) this.views.get(id)?.deref()?.redraw?.();
 	}
 
 	wrap(name: string, native: ToolRenderers | undefined): ToolRenderers | undefined {
@@ -291,12 +307,19 @@ export class InlineToolOutput {
 				const view = viewFor(context);
 				const group = groupFor(view, context);
 				if (group && !context.expanded) {
-					if (group.open) {
-						const state = this.calls.get(context.toolCallId);
-						return state && this.current === context.toolCallId
-							? liveView(state, nativeCall(args, theme, context, view), theme, context) : new Container();
+					const id = context.toolCallId;
+					const state = this.calls.get(id);
+					if (state && this.live?.id === id) {
+						return liveView(state, this.live.status, nativeCall(args, theme, context, view), theme, context);
 					}
-					return group.ids.at(-1) === context.toolCallId ? closedView(group, this.failures(group), theme, context) : new Container();
+					if (group.ids.at(-1) === id && (!this.live || this.groups.get(this.live.id) !== group)) {
+						const ids = this.live ? group.ids.filter((callId) => !this.messageCalls.has(callId)) : group.ids;
+						if (ids.length) {
+							const failed = ids.filter((callId) => this.calls.get(callId)?.phase === "failed").length;
+							return closedView(ids.length, failed, theme, context);
+						}
+					}
+					return new Container();
 				}
 				return rawShell(nativeCall(args, theme, context, view), theme, context, view);
 			},

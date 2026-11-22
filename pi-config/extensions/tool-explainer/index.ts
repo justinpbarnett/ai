@@ -5,7 +5,7 @@ import { getAgentDir, sessionEntryToContextMessages, type ExtensionAPI, type Ext
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
 import { manualRows, plain, purposeCall, purposeExcerpt, recentCalls, safeLabel, type Invocation } from "./evidence.js";
 import { ExplanationError } from "./explain.js";
-import { InlineToolOutput } from "./inline.js";
+import { InlineToolOutput, shownNatively } from "./inline.js";
 import { THINKING_ENTRY, ThinkingSummaries, thinkingRuns, type SavedThought } from "./thinking.js";
 import { collectExplanation, explanationText, preview, showView } from "./view.js";
 import { operationHints, DEFAULT_OPENROUTER_MODEL, writeSummary, writeThinkingSummary, type Writer, type WritingRequest } from "./writer.js";
@@ -236,7 +236,7 @@ export default function (pi: ExtensionAPI) {
 		if (!autoEnabled(ctx) || event.parentToolCallId) return;
 		const call = { toolName: event.toolName, args: event.args };
 		inline.start(event.toolCallId, call, ctx.cwd);
-		void summarizeCall(ctx, event.toolCallId, call);
+		if (!shownNatively(call.toolName)) void summarizeCall(ctx, event.toolCallId, call);
 	});
 	pi.on("tool_execution_end", (event, ctx) => {
 		if (autoEnabled(ctx) && !event.parentToolCallId) inline.finish(event.toolCallId, event.isError);

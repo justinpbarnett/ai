@@ -13,6 +13,11 @@ type View = { tui: boolean; call?: Component; result?: Component; redraw?: () =>
 
 const VIEW = Symbol("tool-explainer-row");
 const CALL_LINES = 3;
+const NATIVE_TOOLS = new Set(["edit", "write"]);
+
+export function shownNatively(toolName: string): boolean {
+	return NATIVE_TOOLS.has(toolName);
+}
 
 export function activityLabel({ singular, target }: ToolActivity = genericActivity): string {
 	return `${singular.charAt(0).toUpperCase()}${singular.slice(1)}${target ? `: ${target}` : ""}`;
@@ -76,6 +81,7 @@ export class InlineToolOutput {
 	private open?: Group;
 	private message?: number;
 	private readonly messageCalls = new Set<string>();
+	private readonly nativeCalls = new Set<string>();
 	private current?: string;
 	private lastExpanded?: boolean;
 
@@ -88,6 +94,7 @@ export class InlineToolOutput {
 		this.open = undefined;
 		this.message = undefined;
 		this.messageCalls.clear();
+		this.nativeCalls.clear();
 		this.current = undefined;
 		if (redraw) for (const id of ids) this.redraw(id);
 		else this.views.clear();
@@ -123,6 +130,10 @@ export class InlineToolOutput {
 		if (shown(message) && this.open?.ids.some((id) => !this.messageCalls.has(id))) this.split();
 		for (const block of message.content) {
 			if (block.type !== "toolCall") continue;
+			if (shownNatively(block.name)) {
+				this.passNative(block.id);
+				continue;
+			}
 			const activity = toolActivity({ toolName: block.name, args: block.arguments }, cwd);
 			const state = this.calls.get(block.id);
 			if (state) {
@@ -139,6 +150,10 @@ export class InlineToolOutput {
 	}
 
 	start(id: string, call: Invocation, cwd: string) {
+		if (shownNatively(call.toolName)) {
+			this.passNative(id);
+			return;
+		}
 		const state = this.calls.get(id);
 		if (state) {
 			state.activity = toolActivity(call, cwd);
@@ -187,6 +202,18 @@ export class InlineToolOutput {
 		for (const id of group.ids) this.redraw(id);
 	}
 
+	private passNative(id: string) {
+		if (this.nativeCalls.has(id)) return;
+		this.nativeCalls.add(id);
+		this.close();
+	}
+
+	private noteExpanded(expanded: boolean) {
+		if (expanded === this.lastExpanded) return;
+		this.lastExpanded = expanded;
+		setTimeout(this.expandedChanged, 0);
+	}
+
 	private join(id: string) {
 		this.open ??= { ids: [], open: true };
 		this.open.ids.push(id);
@@ -221,7 +248,17 @@ export class InlineToolOutput {
 		return group.ids.filter((id) => this.calls.get(id)?.failed).length;
 	}
 
-	wrap(name: string, native: ToolRenderers | undefined): ToolRenderers {
+	wrap(name: string, native: ToolRenderers | undefined): ToolRenderers | undefined {
+		if (shownNatively(name)) {
+			const renderCall = native?.renderCall;
+			return renderCall ? {
+				...native,
+				renderCall: (args, theme, context) => {
+					this.noteExpanded(context.expanded);
+					return renderCall(args, theme, context);
+				},
+			} : native;
+		}
 		const viewFor = (context: Context): View => {
 			return context.state[VIEW] ??= { tui: context.isPartial && !context.executionStarted } satisfies View;
 		};
@@ -249,10 +286,7 @@ export class InlineToolOutput {
 		return {
 			renderShell: "self",
 			renderCall: (args, theme, context) => {
-				if (context.expanded !== this.lastExpanded) {
-					this.lastExpanded = context.expanded;
-					setTimeout(this.expandedChanged, 0);
-				}
+				this.noteExpanded(context.expanded);
 				const view = viewFor(context);
 				const group = groupFor(view, context);
 				if (group && !context.expanded) {

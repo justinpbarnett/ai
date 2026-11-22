@@ -141,6 +141,7 @@ While tools run, Pi shows only the newest call: what that call is for, then up t
 The next call replaces it.
 Until its summary is ready, the line names what runs, such as `Shell command…` or `File read: README.md…`, and a failed call reads `Tool failed: …`.
 When the next thinking run, assistant note, or user message appears, or the agent finishes, the calls since the last one collapse to one line, such as `Called 4 tools · ctrl+o to expand`, with a red count when any failed.
+File edits and writes always show as Pi draws them, with their diffs, and are never summarized or counted. An edit also collapses the calls before it, so each `Called N tools` line stays in order around it.
 
 Press `Ctrl+O` to switch between the summaries and Pi's original tool rows and full reasoning.
 Thinking summaries need `"hideThinkingBlock": false`, which this repo's `settings.json` sets.

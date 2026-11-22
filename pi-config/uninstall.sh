@@ -10,6 +10,7 @@ TOP_LEVEL_FILES=(
   settings.json
   keybindings.json
   extensions/inline-commands.ts
+  extensions/prompt-stash.ts
 )
 
 TOP_LEVEL_DIRS=(

@@ -9,12 +9,20 @@ Tracked items are copied from or linked into the target pi config directory:
 - `settings.json`
 - `keybindings.json`
 - `extensions/inline-commands.ts`
+- `extensions/prompt-stash.ts`
 - `extensions/jev-router/`
 - `extensions/self-compact/`
 - `extensions/shared/`
 - `extensions/tool-explainer/`
 - `extensions/working-summary/`
 - the repository's global `skills/` directory
+
+## Prompt stash
+
+Press `Alt+S` to stash the current draft and clear the editor.
+Press `Alt+S` again to restore it, appending it below any new draft.
+Submitting an interactive prompt also restores the stash to the editor for your next message.
+The portable installer manages one global copy, so projects do not need their own `prompt-stash.ts`.
 
 ## Inline skills and slash commands
 

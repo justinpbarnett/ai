@@ -19,8 +19,8 @@ Tracked items are copied from or linked into the target pi config directory:
 
 ## Prompt stash
 
-Press `Alt+S` to stash the current draft and clear the editor.
-Press `Alt+S` again to restore it, appending it below any new draft.
+Press `Ctrl+Alt+S` to stash the current draft and clear the editor.
+Press `Ctrl+Alt+S` again to restore it, appending it below any new draft.
 Submitting an interactive prompt also restores the stash to the editor for your next message.
 The portable installer manages one global copy, so projects do not need their own `prompt-stash.ts`.
 

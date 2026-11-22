@@ -11,7 +11,7 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus("prompt-stash", undefined);
   }
 
-  pi.registerShortcut("alt+s", {
+  pi.registerShortcut("ctrl+alt+s", {
     description: "Stash or restore the current prompt",
     handler: async (ctx) => {
       if (stash !== undefined) {
@@ -22,7 +22,7 @@ export default function (pi: ExtensionAPI) {
       if (!text) return;
       stash = text;
       ctx.ui.setEditorText("");
-      ctx.ui.setStatus("prompt-stash", "Prompt stashed (Alt+S to restore)");
+      ctx.ui.setStatus("prompt-stash", "Prompt stashed (Ctrl+Alt+S to restore)");
     },
   });
 

@@ -235,6 +235,25 @@ The portable installer includes the extension and leaves the preferences file lo
 Restart Pi or run `/reload` to load it or apply changed file defaults.
 To try it without installing, run `pi -ne -e "$HOME/dev/ai/pi-config/extensions/working-summary/index.ts"`.
 
+## Planning and implementation commands
+
+These commands are available globally in Pi:
+
+```text
+/skill:plan-feature Add saved searches for the current user
+/skill:plan-chore Update the project's lint configuration
+/skill:plan-bugfix Search results disappear after clearing a filter
+/skill:implement /path/to/plan.md
+```
+
+The planning commands investigate the repository and write a plan without implementing it.
+Plans use the requested path or the repository's documented planning location, falling back to the operating system's temporary directory.
+`/skill:implement` builds a supplied plan and verifies the result in use.
+
+Each skill lives in `skills/<name>/SKILL.md` and uses Pi's native skill commands.
+Claude Code exposes the same skills as `/plan-feature`, `/plan-chore`, `/plan-bugfix`, and `/implement`.
+Run `/reload` in an existing Pi session to discover new commands.
+
 ## Improve a codebase
 
 Use `/skill:improve-codebase` in Pi or `/improve-codebase` in Claude Code, with a path or concern if you want a narrower scope.
@@ -253,6 +272,104 @@ The [goal recipe](../skills/improve-codebase/references/goal-loop.md) covers the
 This replaces `/skill:refactor` in Pi and `/refactor` in Claude Code; the Fowler checklist is bundled with the new skill.
 Run `/reload` in Pi or start a new Claude Code session to refresh command discovery.
 
+## Goal mode
+
+Goal mode is available globally through the pinned [`pi-goal-x@0.34.1`](https://github.com/tmonk/pi-goal-x/tree/v0.34.1) package in `settings.json`.
+Run `/reload` in an idle Pi session, or restart Pi, after installation.
+
+```text
+/goal Implement the agreed saved-search feature, verify every acceptance criterion in use, preserve unrelated changes, and follow repository instructions. Do not add automated tests, ADRs, or spec files unless explicitly required.
+/goal-status
+/goal-pause
+/goal-resume
+```
+
+`/goal <outcome>` discusses the outcome, constraints, optional tasks, and completion requirements before asking for confirmation.
+No implementation should begin until you confirm the proposal.
+Choose the completion auditor when confirming so a separate agent inspects the result before accepting completion.
+Use `/goal-direct <objective>` only when the complete objective is already agreed and you want execution to start immediately without drafting.
+If a goal created through the model's `create_goal` tool remains idle, run `/goal-resume` explicitly.
+Make success criteria self-contained when deriving a goal from a plan in a temporary file.
+
+| Command | Purpose |
+| --- | --- |
+| `/goal-status verbose` | Inspect the objective, usage, effective settings, and storage location. |
+| `/goal-status health` | Check goal storage and runtime coherence, not completion. |
+| `/goal-list` | List the current project's open goals. |
+| `/goal-pause` | Pause the focused goal and stop its turn. |
+| `/goal-resume` | Resume explicitly and renew its autonomous-run allowance. |
+| `/goal-focus` | Select an existing goal for this session. |
+| `/goal-unfocus` | Detach this session without closing the goal. |
+| `/goal-tweak <change>` | Review and confirm changes, including a lifetime token budget. |
+| `/goal-clear` | Archive the goal after confirmation; cancelling leaves it unchanged. |
+| `/goal-cancel` | Discard an unconfirmed draft. |
+| `/goal-settings` | Edit machine-global or project-specific preferences. |
+
+Use `/goal-clear`, not `/goal clear`.
+Escape during work pauses the goal and stops its turn with the default controls.
+An open dialog or expanded dashboard owns Escape first.
+`Ctrl+Shift+T` expands the dashboard; `Ctrl+Shift+A` toggles the focused goal's auditor, so leave it enabled when independent completion review is required.
+Pi must remain running for automatic continuation; there is no background daemon.
+
+### Machine-local defaults
+
+On another machine, create `${PI_CODING_AGENT_DIR:-~/.pi/agent}/pi-goal-x-settings.json` as a **regular file**, preferably mode `0600`, before using goal mode:
+
+```json
+{
+  "maxAutonomousRuns": 20,
+  "idleContinuationBackoff": true,
+  "networkRecovery": {
+    "maxAttempts": 3,
+    "maxDelayMs": 60000
+  },
+  "autoSelectSingleGoal": false,
+  "hideUnfocusedPrompt": true,
+  "hideUnfocusedBanner": true,
+  "disabled": false,
+  "auditorProjectResources": false
+}
+```
+
+Merge these preferences if the file already exists instead of overwriting unrelated settings.
+Do not symlink this file: the extension's settings editor refuses symlink targets.
+The installers therefore leave it local, while the package declaration remains portable in the tracked Pi settings.
+Install the exact release with `pi install npm:pi-goal-x@0.34.1` and confirm it with `pi list`.
+
+These defaults allow twenty extension-started runs per creation/resume period and three extension-level provider recovery attempts, with repeated idle replies slowed down.
+Unset run allowances and zero recovery attempts mean unlimited execution/recovery respectively; `maxAutonomousRuns: 0` instead disables automatic continuation.
+A run can contain many model requests and tool calls, and native retries and separate completion audits are not a strict request or financial cap.
+An optional per-goal token budget is a total lifetime allowance checked at accounting boundaries and may overshoot an in-flight request.
+Use a provider-enforced spending limit when a hard financial ceiling is required.
+
+`disabled: false` keeps the completion auditor enabled by default; this setting controls the auditor, not the entire extension.
+The auditor uses the current model and authentication in a separate session, without project skills/extensions by default.
+It can inspect files and run `bash`, so its read-only instructions are **not an operating-system sandbox**.
+Project `.pi/pi-goal-x-settings.json` leaves and supported `PI_GOAL_*` environment overrides can supersede global defaults.
+Use `/goal-status verbose` to inspect the effective values and `/goal-refresh` after external preference edits.
+
+### Storage and upgrades
+
+Global availability does not mean a shared cross-project goal pool.
+Goals, progress, archives, and the ledger live under `<cwd>/.pi/goals/`, with nearby generated pool snapshots; start Pi at the intended project root.
+Leave `goalsRoot` and `PI_GOAL_ROOT` unset to keep projects separate.
+Fresh sessions do not automatically focus or resume old goals with these defaults.
+Focus is session/branch-local, but goal files are shared by sessions using the same pool, and another session requires explicit resume to take execution ownership.
+`/tree` restores focus, not historical goal files or application files.
+
+Treat goal records as local runtime state, not feature specs, and do not edit their generated metadata by hand.
+If a project needs Git exclusions, exclude the actual goal runtime paths narrowly; do not ignore all of `.pi/`, which may contain tracked configuration or extensions.
+The package is intentionally pinned, so upgrading means reviewing a release, changing the exact version, and repeating live goal/auditor verification.
+
+To remove goal mode without deleting records or sessions:
+
+```bash
+pi remove npm:pi-goal-x@0.34.1
+```
+
+Then run `/reload` or restart Pi.
+The regular extension preference file can remain for a later reinstall.
+
 ## What stays local
 
 These are intentionally excluded and should be created on each machine as needed:
@@ -263,6 +380,7 @@ These are intentionally excluded and should be created on each machine as needed
 - `bin/`
 - `pi-debug.log`
 - `node_modules/`
+- `pi-goal-x-settings.json` (regular machine-local goal preferences)
 
 ## Install on another machine
 

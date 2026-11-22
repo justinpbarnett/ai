@@ -12,10 +12,12 @@ BACKUP_USED=0
 TOP_LEVEL_FILES=(
   settings.json
   keybindings.json
+  extensions/inline-commands.ts
 )
 
 TOP_LEVEL_DIRS=(
   skills
+  extensions/jev-router
   extensions/self-compact
   extensions/shared
   extensions/tool-explainer

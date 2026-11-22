@@ -100,7 +100,8 @@
     "rock@passion-tech": true,
     "global-engineering@passion-tech": true,
     "hey@37signals": true,
-    "jev-compact@ai-mods": true
+    "jev-compact@ai-mods": true,
+    "studio@passion-tech": true
   },
   "extraKnownMarketplaces": {
     "passion-tech": {
@@ -130,12 +131,11 @@
       "effortLevel": "high"
     },
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "xhigh"
     }
   },
   "autoCompactWindow": 200000,
   "skipDangerousModePermissionPrompt": true,
-  "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true,
-  "switchModelsOnFlag": true
+  "switchModelsOnFlag": true,
+  "voiceEnabled": true
 }

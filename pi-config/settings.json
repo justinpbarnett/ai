@@ -1,10 +1,15 @@
 {
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-sol",
-  "defaultThinkingLevel": "off",
+  "defaultProvider": "jev",
+  "defaultModel": "auto",
+  "defaultThinkingLevel": "high",
   "doubleEscapeAction": "tree",
-  "lastChangelogVersion": "1.5.0",
-  "packages": [],
+  "lastChangelogVersion": "1.6.0",
+  "packages": [
+    "npm:pi-goal-x@0.34.1"
+  ],
+  "skills": [
+    "!skills/synced/97a62af3-872b-4243-9d73-414dd020ceea_68a0576c-9688-4bbe-a9d5-c2ae644d8a1f/**"
+  ],
   "hideThinkingBlock": true,
   "warnings": {
     "anthropicExtraUsage": false
@@ -13,6 +18,7 @@
   "quietStartup": true,
   "defaultProjectTrust": "always",
   "tuiMode": "regular",
+  "deviceId": "ab071c5a-8a16-4bce-a1de-b58a412b157c",
   "compaction": {
     "modelOverrides": {
       "ollama/qwen3.6:27b-coding": {
@@ -20,5 +26,8 @@
         "keepRecentTokens": 8000
       }
     }
+  },
+  "markdown": {
+    "mermaid": "streaming"
   }
 }

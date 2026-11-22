@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { shellLabel } from "./shell-label.js";
@@ -12,12 +12,17 @@ const MAX_BATCH_BYTES = 12 * 1024;
 const MAX_INSPECT_CHARS = 128 * 1024;
 
 export type Call = { args?: Record<string, unknown>; result: ToolResultMessage };
+export type Invocation = { toolName: string; args?: Record<string, unknown> };
+
+function invocationOf(call: Call): Invocation {
+	return { toolName: call.result.toolName, args: call.args };
+}
 
 export function plain(text: string): string {
 	return stripTerminalSequences(text).replace(/[^\S\n]/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, (char) => char === "\n" ? char : "");
 }
 
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
 	if (text.length <= max) return text;
 	const half = Math.floor((max - 3) / 2);
 	return `${text.slice(0, half)} … ${text.slice(-half)}`;
@@ -43,12 +48,7 @@ export function recentCalls(ctx: ExtensionContext, count: number): Call[] {
 	return calls;
 }
 
-export function pairCalls(results: ToolResultMessage[], calls: ToolCall[]): Call[] {
-	const args = new Map(calls.map((call) => [call.id, call.arguments]));
-	return results.map((result) => ({ result, args: args.get(result.toolCallId) }));
-}
-
-function stringArg(call: Call, key: string): string | undefined {
+function stringArg(call: Invocation, key: string): string | undefined {
 	const value = call.args?.[key];
 	return typeof value === "string" ? value : undefined;
 }
@@ -93,9 +93,9 @@ const verbs = {
 } as const;
 
 export type Action = keyof typeof verbs;
-function actionFor(call: Call): Action {
-	switch (call.result.toolName) {
-		case "read": case "edit": case "write": return call.result.toolName;
+function actionFor(call: Invocation): Action {
+	switch (call.toolName) {
+		case "read": case "edit": case "write": return call.toolName;
 		case "grep": case "find": return "search";
 		case "ls": return "list";
 		case "web_search": return "webSearch";
@@ -138,10 +138,10 @@ const activityNames = {
 export type ToolActivity = { singular: string; plural: string; target?: string };
 export const genericActivity: ToolActivity = { singular: "tool call", plural: "tool calls" };
 
-export function toolActivity(call: Call, cwd: string): ToolActivity {
+export function toolActivity(call: Invocation, cwd: string): ToolActivity {
 	const action = actionFor(call);
 	if (action === "tool") {
-		const name = safeName(call.result.toolName);
+		const name = safeName(call.toolName);
 		return name === "tool" || !safeLabel(name) ? genericActivity : { singular: `call to ${name}`, plural: `calls to ${name}` };
 	}
 	const [singular, plural] = activityNames[action];
@@ -152,13 +152,14 @@ export function toolActivity(call: Call, cwd: string): ToolActivity {
 
 function manualDescription(call: Call, cwd: string): string {
 	const { content, isError, toolName } = call.result;
-	const action = actionFor(call);
+	const invocation = invocationOf(call);
+	const action = actionFor(invocation);
 	const image = content.some((block) => block.type === "image");
 	const text = content.some((block) => block.type === "text" && Boolean(block.text.trim()));
 	const file = isFileAction(action);
-	const path = file || action === "search" || action === "list" ? stringArg(call, "path") : undefined;
+	const path = file || action === "search" || action === "list" ? stringArg(invocation, "path") : undefined;
 	const target = path ? safeTarget(path, cwd) : undefined;
-	const command = action === "shell" ? stringArg(call, "command") : undefined;
+	const command = action === "shell" ? stringArg(invocation, "command") : undefined;
 	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : target && (file ? target : basename(target) || ".");
 	const display = file && label ? basename(label) || "." : label;
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
@@ -167,8 +168,8 @@ function manualDescription(call: Call, cwd: string): string {
 	return `${description}.${suffix}`;
 }
 
-function shellCommand(call: Call): string | undefined {
-	if (call.result.toolName !== "bash" && call.result.toolName !== "powershell") return;
+function shellCommand(call: Invocation): string | undefined {
+	if (call.toolName !== "bash" && call.toolName !== "powershell") return;
 	const command = stringArg(call, "command");
 	if (!command || Buffer.byteLength(command, "utf8") > 512) return;
 	const screened = plain(command).trim();
@@ -183,9 +184,9 @@ export function purposeExcerpt(value: string): string | undefined {
 
 export type PurposeCall = { operation: Action; tool?: string; command?: string; target?: string; search?: string };
 
-export function purposeCall(call: Call, cwd: string): PurposeCall {
+export function purposeCall(call: Invocation, cwd: string): PurposeCall {
 	const operation = actionFor(call);
-	const tool = operation === "tool" ? safeName(call.result.toolName) : undefined;
+	const tool = operation === "tool" ? safeName(call.toolName) : undefined;
 	const command = shellCommand(call);
 	const rawPath = stringArg(call, "path");
 	const path = rawPath && safeTarget(rawPath, cwd);
@@ -208,8 +209,9 @@ export type ManualRow = { id: number; failed: boolean; text: string; evidence?: 
 function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence" | "note"> {
 	if (!call.args) return { note: "No matching call arguments in this branch; kept local." };
 	if (call.result.content.some((block) => block.type !== "text")) return { note: "Non-text result; kept local." };
-	const rawTarget = stringArg(call, "path");
-	const rawCommand = call.result.toolName === "bash" || call.result.toolName === "powershell" ? stringArg(call, "command") : undefined;
+	const invocation = invocationOf(call);
+	const rawTarget = stringArg(invocation, "path");
+	const rawCommand = call.result.toolName === "bash" || call.result.toolName === "powershell" ? stringArg(invocation, "command") : undefined;
 	const blocks = call.result.content.flatMap((block) => block.type === "text" ? [block.text] : []);
 	const rawFields = [rawTarget ?? "", rawCommand ?? "", ...blocks];
 	if (rawFields.reduce((size, field) => size + field.length, 0) > MAX_INSPECT_CHARS) return { note: "Result too large to screen; kept local." };
@@ -220,7 +222,7 @@ function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence
 	}
 	const target = command || (path && workspacePath(path, cwd)) || undefined;
 	const evidence: Evidence = {
-		id, tool: safeName(call.result.toolName), operation: actionFor(call), failed: call.result.isError,
+		id, tool: safeName(call.result.toolName), operation: actionFor(invocation), failed: call.result.isError,
 		target: target ? clip(target, 320) : undefined,
 		output: output ? clip(output, 640) : undefined,
 		clipped: (target?.length ?? 0) > 320 || output.length > 640 ? true : undefined,

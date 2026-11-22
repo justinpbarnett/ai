@@ -42,8 +42,28 @@ function keyOf(text: string): string {
 	return createHash("sha1").update(text).digest("hex");
 }
 
+const TITLE = /^\*\*([^*\n]{2,120})\*\*$/u;
+
+function withoutEmphasis(text: string): string {
+	return text.replace(/\*\*([^*\n]+)\*\*/gu, "$1").replace(/__([^_\n]+)__/gu, "$1");
+}
+
+function asContinuation(title: string): string {
+	return /^\p{Lu}\p{Ll}/u.test(title) ? `${title.charAt(0).toLowerCase()}${title.slice(1)}` : title;
+}
+
+function titlesOnly(text: string): string | undefined {
+	const paragraphs = plain(text).split(/\n\s*\n/u).map((part) => part.trim()).filter(Boolean);
+	const titles = paragraphs.map((part) => TITLE.exec(part)?.[1]?.trim());
+	if (!titles.length || titles.some((title) => !title)) return;
+	const [first, ...rest] = titles as string[];
+	return [first, ...rest.map(asContinuation)].join(", ");
+}
+
 function shortThought(text: string): string | undefined {
-	const line = plain(text).replace(/\s+/gu, " ").trim();
+	const titles = titlesOnly(text);
+	if (titles) return titles;
+	const line = withoutEmphasis(plain(text)).replace(/\s+/gu, " ").trim();
 	if (line.length <= SHORT_THOUGHT_CHARS && !text.includes("\n\n")) return line;
 }
 

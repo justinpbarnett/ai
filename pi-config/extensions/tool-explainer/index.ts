@@ -17,6 +17,9 @@ const MAX_HISTORY = 12;
 const MAX_THOUGHT_TAIL = 600;
 const MAX_LOCAL_EVIDENCE_BYTES = 6 * 1024;
 const USAGE = "/explain-tools [1–10 | on | off | status | recent]";
+const NOTE_MARK = "●";
+const BLOCK_START = /^(?:\s|#|>|\||<|```|~~~|[*+-]\s|[*_-]{3}|\d+[.)]\s)/u;
+const PROGRESS_NOTES = "Keep the user posted with short notes in plain text while you work. Before your first tool call, say in one sentence what you will do first. After that, write one or two sentences when you find something that matters, change direction, or start a new step: say what you found, naming the file, command or fact, and what you will do next. Skip notes between routine calls.";
 
 function parseCount(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isInteger(value) && value >= 1 && value <= 10 ? value : undefined;
@@ -125,7 +128,10 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag(COUNT_FLAG, { type: "string", description: "Tool calls per manual explanation (1–10)" });
 	pi.registerFlag(NO_AUTO_FLAG, { type: "boolean", description: "Start with automatic tool and thinking summaries off" });
 	pi.registerToolRenderer((name, next) => renderInline ? inline.wrap(name, next()) : next());
-	pi.registerMarkdownTransformer(thinking.transform, { messageTypes: ["assistant-thinking"] });
+	pi.registerMarkdownTransformer((markdown, context) => {
+		if (context.messageType === "assistant-thinking") return thinking.transform(markdown, context);
+		return attached && autoEnabled(attached) && markdown.trim() && !BLOCK_START.test(markdown) ? `${NOTE_MARK} ${markdown}` : markdown;
+	}, { messageTypes: ["assistant", "assistant-thinking"] });
 
 	function count(): number | undefined {
 		const flag = pi.getFlag(COUNT_FLAG);
@@ -242,6 +248,10 @@ export default function (pi: ExtensionAPI) {
 		if (autoEnabled(ctx) && !event.parentToolCallId) inline.finish(event.toolCallId, event.isError);
 	});
 	pi.on("agent_settled", () => inline.close());
+	pi.on("before_agent_start", (event, ctx) => {
+		const { promptGuidelines } = event.systemPromptOptions;
+		if (autoEnabled(ctx) && !promptGuidelines.includes(PROGRESS_NOTES)) promptGuidelines.push(PROGRESS_NOTES);
+	});
 
 	pi.registerCommand("explain-tools", {
 		description: "Explain recent tool output, turn automatic summaries on or off, or list recent tool summaries",

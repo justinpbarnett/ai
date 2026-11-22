@@ -134,8 +134,14 @@ Pi shows agent work the way Claude Code does.
 Each thinking run collapses to one line that starts with `∴`, written by the local Ollama writer, such as `∴ Found that inline.ts hides every tool row except the newest and decided to read index.ts next.`
 The summary is as long as the reasoning needs, from one sentence to a few wrapped lines.
 While the summary is being written, the line reads `∴ Thinking…`.
-A thought that fits on one short line shows as written, with no model call.
+A thought that fits on one short line shows as written, without markdown emphasis, with no model call.
+Some models, such as OpenAI's GPT models, return only bold step titles as reasoning. Pi shows a run of titles as one plain line, such as `∴ Checking repository status, testing abort behavior`, with no model call.
 If the writer fails or is not Ollama, Pi shows the last bold header in the reasoning, or `∴ Thought`.
+
+The lines Claude Code shows between tool groups are mostly the model's own short notes, such as `● Found the bug in inline.ts; testing the fix next.`, written because its system prompt asks for them.
+While summaries are on, Pi adds the same request to its prompt guidelines: one sentence before the first tool call, then one or two sentences when the model finds something, changes direction, or starts a new step.
+Pi marks each assistant note with `●`, unless the note starts with a heading, list, quote, table, or code block.
+This guideline is the only model context the tool explainer adds, and `/explain-tools off` drops it from the next request.
 
 While tools run, Pi shows only the newest call: what that call is for, then up to three dim lines of the call itself, such as the shell command or file path.
 The next call replaces it.

@@ -130,24 +130,33 @@ The uninstaller removes the managed directory symlink, not copies made with `--m
 
 ## Tool explanations
 
-By default, Pi summarizes the purpose of every three successful tool calls in one inline line, such as `Compare the backup and restore paths · ctrl+o to expand`.
-Each failed call gets its own error line, such as `Tool failed: Locate the restore policy`.
-A failure flushes any pending successes so the lines stay in tool-call order.
-Partial batches are also shown before a new user message or when the agent finishes.
-Use Pi's normal `Ctrl+O` to switch between explanations and original tool output, or `/explain-tools recent` to review earlier summaries and see which writer was used.
-Pi saves purpose labels and batch membership with the active session branch, so both inline summaries and recent history survive `/reload` and resume without rerunning the writer.
-The saved records are display metadata, not model context.
-If Pi reloads or closes before a label is ready, it restores the batch with a factual tool label rather than restarting the writer.
-Unrecorded tool calls and Pi's native inline image rendering are left alone.
+Pi shows agent work the way Claude Code does.
+Each thinking run collapses to one line that starts with `∴`, written by the local Ollama writer, such as `∴ Found that inline.ts hides every tool row except the newest and decided to read index.ts next.`
+The summary is as long as the reasoning needs, from one sentence to a few wrapped lines.
+While the summary is being written, the line reads `∴ Thinking…`.
+A thought that fits on one short line shows as written, with no model call.
+If the writer fails or is not Ollama, Pi shows the last bold header in the reasoning, or `∴ Thought`.
 
-Automatic explanations run only in trusted TUI sessions and do not block the agent's tool loop.
-The default Ollama writer receives selected tool arguments and, when needed, a short excerpt of the assistant's visible notes or user request, on loopback only.
-Pi excludes tool output, hidden reasoning, and obvious secrets and protected paths from these requests, but its filters do not guarantee redaction.
-The optional hosted writer receives fixed operation hints only: no raw commands, filenames, prompts, notes, or tool output are sent automatically.
-If the writer fails or returns an unusable label, Pi tries once more with a shorter target length without blocking the agent.
-If neither attempt works or the writer is turned off, Pi shows what ran without guessing why, such as `Shell command completed`, `File read: README.md`, or `2 shell commands, 1 file read`.
-Failed calls get a separate label such as `Shell command failed`.
-Fallbacks do not include raw shell commands or tool output.
+While tools run, Pi shows only the newest call: what that call is for, then up to three dim lines of the call itself, such as the shell command or file path.
+The next call replaces it.
+Until its summary is ready, the line names what runs, such as `Shell command…` or `File read: README.md…`, and a failed call reads `Tool failed: …`.
+When the next thinking run, assistant note, or user message appears, or the agent finishes, the calls since the last one collapse to one line, such as `Called 4 tools · ctrl+o to expand`, with a red count when any failed.
+
+Press `Ctrl+O` to switch between the summaries and Pi's original tool rows and full reasoning.
+Thinking summaries need `"hideThinkingBlock": false`, which this repo's `settings.json` sets.
+`Ctrl+T` hides thinking entirely and writes that choice back to `settings.json`; press it again to bring the summaries back.
+Pi saves thinking summaries with the active session branch, so they survive `/reload` and resume without rerunning the writer.
+Call summaries are live only: after a reload, past calls show as `Called N tools`.
+The saved records are display metadata, not model context.
+Use `/explain-tools recent` to review the last 12 call summaries and which writer made each one.
+Subagent calls and Pi's native inline image rendering are left alone.
+
+Automatic summaries run only in trusted TUI sessions and do not block the agent's tool loop.
+On loopback only, the default Ollama writer receives the assistant's reasoning for thinking summaries, clipped to 6,000 characters.
+For call summaries it receives selected tool arguments, a short excerpt of the user request and of the assistant's visible note, and the end of its reasoning.
+Pi excludes tool output and obvious secrets and protected paths from call requests, but its filters do not guarantee redaction.
+The optional hosted writer receives fixed operation hints for call summaries only and never writes thinking summaries, so no reasoning, raw commands, filenames, prompts, notes, or tool output are sent automatically.
+If the writer fails or returns an unusable summary, Pi tries once more with a narrower ask, without blocking the agent.
 `--offline` disables hosted writing, not local Ollama writing.
 
 Run `/explain-tools` or `/explain-tools 1` for a more detailed explanation of the latest calls on the active branch.
@@ -171,11 +180,12 @@ For persistent defaults, keep `tool-explainer.json` in the global Pi agent direc
 ```
 
 Set `writer` to `ollama`, `openrouter`, or `off`.
-`off` keeps collapsed tool batches and standalone failures but makes no automatic model calls.
+`off` keeps the collapsed views but makes no automatic model calls: thinking shows its header or `∴ Thought`, and calls show what ran.
 For `ollama`, start Ollama on `127.0.0.1:11434` and run `ollama pull qwen3.5:2b`, or set `ollamaModel` to another installed local model tag.
 For `openrouter`, `openrouterModel` must be a chat model available in Pi's OpenRouter catalog.
 Neither model ID needs to be specified if you want the defaults above.
-The count can be 1 to 10; launch with `--explain-tools-count 4` or `--explain-tools-no-auto` for one-off overrides.
+`count` sets how many recent calls a bare `/explain-tools` explains, from 1 to 10.
+Launch with `--explain-tools-count 4` or `--explain-tools-no-auto` to override either for one session.
 The portable installer links the extension and leaves the settings file local.
 Restart Pi or run `/reload` after installing or changing that file.
 To try it without installation, use `pi -ne -e "$HOME/dev/ai/pi-config/extensions/tool-explainer/index.ts"`.

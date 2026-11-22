@@ -1,127 +1,243 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import { genericActivity, plain, type ToolActivity } from "./evidence.js";
+import { Box, Container, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { genericActivity, plain, toolActivity, type Invocation, type ToolActivity } from "./evidence.js";
 
-export type InlineRow = { callId: string; failed: boolean; activity?: ToolActivity };
-export type Batch = { rows: InlineRow[]; purpose?: string; pending?: boolean; route: string };
 type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
 type Context = Parameters<RenderCall>[2];
 type Theme = Parameters<RenderCall>[1];
 
+type CallState = { activity: ToolActivity; purpose?: string; pending?: boolean; failed: boolean; running: boolean };
+type Group = { ids: string[]; open: boolean };
 type View = { tui: boolean; call?: Component; result?: Component; redraw?: () => void };
+
 const VIEW = Symbol("tool-explainer-row");
+const CALL_LINES = 3;
 
-function activityLabel(rows: InlineRow[]): string {
-	if (rows.length === 1) {
-		const { failed, activity = genericActivity } = rows[0]!;
-		const { singular, target } = activity;
-		const action = singular.charAt(0).toUpperCase() + singular.slice(1);
-		const status = failed ? " failed" : target ? "" : " completed";
-		return `${action}${status}${target ? `: ${target}` : ""}`;
-	}
-	const groups = new Map<string, { count: number; plural: string }>();
-	for (const { activity = genericActivity } of rows) {
-		const { singular, plural } = activity;
-		const group = groups.get(singular);
-		if (group) group.count++;
-		else groups.set(singular, { count: 1, plural });
-	}
-	return Array.from(groups, ([singular, { count, plural }]) => `${count} ${count === 1 ? singular : plural}`).join(", ");
+export function activityLabel({ singular, target }: ToolActivity = genericActivity): string {
+	return `${singular.charAt(0).toUpperCase()}${singular.slice(1)}${target ? `: ${target}` : ""}`;
 }
 
-function summaryLabel({ rows, purpose, pending }: Batch): string {
-	if (purpose) return rows[0]?.failed ? `Tool failed: ${purpose}` : purpose;
-	if (pending && !rows[0]?.failed) return `Summarizing purpose of ${rows.length} ${rows.length === 1 ? "tool call" : "tool calls"}…`;
-	return activityLabel(rows);
+export function callLabel(state: Pick<CallState, "activity" | "purpose" | "failed">): string {
+	const text = state.purpose ?? activityLabel(state.activity);
+	return state.failed ? `Tool failed: ${text}` : text;
 }
 
-export function batchTitle(batch: Batch) {
-	return `${summaryLabel(batch)} · ${batch.route}`;
+function shown(message: AgentMessage): boolean {
+	if (message.role === "toolResult") return false;
+	if (message.role === "custom") return message.display;
+	if (message.role !== "assistant") return true;
+	return message.content.some((block) =>
+		(block.type === "text" && block.text.trim()) || (block.type === "thinking" && block.thinking.trim()));
 }
 
-function summary(batch: Batch, theme: Theme, context: Context): Component {
-	const background = batch.rows[0]?.failed ? "toolErrorBg" : "toolSuccessBg";
-	const box = new Box(context.outputPad, 0, (text) => theme.bg(background, text));
+function withHint(text: string, theme: Theme, context: Context): string {
 	const hint = context.keyHint("app.tools.expand", "to expand");
-	const suffix = hint ? `${theme.fg("muted", " · ")}${hint}` : "";
-	const suffixWidth = visibleWidth(suffix);
-	const text = theme.fg(background === "toolErrorBg" ? "error" : "accent", summaryLabel(batch));
+	return hint ? `${text}${theme.fg("muted", " · ")}${hint}` : text;
+}
+
+function liveView(state: CallState, call: Component, theme: Theme, context: Context): Component {
+	const background = state.failed ? "toolErrorBg" : state.running ? "toolPendingBg" : "toolSuccessBg";
+	const box = new Box(context.outputPad, 0, (text) => theme.bg(background, text));
+	const label = `${callLabel(state)}${state.pending && !state.purpose ? "…" : ""}`;
+	const head = withHint(theme.fg(state.failed ? "error" : "accent", label), theme, context);
 	box.addChild({
 		render(width) {
-			const labelWidth = width - suffixWidth;
-			return [labelWidth > 8 ? truncateToWidth(text, labelWidth) + suffix : truncateToWidth(text, width)];
+			const lines = call.render(Math.max(1, width - 2)).map((line) => plain(line).trimEnd()).filter((line) => line.trim());
+			return [
+				...wrapTextWithAnsi(head, width),
+				...lines.slice(0, CALL_LINES).map((line) => theme.fg("dim", truncateToWidth(`  ${line}`, width))),
+			];
 		},
+		invalidate() {
+			call.invalidate();
+		},
+	});
+	return box;
+}
+
+function closedView(group: Group, failed: number, theme: Theme, context: Context): Component {
+	const count = group.ids.length;
+	const label = theme.fg("muted", `Called ${count} ${count === 1 ? "tool" : "tools"}`);
+	const failures = failed ? theme.fg("error", `, ${failed} failed`) : "";
+	const box = new Box(context.outputPad, 0);
+	const text = withHint(label + failures, theme, context);
+	box.addChild({
+		render: (width) => [visibleWidth(text) <= width ? text : truncateToWidth(label + failures, width)],
 		invalidate() {},
 	});
 	return box;
 }
 
 export class InlineToolOutput {
-	private readonly rows = new Map<string, Batch | null>();
+	private readonly groups = new Map<string, Group>();
+	private readonly calls = new Map<string, CallState>();
 	private readonly views = new Map<string, WeakRef<View>>();
-	private readonly unfinished = new Set<string>();
+	private open?: Group;
+	private message?: number;
+	private readonly messageCalls = new Set<string>();
+	private current?: string;
+	private lastExpanded?: boolean;
 
-	track(id: string) {
-		if (this.rows.has(id)) return;
-		this.rows.set(id, null);
-		this.unfinished.add(id);
+	constructor(private readonly expandedChanged: () => void) {}
+
+	reset(redraw: boolean) {
+		const ids = [...this.groups.keys()];
+		this.groups.clear();
+		this.calls.clear();
+		this.open = undefined;
+		this.message = undefined;
+		this.messageCalls.clear();
+		this.current = undefined;
+		if (redraw) for (const id of ids) this.redraw(id);
+		else this.views.clear();
 	}
 
-	place(batch: Batch) {
-		for (const { callId } of batch.rows) {
-			this.rows.set(callId, batch);
-			this.unfinished.delete(callId);
+	rebuild(messages: Iterable<AgentMessage>, cwd: string) {
+		const before = [...this.groups.keys()];
+		this.reset(false);
+		for (const message of messages) this.observe(message, cwd);
+		if (this.open) this.open.open = false;
+		this.open = undefined;
+		this.current = undefined;
+		for (const id of new Set([...before, ...this.groups.keys()])) this.redraw(id);
+	}
+
+	observe(message: AgentMessage, cwd: string) {
+		if (message.role === "toolResult") {
+			const state = this.calls.get(message.toolCallId);
+			if (state) {
+				state.failed = message.isError;
+				state.running = false;
+			}
+			return;
 		}
-		for (const { callId } of batch.rows) this.redraw(callId);
-	}
-
-	update(batch: Batch) {
-		const anchor = batch.rows.at(-1)?.callId;
-		if (anchor !== undefined && this.rows.get(anchor) === batch) this.redraw(anchor);
-	}
-
-	releaseUnfinished() {
-		for (const id of this.unfinished) this.remove(id);
-	}
-
-	retain(callIds: Set<string>) {
-		for (const [id, batch] of this.rows) {
-			if (!callIds.has(id) || batch?.rows.some(({ callId }) => !callIds.has(callId))) this.remove(id);
+		if (message.role !== "assistant") {
+			if (shown(message)) this.close();
+			return;
 		}
-		for (const id of this.views.keys()) if (!callIds.has(id)) this.views.delete(id);
+		if (this.message !== message.timestamp) {
+			this.message = message.timestamp;
+			this.messageCalls.clear();
+		}
+		if (shown(message) && this.open?.ids.some((id) => !this.messageCalls.has(id))) this.split();
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const activity = toolActivity({ toolName: block.name, args: block.arguments }, cwd);
+			const state = this.calls.get(block.id);
+			if (state) {
+				if (!state.purpose && activityLabel(state.activity) !== activityLabel(activity)) {
+					state.activity = activity;
+					if (this.current === block.id) this.redraw(block.id);
+				}
+				continue;
+			}
+			this.calls.set(block.id, { activity, failed: false, running: false });
+			this.messageCalls.add(block.id);
+			this.join(block.id);
+		}
 	}
 
-	clear(redraw: boolean) {
-		if (redraw) for (const id of this.rows.keys()) this.remove(id);
-		else {
-			this.rows.clear();
-			this.views.clear();
+	start(id: string, call: Invocation, cwd: string) {
+		const state = this.calls.get(id);
+		if (state) {
+			state.activity = toolActivity(call, cwd);
+			state.running = true;
+		} else {
+			this.calls.set(id, { activity: toolActivity(call, cwd), failed: false, running: true });
+			this.join(id);
 		}
-		this.unfinished.clear();
+		this.focus(id);
+	}
+
+	finish(id: string, failed: boolean) {
+		const state = this.calls.get(id);
+		if (!state) return;
+		state.failed = failed;
+		state.running = false;
+		this.redraw(id);
+	}
+
+	pending(id: string) {
+		const state = this.calls.get(id);
+		if (!state) return;
+		state.pending = true;
+		this.redraw(id);
+	}
+
+	describe(id: string, purpose: string | undefined) {
+		const state = this.calls.get(id);
+		if (!state) return;
+		state.pending = false;
+		if (purpose) state.purpose = purpose;
+		this.redraw(id);
+	}
+
+	label(id: string): string | undefined {
+		const state = this.calls.get(id);
+		return state && callLabel(state);
+	}
+
+	close() {
+		const group = this.open;
+		if (!group) return;
+		group.open = false;
+		this.open = undefined;
+		this.current = undefined;
+		for (const id of group.ids) this.redraw(id);
+	}
+
+	private join(id: string) {
+		this.open ??= { ids: [], open: true };
+		this.open.ids.push(id);
+		this.groups.set(id, this.open);
+		this.focus(id);
+	}
+
+	private split() {
+		const group = this.open!;
+		const moved = group.ids.filter((id) => this.messageCalls.has(id));
+		group.ids = group.ids.filter((id) => !this.messageCalls.has(id));
+		this.close();
+		if (!moved.length) return;
+		const next: Group = { ids: moved, open: true };
+		for (const id of moved) this.groups.set(id, next);
+		this.open = next;
+		this.focus(moved.at(-1)!);
+	}
+
+	private focus(id: string) {
+		const previous = this.current;
+		this.current = id;
+		if (previous && previous !== id) this.redraw(previous);
+		this.redraw(id);
 	}
 
 	private redraw(id: string) {
 		this.views.get(id)?.deref()?.redraw?.();
 	}
 
-	private remove(id: string) {
-		this.rows.delete(id);
-		this.unfinished.delete(id);
-		this.redraw(id);
+	private failures(group: Group): number {
+		return group.ids.filter((id) => this.calls.get(id)?.failed).length;
 	}
 
 	wrap(name: string, native: ToolRenderers | undefined): ToolRenderers {
 		const viewFor = (context: Context): View => {
-			// Real TUI rows first render before execution starts. HTML export starts with executionStarted set.
 			return context.state[VIEW] ??= { tui: context.isPartial && !context.executionStarted } satisfies View;
 		};
-		const batchFor = (view: View, context: Context): Batch | null | undefined => {
+		const groupFor = (view: View, context: Context): Group | undefined => {
 			if (!view.tui) return;
 			if (this.views.get(context.toolCallId)?.deref() !== view) {
 				view.redraw = context.invalidate;
 				this.views.set(context.toolCallId, new WeakRef(view));
 			}
-			return this.rows.get(context.toolCallId);
+			return this.groups.get(context.toolCallId);
+		};
+		const nativeCall = (args: Parameters<RenderCall>[0], theme: Theme, context: Context, view: View): Component => {
+			const raw = native?.renderCall?.(args, theme, { ...context, lastComponent: view.call })
+				?? new Text(`${theme.fg("toolTitle", theme.bold(plain(name)))}${args ? ` ${plain(JSON.stringify(args, null, context.expanded ? 2 : undefined))}` : ""}`, 0, 0);
+			view.call = raw;
+			return raw;
 		};
 		const rawShell = (component: Component, theme: Theme, context: Context, view: View) => {
 			if (!view.tui || native?.renderShell === "self") return component;
@@ -133,20 +249,25 @@ export class InlineToolOutput {
 		return {
 			renderShell: "self",
 			renderCall: (args, theme, context) => {
-				const view = viewFor(context);
-				const batch = batchFor(view, context);
-				if (batch !== undefined && !context.expanded) {
-					return batch?.rows.at(-1)?.callId === context.toolCallId
-						? summary(batch, theme, context) : new Container();
+				if (context.expanded !== this.lastExpanded) {
+					this.lastExpanded = context.expanded;
+					setTimeout(this.expandedChanged, 0);
 				}
-				const raw = native?.renderCall?.(args, theme, { ...context, lastComponent: view.call })
-					?? new Text(`${theme.fg("toolTitle", theme.bold(plain(name)))}${args ? ` ${plain(JSON.stringify(args, null, context.expanded ? 2 : undefined))}` : ""}`, 0, 0);
-				view.call = raw;
-				return rawShell(raw, theme, context, view);
+				const view = viewFor(context);
+				const group = groupFor(view, context);
+				if (group && !context.expanded) {
+					if (group.open) {
+						const state = this.calls.get(context.toolCallId);
+						return state && this.current === context.toolCallId
+							? liveView(state, nativeCall(args, theme, context, view), theme, context) : new Container();
+					}
+					return group.ids.at(-1) === context.toolCallId ? closedView(group, this.failures(group), theme, context) : new Container();
+				}
+				return rawShell(nativeCall(args, theme, context, view), theme, context, view);
 			},
 			renderResult: (result, options, theme, context) => {
 				const view = viewFor(context);
-				if (batchFor(view, context) !== undefined && !options.expanded) return new Container();
+				if (groupFor(view, context) && !options.expanded) return new Container();
 				const raw = native?.renderResult?.(result, options, theme, { ...context, lastComponent: view.result });
 				if (raw) {
 					view.result = raw;

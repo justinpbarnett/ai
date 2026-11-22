@@ -4,13 +4,13 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { plain, safeLabel } from "./evidence.js";
 import { usableSummary } from "./writer.js";
 
-const ENTRY_TYPE = "tool-explainer.thinking.v1";
+export const THINKING_ENTRY = "tool-explainer.thinking.v1";
 const MAX_QUEUE = 12;
 const SHORT_THOUGHT_CHARS = 240;
 const MARK = "∴";
 
 export type ThinkingRun = { text: string; complete: boolean };
-type SavedThought = { key: string; summary: string };
+export type SavedThought = { key: string; summary: string };
 type Branch = ReturnType<ExtensionContext["sessionManager"]["getBranch"]>;
 
 export type ThinkingHost = {
@@ -69,6 +69,7 @@ export class ThinkingSummaries {
 	private readonly summaries = new Map<string, string>();
 	private readonly unavailable = new Set<string>();
 	private readonly pending = new Set<string>();
+	private readonly settled = new Set<string>();
 	private queue: { key: string; text: string }[] = [];
 	private controller = new AbortController();
 	private running = false;
@@ -81,12 +82,13 @@ export class ThinkingSummaries {
 		this.queue = [];
 		this.pending.clear();
 		this.unavailable.clear();
+		this.settled.clear();
 		this.running = false;
 	}
 
 	restore(branch: Branch) {
 		for (const entry of branch) {
-			if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
+			if (entry.type !== "custom" || entry.customType !== THINKING_ENTRY) continue;
 			const record = readThought(entry.data);
 			if (record) this.summaries.set(record.key, record.summary);
 		}
@@ -95,8 +97,11 @@ export class ThinkingSummaries {
 	observe(message: AssistantMessage, ended: boolean) {
 		for (const run of thinkingRuns(message)) {
 			if (!run.complete && !ended) continue;
-			if (shortThought(run.text)) continue;
 			const key = keyOf(run.text);
+			if (shortThought(run.text)) {
+				this.settled.add(key);
+				continue;
+			}
 			if (this.summaries.has(key) || this.pending.has(key) || this.unavailable.has(key)) continue;
 			if (this.queue.length >= MAX_QUEUE) {
 				this.unavailable.add(key);
@@ -110,9 +115,9 @@ export class ThinkingSummaries {
 
 	readonly transform = (markdown: string, { isStreaming }: { isStreaming: boolean }): string => {
 		if (!this.host.enabled() || this.host.expanded()) return markdown;
-		const short = shortThought(markdown);
-		if (short) return `${MARK} ${escapeMarkdown(short)}`;
 		const key = keyOf(markdown);
+		const short = shortThought(markdown);
+		if (short && (this.settled.has(key) || !isStreaming)) return `${MARK} ${escapeMarkdown(short)}`;
 		const summary = this.summaries.get(key);
 		if (summary) return `${MARK} ${escapeMarkdown(summary)}`;
 		if (!this.unavailable.has(key) && (isStreaming || this.pending.has(key))) return `${MARK} Thinking…`;

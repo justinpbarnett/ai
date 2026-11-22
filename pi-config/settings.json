@@ -10,7 +10,7 @@
   "skills": [
     "!skills/synced/97a62af3-872b-4243-9d73-414dd020ceea_68a0576c-9688-4bbe-a9d5-c2ae644d8a1f/**"
   ],
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "warnings": {
     "anthropicExtraUsage": false
   },

@@ -19,10 +19,11 @@ Tracked items are copied from or linked into the target pi config directory:
 
 ## Prompt stash
 
-Press `Ctrl+Alt+S` to stash the current draft and clear the editor.
-Press `Ctrl+Alt+S` again to restore it, appending it below any new draft.
+Press `Ctrl+S` to stash the current draft and clear the editor.
+Press `Ctrl+S` again to restore it, appending it below any new draft.
 Submitting an interactive prompt also restores the stash to the editor for your next message.
 The portable installer manages one global copy, so projects do not need their own `prompt-stash.ts`.
+Pi's model and thinking selectors use `Ctrl+Alt+S` to save defaults, and the session picker uses it to change sorting.
 
 ## Inline skills and slash commands
 
@@ -67,7 +68,7 @@ Pi clamps thinking to the chosen model's supported levels and displays the actua
 Tool follow-ups and retries keep the physical model and effort for that request.
 `JEV Upgrade Only` still asks JEV to classify each eligible turn, but only raises the model tier or thinking level during the session; it does not detect goal changes.
 Select `jev/auto` or a physical model when a new goal should be allowed to downgrade.
-The router does not change Pi's startup model; press `Ctrl+S` in `/model` to make a selection the default.
+The router does not change Pi's startup model; press `Ctrl+Alt+S` in `/model` to make a selection the default.
 
 Edit `~/.pi/agent/jev-router.json` (or the file in `PI_CODING_AGENT_DIR`) and run `/reload` to swap any tier.
 Each value is a Pi `provider/model-id`, including models on other providers.

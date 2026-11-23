@@ -52,7 +52,7 @@ def generic_folders(files, edges):
     for path in sorted(files):
         parent = PurePosixPath(path).parent
         for ancestor in (parent, *parent.parents):
-            if ancestor.name in GENERIC_FOLDERS:
+            if ancestor.name.lower() in GENERIC_FOLDERS:
                 members[ancestor.as_posix()].append(path)
     for folder, paths in sorted(members.items()):
         importers = sorted(

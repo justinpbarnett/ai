@@ -82,6 +82,17 @@ function closedView(count: number, failed: number, theme: Theme, context: Contex
 	return box;
 }
 
+function withoutCallHints(native: ToolRenderers | undefined): ToolRenderers | undefined {
+	const renderCall = native?.renderCall;
+	return renderCall ? {
+		...native,
+		renderCall: (args, theme, context) => {
+			const component = renderCall(args, theme, context);
+			return context.expanded ? component : removeExpansionHints(component);
+		},
+	} : native;
+}
+
 export class InlineToolOutput {
 	private readonly groups = new Map<string, Group>();
 	private readonly calls = new Map<string, CallState>();
@@ -273,16 +284,7 @@ export class InlineToolOutput {
 	}
 
 	wrap(name: string, native: ToolRenderers | undefined): ToolRenderers | undefined {
-		if (shownNatively(name)) {
-			const renderCall = native?.renderCall;
-			return renderCall ? {
-				...native,
-				renderCall: (args, theme, context) => {
-					const component = renderCall(args, theme, context);
-					return context.expanded ? component : removeExpansionHints(component);
-				},
-			} : native;
-		}
+		if (shownNatively(name)) return withoutCallHints(native);
 		const viewFor = (context: Context): View => {
 			return context.state[VIEW] ??= { tui: context.isPartial && !context.executionStarted } satisfies View;
 		};

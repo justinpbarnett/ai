@@ -242,12 +242,11 @@ class Store:
             ((key, packed(value)) for key, value in values.items()),
         )
 
-    def delete_detector_cache_outside_profiles(self, profiles):
-        bind = ",".join("?" for _ in profiles)
+    def delete_detector_cache_outside_prefixes(self, prefixes):
+        keep = " OR ".join("substr(key, 1, length(?)) = ?" for _ in prefixes)
         self.connection.execute(
-            "DELETE FROM detector_cache WHERE instr(key, ':') = 0"
-            f" OR substr(key, 1, instr(key, ':') - 1) NOT IN ({bind})",
-            sorted(profiles),
+            f"DELETE FROM detector_cache WHERE NOT ({keep})",
+            [value for prefix in sorted(prefixes) for value in (prefix, prefix)],
         )
 
     def receipts(self, units):

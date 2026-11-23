@@ -3,7 +3,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .detectors import ParseOptions, parse_snapshot, scan_sources
+from .detectors import (
+    ParseOptions,
+    parse_snapshot,
+    parser_cache_prefix,
+    scan_sources,
+)
 from .hashing import content_hash, digest
 from .history import commit_history, hotspots
 from .inventory import inventory
@@ -227,10 +232,10 @@ def scan(args, store, state, scope):
     with store.transaction():
         store.assert_revision(state["revision"])
         store.cache(fresh)
-        store.delete_detector_cache_outside_profiles(
+        store.delete_detector_cache_outside_prefixes(
             {
-                current_parser_profile(capabilities(False)),
-                current_parser_profile(capabilities(True)),
+                parser_cache_prefix(current_parser_profile(capabilities(False))),
+                parser_cache_prefix(current_parser_profile(capabilities(True))),
             }
         )
         store.save(

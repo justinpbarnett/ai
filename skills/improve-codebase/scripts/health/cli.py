@@ -23,25 +23,33 @@ from .thresholds import settings
 from .validation import read_json, require
 
 
-def configure_run(args, store, scope):
+def validate_run_arguments(args):
     if args.action == "list":
         require(
             not (args.run or args.scope or args.thresholds),
             "run list does not take a run, scope, or thresholds",
         )
+        return
+    run_name(args.name)
+    if args.action == "slice":
+        require(args.run, "pass --run with the parent run name")
+    else:
+        require(not args.run, "pass the new run name as a positional argument")
+        require(args.base or not args.include, "--include requires --base")
+
+
+def configure_run(args, store, scope):
+    if args.action == "list":
         return {"runs": store.runs()}
     name = run_name(args.name)
     require(
         name not in store.runs(), f"run {name!r} already exists; resume it with --run"
     )
     if args.action == "slice":
-        require(args.run, "pass --run with the parent run name")
         configuration = slice_configuration(
             scope.root, args.run, current_run(store, args.run), args.path
         )
     else:
-        require(not args.run, "pass the new run name as a positional argument")
-        require(args.base or not args.include, "--include requires --base")
         configuration = {
             "root": str(scope.root),
             "scope": scope.scopes,
@@ -153,6 +161,8 @@ def command_workspace(args, envelope):
     )
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
+    if args.command == "run":
+        validate_run_arguments(args)
     initialize = not args.run and args.writes and args.command in {"scan", "run"}
     state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
     envelope.update(

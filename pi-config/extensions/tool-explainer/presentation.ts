@@ -87,19 +87,23 @@ export class TranscriptPresentation {
 	}
 
 	attach(thinkingSummarized: () => boolean, toolsExpanded: () => boolean): () => void {
-		const detach: (() => void)[] = [];
-		const assistant = AssistantMessageComponent.prototype;
-		const update = assistant.updateContent;
-		const presentation = this;
 		let defaultExpanded = toolsExpanded();
 		const currentDefault = () => {
 			const expanded = toolsExpanded();
 			if (expanded !== defaultExpanded) {
 				defaultExpanded = expanded;
-				presentation.resetThinking();
+				this.resetThinking();
 			}
 			return expanded;
 		};
+		const detach = [this.patchThinkingRegions(thinkingSummarized, currentDefault), patchSummaryComponents(), patchShellComponent()];
+		return () => { for (const restore of detach) restore(); };
+	}
+
+	private patchThinkingRegions(thinkingSummarized: () => boolean, currentDefault: () => boolean): () => void {
+		const assistant = AssistantMessageComponent.prototype;
+		const update = assistant.updateContent;
+		const presentation = this;
 		assistant.updateContent = function (...args) {
 			update.apply(this, args);
 			if (!thinkingSummarized()) return;
@@ -132,47 +136,51 @@ export class TranscriptPresentation {
 					: clickToToggle(renderedThought, () => presentation.thinkingOverrides.set(markdown, !expanded()));
 			});
 		};
-		detach.push(() => { assistant.updateContent = update; });
-
-		for (const { prototype } of [SkillInvocationMessageComponent, BranchSummaryMessageComponent, CompactionSummaryMessageComponent]) {
-			const render = prototype.render;
-			prototype.render = function (width) {
-				if (field(this, "expanded") === false) removeExpansionHints(this, "summary");
-				return render.call(this, width);
-			};
-			detach.push(() => { prototype.render = render; });
-		}
-
-		const shell = BashExecutionComponent.prototype;
-		const renderShell = shell.render;
-		const shellMouse = shell.handleMouse;
-		shell.render = function (width) {
-			const body = field(this, "contentContainer");
-			if (body instanceof Container && field(this, "status") !== "running") {
-				const status = body.children.at(-1);
-				if (status instanceof Text) {
-					removeExpansionHints(status, "shell");
-					if (field(status, "text") === "") body.removeChild(status);
-				}
-			}
-			return renderShell.call(this, width);
-		};
-		shell.handleMouse = function (event) {
-			const result = shellMouse.call(this, event);
-			if (result || event.type !== "click" || event.button !== "left" || field(this, "status") === "running") return result;
-			const expanded = field(this, "expanded");
-			if (typeof expanded !== "boolean" || event.y < 2 || event.y >= event.height - 1) return;
-			this.setExpanded(!expanded);
-			return {
-				handled: true,
-				target: { component: this, originX: event.screenX - event.x, originY: event.screenY - event.y, width: event.width, height: event.height },
-			};
-		};
-		detach.push(() => {
-			shell.render = renderShell;
-			shell.handleMouse = shellMouse;
-		});
-
-		return () => { for (const restore of detach) restore(); };
+		return () => { assistant.updateContent = update; };
 	}
+}
+
+function patchSummaryComponents(): () => void {
+	const detach: (() => void)[] = [];
+	for (const { prototype } of [SkillInvocationMessageComponent, BranchSummaryMessageComponent, CompactionSummaryMessageComponent]) {
+		const render = prototype.render;
+		prototype.render = function (width) {
+			if (field(this, "expanded") === false) removeExpansionHints(this, "summary");
+			return render.call(this, width);
+		};
+		detach.push(() => { prototype.render = render; });
+	}
+	return () => { for (const restore of detach) restore(); };
+}
+
+function patchShellComponent(): () => void {
+	const shell = BashExecutionComponent.prototype;
+	const renderShell = shell.render;
+	const shellMouse = shell.handleMouse;
+	shell.render = function (width) {
+		const body = field(this, "contentContainer");
+		if (body instanceof Container && field(this, "status") !== "running") {
+			const status = body.children.at(-1);
+			if (status instanceof Text) {
+				removeExpansionHints(status, "shell");
+				if (field(status, "text") === "") body.removeChild(status);
+			}
+		}
+		return renderShell.call(this, width);
+	};
+	shell.handleMouse = function (event) {
+		const result = shellMouse.call(this, event);
+		if (result || event.type !== "click" || event.button !== "left" || field(this, "status") === "running") return result;
+		const expanded = field(this, "expanded");
+		if (typeof expanded !== "boolean" || event.y < 2 || event.y >= event.height - 1) return;
+		this.setExpanded(!expanded);
+		return {
+			handled: true,
+			target: { component: this, originX: event.screenX - event.x, originY: event.screenY - event.y, width: event.width, height: event.height },
+		};
+	};
+	return () => {
+		shell.render = renderShell;
+		shell.handleMouse = shellMouse;
+	};
 }

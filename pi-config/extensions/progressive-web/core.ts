@@ -402,6 +402,8 @@ function crawlablePath(path: string): boolean {
   );
 }
 
+const robotsTimeoutMs = 15000;
+
 async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   const url = normalizeUrl(options.url);
   const origin = new URL(url).origin;
@@ -428,9 +430,14 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   };
   if (!inScope(url))
     throw new Error("The starting URL must be inside pathPrefix.");
-  const policy = await crawlPolicy(
-    origin,
-    deadlineSignal(15000, signal).signal,
+  const robots = deadlineSignal(robotsTimeoutMs, signal);
+  const policy = await crawlPolicy(origin, robots.signal).catch(
+    (error: unknown) => {
+      signal?.throwIfAborted();
+      if (robots.deadline.aborted)
+        throw new Error(`robots.txt timed out after ${robotsTimeoutMs} ms.`);
+      throw error;
+    },
   );
   const crawlDelay =
     policy.getCrawlDelay("PiWebScraper") ?? policy.getCrawlDelay("*");

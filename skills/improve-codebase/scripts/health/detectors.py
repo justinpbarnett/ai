@@ -200,10 +200,14 @@ class ParseOptions:
     full: bool
 
 
+def parser_cache_prefix(parser_profile):
+    return f"{parser_profile}:"
+
+
 def parse_snapshot(entries, sources, options):
     parsed, fresh, work = {}, {}, {}
     cache_keys = {
-        p: f"{options.parser_profile}:"
+        p: parser_cache_prefix(options.parser_profile)
         + digest(
             [
                 entries[p]["hash"],

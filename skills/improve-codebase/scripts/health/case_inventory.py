@@ -185,11 +185,13 @@ def is_js_assertion_call(data, function):
         return False
     owner = function.child_by_field_name("object")
     prop = node_text(data, function.child_by_field_name("property"))
-    return prop == "expect" or (
-        owner is not None
-        and owner.type == "identifier"
-        and node_text(data, owner) == "assert"
-    )
+    if owner is not None and owner.type == "identifier":
+        owner_name = node_text(data, owner)
+        if owner_name == "assert" or (
+            owner_name == "expect" and prop in {"soft", "poll"}
+        ):
+            return True
+    return prop == "expect"
 
 
 def js_count(data, node, case):

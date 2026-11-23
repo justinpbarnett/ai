@@ -8,16 +8,22 @@ export const JEV_UPSTREAM = "TypeSafe";
 export const WRITER_UPSTREAM = "Google";
 export const OPENROUTER_SIGN_IN_MESSAGE = "OpenRouter sign-in needed. Use /login or OPENROUTER_API_KEY.";
 
+export const isOpenRouterModelId = (value: unknown): value is string =>
+	typeof value === "string" && value.length <= 150 && /^(?:[\w.-]+\/)?[\w.-]+(?::[\w.-]+)?$/.test(value);
+
 export const isPiOffline = () => /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "");
 
 export const isOpenRouterConfigured = (registry: ExtensionContext["modelRegistry"]) =>
 	registry.getProviderAuthStatus(OPENROUTER_PROVIDER).configured;
 
+export const findJev = (registry: ExtensionContext["modelRegistry"]) =>
+	registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+
 export function jevBlocker(ctx: ExtensionContext): string | undefined {
 	if (!ctx.isProjectTrusted()) return "untrusted project";
 	if (isPiOffline()) return "Pi is offline";
 	if (!isOpenRouterConfigured(ctx.modelRegistry)) return "OpenRouter sign-in needed";
-	if (!ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL)) return "OpenRouter JEV model unavailable";
+	if (!findJev(ctx.modelRegistry)) return "OpenRouter JEV model unavailable";
 }
 
 export function usableWriter(registry: ExtensionContext["modelRegistry"]) {

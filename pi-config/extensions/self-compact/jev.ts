@@ -1,5 +1,5 @@
 import type { ExtensionContext, InputEvent, ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
+import { JEV_CLASSIFIER_MODEL, findJev, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
 import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
 import { autoEnabled } from "./policy.js";
 import type { Policy } from "./policy.js";
@@ -90,7 +90,7 @@ const TASK_SWITCH_QUESTION = {
 } as const;
 
 async function classifySwitch(ctx: ExtensionContext, pair: PromptPair, signal: AbortSignal): Promise<SwitchDecision> {
-	const model = ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	const model = findJev(ctx.modelRegistry);
 	if (!model) return "unavailable";
 	const cancelled = () => ctx.signal?.aborted || signal.aborted;
 	try {

@@ -1,12 +1,11 @@
-import { isModelId } from "./model-id.js";
-
 const OLLAMA_URL = "http://127.0.0.1:11434";
+const OLLAMA_TAG = /^(?:[\w.-]+(?::\d+)?\/){0,2}[\w.-]+(?::[\w.-]+)?$/;
 export const DEFAULT_OLLAMA_MODEL = "qwen3.5:2b";
 
 export class OllamaWriterError extends Error {}
 
 export function isLocalOllamaModel(value: unknown): value is string {
-	return isModelId(value) && !/(?:[:-])cloud$/i.test(value);
+	return typeof value === "string" && value.length <= 150 && OLLAMA_TAG.test(value) && !/(?:[:-])cloud$/i.test(value);
 }
 
 interface ShowReply {

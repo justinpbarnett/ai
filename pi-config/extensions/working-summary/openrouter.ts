@@ -1,6 +1,6 @@
 import type { ClassifierQuestion, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
+import { findJev, jevBlocker, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
 import type { Slot } from "./labels.js";
 import { labelSchema, LABEL_INSTRUCTIONS, parseLabels, type Evidence, type SummaryResult } from "./writer.js";
 
@@ -54,7 +54,7 @@ export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
 }
 
 export async function classifyMissionWithJev(registry: Registry, evidence: MissionEvidence, signal: AbortSignal): Promise<"switch" | "keep" | undefined> {
-	const jev = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	const jev = findJev(registry);
 	if (!jev) return;
 	try {
 		const deadline = AbortSignal.any([signal, AbortSignal.timeout(MISSION_CHECK_TIMEOUT_MS)]);
@@ -78,7 +78,7 @@ function trustedChoice(result: ClassifierResult, key: string, question: typeof i
 }
 
 export async function summarizeWithOpenRouter(registry: Registry, requested: Slot[], evidence: Evidence, signal: AbortSignal): Promise<SummaryResult> {
-	const jev = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	const jev = findJev(registry);
 	const writer = usableWriter(registry);
 	if (!jev || !writer) return { labels: {}, failure: "OpenRouter summary models unavailable" };
 

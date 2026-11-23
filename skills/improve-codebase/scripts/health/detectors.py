@@ -17,7 +17,7 @@ from .lean_evidence import (
     test_evidence,
     test_signature,
 )
-from .parsers import GRAMMARS, analyze
+from .parsers import analyze
 from .paths import is_test_path
 from .rules import DEPENDENCY_CYCLE, DUPLICATE_BLOCK
 from .syntax_tree import (
@@ -294,7 +294,7 @@ def file_metric_findings(path, lines, metrics, thresholds):
             )
 
 
-def scan_gaps(entries, parsed, selected, edges, graph_gaps):
+def scan_gaps(parsed, selected, edges, graph_gaps):
     for path in sorted(selected):
         yield from ({"path": path, **gap} for gap in parsed[path]["gaps"])
     neighbors = set()
@@ -304,8 +304,7 @@ def scan_gaps(entries, parsed, selected, edges, graph_gaps):
         if target in selected:
             neighbors.add(source)
     for path in sorted(neighbors - selected):
-        if entries[path]["language"] in GRAMMARS:
-            yield from ({"path": path, **gap} for gap in parsed[path]["gaps"])
+        yield from ({"path": path, **gap} for gap in parsed[path]["gaps"])
     relevant = selected | neighbors
     yield from (gap for gap in graph_gaps if gap["path"] in relevant)
 
@@ -414,7 +413,7 @@ def scan_sources(inventory, sources, thresholds, options, history):
         "candidates": findings,
         "edges": edges,
         "limitations": limits,
-        "gaps": list(scan_gaps(entries, parsed, selected, edges, graph_gaps)),
+        "gaps": list(scan_gaps(parsed, selected, edges, graph_gaps)),
         "projects": projects,
         "partitions": partitions,
         "file_rankings": sizes,

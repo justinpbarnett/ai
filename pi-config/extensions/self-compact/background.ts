@@ -65,9 +65,10 @@ export class BackgroundCompaction {
 		if (!handoff || handoff.length > MAX_HANDOFF) throw new Error(`Supply a handoff of 1 to ${MAX_HANDOFF} characters.`);
 		if (signal?.aborted) throw new Error("Self-compaction request was cancelled.");
 		if (this.staged || this.job?.handoff) throw new Error("A self-compaction request is already queued.");
+		if (settings.keepRecentTokens === undefined) throw new Error("Native compaction limits are invalid, so no recent tail can be kept.");
+		if (!ctx.model) throw new Error("No active model is available to write the summary.");
 		const total = tokenCount(ctx.sessionManager.buildSessionProjection().entries);
-		if (settings.keepRecentTokens === undefined || !ctx.model ||
-			total - settings.keepRecentTokens <= minimumSavings(settings.tokens ?? total)) {
+		if (total - settings.keepRecentTokens <= minimumSavings(settings.tokens ?? total)) {
 			throw new Error("Not enough older context to compact while keeping the recent tail.");
 		}
 		this.staged = { toolCallId, handoff };

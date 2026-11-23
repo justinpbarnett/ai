@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ClassifierAnswer, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ClassifierResult, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ModelRouteRequest } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker } from "../shared/openrouter.js";
+import { findJev, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
 import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
 
 const PROVIDER = "jev";
@@ -87,13 +87,14 @@ function lastUserText(messages: ModelRouteRequest["messages"]): string | undefin
 	return content.map((block) => block.type === "text" ? block.text : "").join("").trim();
 }
 
-function choice<Key extends string>(answer: ClassifierAnswer | undefined, criteria: Record<Key, string>): Key | undefined {
+function choice<Key extends string>(result: ClassifierResult, question: string, criteria: Record<Key, string>): Key | undefined {
+	const answer = trustedJevAnswer(result, question);
 	if (answer?.type === "choice" && Object.hasOwn(criteria, answer.choice)) return answer.choice as Key;
 }
 
 async function classify(ctx: ExtensionContext, text: string, signal?: AbortSignal): Promise<Decision | undefined> {
 	if (jevBlocker(ctx)) return;
-	const model = ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	const model = findJev(ctx.modelRegistry);
 	if (!model) return;
 	const deadline = AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS);
 	const result = await ctx.modelRegistry.classify(model, {
@@ -113,8 +114,8 @@ async function classify(ctx: ExtensionContext, text: string, signal?: AbortSigna
 	}, { signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
 	signal?.throwIfAborted();
 	if (deadline.aborted || result.stopReason !== "stop") return;
-	const tier = choice(result.answers.tier, TIER_CRITERIA);
-	const thinkingLevel = choice(result.answers.thinking, THINKING_CRITERIA);
+	const tier = choice(result, "tier", TIER_CRITERIA);
+	const thinkingLevel = choice(result, "thinking", THINKING_CRITERIA);
 	if (tier && thinkingLevel) return { tier, thinkingLevel, source: "jev" };
 }
 

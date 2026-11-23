@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
-import { isModelId } from "../shared/model-id.js";
-import { OPENROUTER_WRITER_MODEL } from "../shared/openrouter.js";
+import { OPENROUTER_WRITER_MODEL, isOpenRouterModelId } from "../shared/openrouter.js";
 import type { Writer } from "./writer.js";
 
 export const DEFAULT_COUNT = 3;
@@ -30,7 +29,7 @@ function parseSettings(value: unknown): Settings {
 	if (count !== undefined && (typeof count !== "number" || !parseCount(count))) throw new Error("Invalid count");
 	if (auto !== undefined && typeof auto !== "boolean") throw new Error("Invalid auto");
 	if (ollamaModel !== undefined && !isLocalOllamaModel(ollamaModel)) throw new Error("Invalid Ollama model");
-	if (openrouterModel !== undefined && !isModelId(openrouterModel)) throw new Error("Invalid OpenRouter model");
+	if (openrouterModel !== undefined && !isOpenRouterModelId(openrouterModel)) throw new Error("Invalid OpenRouter model");
 	return { count: count ?? DEFAULT_COUNT, auto: auto ?? true, writer: configuredWriter(writer, ollamaModel, openrouterModel) };
 }
 

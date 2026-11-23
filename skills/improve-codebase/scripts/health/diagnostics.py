@@ -60,7 +60,7 @@ def ruff_rows(report):
         )
 
 
-ESLINT_UNATTRIBUTED_RULE = "eslint:unattributed"
+ESLINT_UNATTRIBUTED_RULE = "unattributed"
 
 
 def located_without_rule(message):

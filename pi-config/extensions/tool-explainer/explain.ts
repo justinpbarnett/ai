@@ -1,6 +1,6 @@
 import type { ClassifierQuestion } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
+import { OPENROUTER_SIGN_IN_MESSAGE, findJev, isOpenRouterConfigured, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
 import { ExplanationError } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { plain } from "./screening.js";
@@ -10,11 +10,13 @@ const CONFIDENCE = 0.8;
 type Registry = ExtensionContext["modelRegistry"];
 export type Explanation = { overview: string; items: Map<number, string> };
 
-function requireJev(registry: Registry) {
+export function requireModels(registry: Registry) {
 	if (!isOpenRouterConfigured(registry)) throw new ExplanationError(OPENROUTER_SIGN_IN_MESSAGE);
-	const model = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
-	if (!model) throw new ExplanationError("OpenRouter JEV model unavailable.");
-	return model;
+	const jev = findJev(registry);
+	if (!jev) throw new ExplanationError("OpenRouter JEV model unavailable.");
+	const writer = usableWriter(registry);
+	if (!writer) throw new ExplanationError("OpenRouter writing model unavailable.");
+	return { jev, writer };
 }
 
 const outcome: ClassifierQuestion = {
@@ -83,9 +85,7 @@ function parseExplanation(text: string, evidence: Evidence[]): Explanation {
 }
 
 export async function explain(registry: Registry, calls: Evidence[], signal: AbortSignal): Promise<Explanation> {
-	const jev = requireJev(registry);
-	const writer = usableWriter(registry);
-	if (!writer) throw new ExplanationError("OpenRouter writing model unavailable.");
+	const { jev, writer } = requireModels(registry);
 	const questions = Object.fromEntries(calls.map(({ id }) => [`call${id}`, {
 		...outcome, instructions: `For call ${id}: ${outcome.instructions}`,
 	}]));

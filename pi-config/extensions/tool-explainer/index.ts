@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { sessionEntryToContextMessages, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured } from "../shared/openrouter.js";
+import { requireModels } from "./explain.js";
 import { manualRows, purposeCall, recentCalls, type Invocation } from "./evidence.js";
 import { ExplanationError } from "./errors.js";
 import { InlineToolOutput, shownNatively } from "./inline.js";
@@ -71,8 +71,11 @@ async function showManualExplanation(ctx: ExtensionContext, rows: ReturnType<typ
 		await showView(ctx, heading, explanationText(rows), signal);
 		return;
 	}
-	if (!isOpenRouterConfigured(ctx.modelRegistry)) {
-		await showView(ctx, heading, explanationText(rows, undefined, OPENROUTER_SIGN_IN_MESSAGE), signal);
+	try {
+		requireModels(ctx.modelRegistry);
+	} catch (error) {
+		if (!(error instanceof ExplanationError)) throw error;
+		await showView(ctx, heading, explanationText(rows, undefined, error.message), signal);
 		return;
 	}
 	const leaf = ctx.sessionManager.getLeafId();

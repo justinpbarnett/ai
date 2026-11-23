@@ -6,13 +6,15 @@ from .hashing import digest
 from .ledger import now, observe
 from .review import change_relation, confirmed_fields
 from .review_units import (
+    STAGES,
     matching_receipts,
     review_work,
     unit_changes,
     unit_matches_paths,
 )
-from .rules import MAX_PACKET_UNITS, STAGES
 from .validation import array, object_value, require, string
+
+MAX_PACKET_UNITS = 50
 
 
 @dataclass(frozen=True)

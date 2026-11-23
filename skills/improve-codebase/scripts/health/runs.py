@@ -4,13 +4,13 @@ from itertools import chain
 from pathlib import PurePosixPath
 
 from .dependency_graph import resolve_edges
+from .history import git
 from .inventory import (
     MAX_SOURCE_BYTES,
     PROJECT,
     WIRING_LANGUAGES,
     classify_content,
     excluded,
-    git,
     inventory,
     normalize_scope,
     owning_project,

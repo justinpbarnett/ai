@@ -2,7 +2,27 @@ import os
 import subprocess
 from collections import Counter
 
-from .inventory import git
+
+def git(root, *args, allowed=(0,), env=None):
+    environment = dict(os.environ if env is None else env)
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+    ):
+        environment.pop(key, None)
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        env=environment,
+        timeout=45,
+    )
+    if result.returncode not in allowed:
+        raise OSError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}")
+    return result
 
 
 def hotspots(root, is_git, files):

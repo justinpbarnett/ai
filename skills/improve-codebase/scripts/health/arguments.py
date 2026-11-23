@@ -3,7 +3,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .rules import AXES, FORMATS, MAX_PACKET_UNITS, STAGES
+from .diagnostics import FORMATS
+from .review_packets import MAX_PACKET_UNITS
+from .review_units import AXES, STAGES
 
 
 @dataclass(frozen=True)

@@ -162,11 +162,12 @@ def python_targets(paths, ancestors, project, ref):
 
 def style_targets(paths, parent, ref):
     base = "." if ref.startswith("/") else parent
-    matches = local_targets(paths, base, ref.removeprefix("/"), (".css", ".scss"))
+    stripped = ref.removeprefix("/")
+    matches = local_targets(paths, base, stripped, (".css", ".scss"))
     if not matches and not PLACEHOLDER.search(ref):
-        directory, name = posixpath.split(ref)
+        directory, name = posixpath.split(stripped)
         return local_targets(
-            paths, parent, posixpath.join(directory, "_" + name), (".scss",)
+            paths, base, posixpath.join(directory, "_" + name), (".scss",)
         )
     return matches
 

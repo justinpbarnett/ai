@@ -14,6 +14,7 @@ import {
   brightDataFetch,
   browserFetch,
   browserInstalled,
+  curlInstalled,
   closeBrowsers,
   curlFetch,
   httpFetch,
@@ -173,10 +174,11 @@ export async function dispose(): Promise<void> {
 export async function status() {
   const { token, zone } = await loadCredentials();
   const installed = await browserInstalled();
+  const curlReady = await curlInstalled();
   return {
     tiers: [
       "1. HTTP fetch + Readability: ready",
-      "2. cURL + browser headers: ready (requires curl on PATH)",
+      `2. cURL + browser headers: ${curlReady ? "ready (requires curl on PATH)" : "missing; install curl and put it on PATH"}`,
       `3. Playwright Chromium: ${installed ? "ready" : "missing; run npm run browser:install in the extension directory"}`,
       `4. Bright Data Web Unlocker: ${token && zone ? `configured (zone: ${zone}; not yet validated)` : "not configured"}`,
     ],

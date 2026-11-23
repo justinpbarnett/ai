@@ -4,9 +4,11 @@ from pathlib import Path
 from .hashing import digest
 from .inventory import WIRING_LANGUAGES, is_project_guide
 from .paths import in_paths, within
-from .rules import AXES, RELATIONSHIP_AXES, STAGES
 
 REVIEW_VERSION = 3
+AXES = ("smells", "architecture", "contracts")
+STAGES = ("discovery", "confirmation")
+RELATIONSHIP_AXES = ("architecture", "contracts")
 
 
 def paths_by_directory(paths):

@@ -9,16 +9,16 @@ from itertools import islice
 
 from .arguments import CommandHandlers, arguments
 from .evidence import STALE_INPUTS, import_evidence
-from .inventory import discover_root, normalize_scope
+from .inventory import normalize_scope
 from .ledger import UNRESOLVED
 from .parsers import capabilities
 from .review_packets import PacketSelection, prepare
-from .rules import STAGES
+from .review_units import STAGES
 from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
 from .state import Store
-from .state_dir import safe_state_dir
+from .state_dir import discover_root, safe_state_dir
 from .thresholds import settings
 from .validation import read_json, require
 

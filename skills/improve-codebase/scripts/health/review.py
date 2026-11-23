@@ -6,8 +6,8 @@ from .ledger import (
     validate_dependencies,
     validate_prerequisite_cycle,
 )
-from .review_units import matching_receipts
-from .rules import GRAPH_WIDE_RULES, STAGES
+from .review_units import STAGES, matching_receipts
+from .rules import GRAPH_WIDE_RULES
 from .validation import array, object_value, require, string
 from .verification import checks
 

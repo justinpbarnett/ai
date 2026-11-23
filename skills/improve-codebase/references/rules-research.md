@@ -2,21 +2,21 @@
 
 Research for three rules to add to the improve-codebase skill. Each claim names its source. Sources marked **(primary)** are the author's own writing, official docs, tool docs, or specs. Sources marked **(secondary)** are the knowledge base answer or commentary. Claims I could not fetch and read this session are marked **(not re-read)** and rest on the cited book or page; verify before quoting.
 
-## What the scanner can measure now
+## What the scanner could measure before these rules (snapshot of 2026-11-23)
 
-Read from `scripts/health/` (`detectors.py`, `inventory.py`, `syntax_tree.py`, `dependency_graph.py`, `scanning.py`):
+Read from `scripts/health/` before the rules existed (`detectors.py`, `inventory.py`, `syntax_tree.py`, `dependency_graph.py`, `scanning.py`):
 
 - Callable complexity, nesting, parameter count, class and callable ranges (tree-sitter walk in `syntax_tree.py`).
 - Duplicate blocks from rolling anchors over significant tokens, and exact line blocks for generic files (`detectors.py`).
 - `large-file` finding from nonblank line count, which includes comment lines (`file_metric_findings`).
 - Resolved local import edges and strongly connected components (cycles) for Python, JS/TS, CSS, and C# `ProjectReference` (`dependency_graph.py`, `cycle_findings`).
-- Git hotspots: touch count per file over the last 100 commits, with `--no-renames` (`inventory.hotspots`). It stores one counter per file. It does not keep per commit file sets, so it cannot compute change coupling between files.
-- Comment nodes are skipped on purpose: `syntax_tree.py` does `if "comment" in kind: continue`. So token streams ignore comments, and no comment inventory exists.
-- Nothing classifies a file as test or production, finds test functions, reads coverage, or runs mutation tools. Path and name based classification does not exist.
+- Git hotspots: touch count per file over the last 100 commits, with `--no-renames` (`inventory.hotspots`). It stored one counter per file and kept no per commit file sets, so it could not compute change coupling between files.
+- Comment nodes were skipped on purpose: `syntax_tree.py` did `if "comment" in kind: continue`. So token streams ignored comments, and no comment inventory existed.
+- Nothing classified a file as test or production, found test functions, read coverage, or ran mutation tools. Path and name based classification did not exist.
 
 Labels used below:
 
-- `mechanical now`: the current scanner computes it.
+- `mechanical now`: the scanner of the snapshot above computed it.
 - `new detector`: needs new code. The needed inputs are named.
 - `review judgment`: a reviewer decides. No script should decide it.
 

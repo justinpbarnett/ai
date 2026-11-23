@@ -9,12 +9,12 @@ from .ledger import (
 )
 from .paths import in_paths
 from .review_units import (
+    STAGES,
     changed_keys,
     matching_receipts,
     review_work,
     unit_matches_paths,
 )
-from .rules import STAGES
 from .verification import checks
 
 

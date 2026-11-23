@@ -1,10 +1,10 @@
 import os
 import re
 import stat
-import subprocess
 from pathlib import Path
 
 from .hashing import content_hash, digest, file_digest
+from .history import git
 from .paths import within
 
 STATE_DIR = ".improve-codebase"
@@ -99,49 +99,6 @@ LOCKFILES = {
     "Cargo.lock",
     "packages.lock.json",
 }
-
-
-def git(root, *args, allowed=(0,), env=None):
-    environment = dict(os.environ if env is None else env)
-    for key in (
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_COMMON_DIR",
-        "GIT_PREFIX",
-    ):
-        environment.pop(key, None)
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
-    result = subprocess.run(
-        ["git", "-C", str(root), *args],
-        capture_output=True,
-        env=environment,
-        timeout=45,
-    )
-    if result.returncode not in allowed:
-        raise OSError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}")
-    return result
-
-
-def discover_root(argument):
-    path = Path(argument).expanduser().resolve(strict=True)
-    if not path.is_dir():
-        raise ValueError("root must be a directory")
-    try:
-        result = git(path, "rev-parse", "--show-toplevel", allowed=(0, 128))
-    except FileNotFoundError:
-        if any((parent / ".git").exists() for parent in (path, *path.parents)):
-            raise ValueError(
-                "Git is required to inventory this checkout safely"
-            ) from None
-        return path, False
-    if not result.returncode:
-        return Path(os.fsdecode(result.stdout.removesuffix(b"\n"))).resolve(), True
-    if any((parent / ".git").exists() for parent in (path, *path.parents)):
-        raise ValueError(
-            "cannot discover Git worktree: " + os.fsdecode(result.stderr).strip()
-        )
-    return path, False
 
 
 def normalize_scope(root, requested):

@@ -56,6 +56,20 @@ def moved_finding(findings, finding, moves):
     return matches[0] if len(matches) == 1 else None
 
 
+def same_folder_finding(findings, finding):
+    if not finding["anchor"].startswith("directory:"):
+        return None
+    matches = [
+        item
+        for item in findings.values()
+        if item["origin"] == finding["origin"]
+        and item["rule"] == finding["rule"]
+        and item["anchor"] == finding["anchor"]
+        and item.get("identity", "") == finding.get("identity", "")
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def recorded_severity_applies(prior, finding):
     return bool(prior and prior.get("triaged_at") and "severity" in finding)
 
@@ -67,7 +81,9 @@ def resolve_identity(state, finding):
     identifier = location_keys.get(location_key, location_key)
     prior = findings.get(identifier)
     if prior is None:
-        prior = moved_finding(findings, finding, state.get("moves"))
+        prior = moved_finding(
+            findings, finding, state.get("moves")
+        ) or same_folder_finding(findings, finding)
         if prior is not None:
             identifier = prior["id"]
     location_keys[location_key] = identifier

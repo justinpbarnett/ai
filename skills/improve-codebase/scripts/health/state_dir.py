@@ -2,7 +2,8 @@ import os
 import stat
 from pathlib import Path
 
-from .inventory import STATE_DIR, git
+from .history import git
+from .inventory import STATE_DIR
 from .validation import require
 
 
@@ -89,3 +90,24 @@ def safe_state_dir(root, is_git, requested, write):
     if path.exists():
         require(path.is_dir(), "state location is not a directory")
     return path
+
+
+def discover_root(argument):
+    path = Path(argument).expanduser().resolve(strict=True)
+    if not path.is_dir():
+        raise ValueError("root must be a directory")
+    try:
+        result = git(path, "rev-parse", "--show-toplevel", allowed=(0, 128))
+    except FileNotFoundError:
+        if any((parent / ".git").exists() for parent in (path, *path.parents)):
+            raise ValueError(
+                "Git is required to inventory this checkout safely"
+            ) from None
+        return path, False
+    if not result.returncode:
+        return Path(os.fsdecode(result.stdout.removesuffix(b"\n"))).resolve(), True
+    if any((parent / ".git").exists() for parent in (path, *path.parents)):
+        raise ValueError(
+            "cannot discover Git worktree: " + os.fsdecode(result.stderr).strip()
+        )
+    return path, False

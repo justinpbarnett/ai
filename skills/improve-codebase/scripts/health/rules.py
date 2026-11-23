@@ -1,9 +1,3 @@
-AXES = ("smells", "architecture", "contracts")
-STAGES = ("discovery", "confirmation")
-MAX_PACKET_UNITS = 50
-RELATIONSHIP_AXES = ("architecture", "contracts")
-EXIT_CODES = {"ruff": {0, 1}, "eslint": {0, 1}, "stylelint": {0, 2}, "sarif": {0, 1}}
-FORMATS = tuple(EXIT_CODES)
 DEPENDENCY_CYCLE = "dependency-cycle"
 FOLDER_CYCLE = "folder-cycle"
 SINGLE_IMPORTER = "single-importer"

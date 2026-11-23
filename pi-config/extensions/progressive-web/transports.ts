@@ -60,6 +60,13 @@ export async function browserInstalled(): Promise<boolean> {
   );
 }
 
+export async function curlInstalled(): Promise<boolean> {
+  return executeFile("curl", ["--version"]).then(
+    () => true,
+    () => false,
+  );
+}
+
 export async function closeBrowsers(): Promise<void> {
   await Promise.allSettled(
     [...activeBrowsers].map((browser) => browser.close()),

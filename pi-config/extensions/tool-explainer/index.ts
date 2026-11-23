@@ -64,6 +64,16 @@ function shownMessages(ctx: ExtensionContext) {
 	return ctx.sessionManager.buildContextEntries().flatMap((entry) => sessionEntryToContextMessages(entry));
 }
 
+function conversationLeafId(sessionManager: ExtensionContext["sessionManager"]) {
+	let id = sessionManager.getLeafId();
+	let entry = id ? sessionManager.getEntry(id) : undefined;
+	while (entry?.type === "custom") {
+		id = entry.parentId;
+		entry = id ? sessionManager.getEntry(id) : undefined;
+	}
+	return id;
+}
+
 async function showManualExplanation(ctx: ExtensionContext, rows: ReturnType<typeof manualRows>, signal: AbortSignal) {
 	const evidence = rows.flatMap((row) => row.evidence ? [row.evidence] : []);
 	const heading = `Tool explanation · ${rows.length} ${rows.length === 1 ? "call" : "calls"}`;
@@ -78,8 +88,8 @@ async function showManualExplanation(ctx: ExtensionContext, rows: ReturnType<typ
 		await showView(ctx, heading, explanationText(rows, undefined, error.message), signal);
 		return;
 	}
-	const leaf = ctx.sessionManager.getLeafId();
-	const current = () => !signal.aborted && leaf === ctx.sessionManager.getLeafId();
+	const leaf = conversationLeafId(ctx.sessionManager);
+	const current = () => !signal.aborted && leaf === conversationLeafId(ctx.sessionManager);
 	if (!await confirmPreview(ctx, "Preview tool excerpts", preview(evidence, rows.length - evidence.length), signal) || !current()) return;
 	const outcome = await collectExplanation(ctx, evidence, signal);
 	if (outcome && current()) await showView(ctx, heading, explanationText(rows, outcome.result, outcome.error), signal);

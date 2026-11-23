@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from .hashing import digest, file_digest
-from .inventory import safe_file
+from .hashing import digest
+from .inventory import file_digest, safe_file
 from .ledger import now
 from .validation import array, object_value, require, string
 

@@ -123,10 +123,17 @@ def classify_changes(entries, touched, replaced):
     changed = {
         path
         for path in touched
-        if entries.get(path, {}).get("disposition") in {"source", "reference"}
+        if entries.get(path, {}).get("disposition")
+        in {"source", "reference", "incomplete"}
     }
     retired = {path for path in replaced - changed if not excluded(path, None)}
     return changed, retired
+
+
+def incomplete_paths(entries):
+    return {
+        path for path, entry in entries.items() if entry["disposition"] == "incomplete"
+    }
 
 
 def select_fallout(changed, retired, sources, edges, fences):
@@ -208,7 +215,10 @@ def fallout_scope(store, root, state_dir, fences, base, includes):
     )
     scopes = normalize_scope(root, [*primary, *paths]) if primary or paths else []
     require(
-        any(in_paths(path, scopes) for path in sources),
+        any(
+            in_paths(path, scopes)
+            for path in chain(sources, incomplete_paths(entries))
+        ),
         "fallout did not identify live source; include affected callers explicitly with --include",
     )
     current, _ = inventory(root, True, ["."], state_dir)

@@ -1,14 +1,17 @@
+import hashlib
 import os
 import re
 import stat
+from contextlib import contextmanager
 from pathlib import Path
 
-from .hashing import content_hash, digest, file_digest
+from .hashing import content_hash, digest
 from .history import git
 from .paths import within
 
 STATE_DIR = ".improve-codebase"
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+FILE_CHUNK_BYTES = 1 << 20
 OVERSIZED_REASON = "source exceeds size limit"
 UNMERGED_REASON = "unmerged index entry"
 UNENUMERABLE_REASON = "directory cannot be enumerated"
@@ -224,15 +227,29 @@ def safe_file(root, relative):
     return path
 
 
-def read_source(path):
+@contextmanager
+def open_regular_file(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
         st = os.fstat(stream.fileno())
         if not stat.S_ISREG(st.st_mode):
             raise ValueError("not a regular file")
+        yield stream, st
+
+
+def read_source(path):
+    with open_regular_file(path) as (stream, st):
         if st.st_size > MAX_SOURCE_BYTES:
             raise ValueError(OVERSIZED_REASON)
         return read_within_limit(stream)
+
+
+def file_digest(path):
+    hasher = hashlib.sha256()
+    with open_regular_file(path) as (stream, _):
+        while chunk := stream.read(FILE_CHUNK_BYTES):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def read_within_limit(stream):

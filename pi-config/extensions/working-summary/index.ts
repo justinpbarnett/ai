@@ -84,6 +84,8 @@ class WorkingSummary {
 	private pendingMission?: MissionCheckpoint;
 	private displayedLabels: Labels = {};
 	private redrawBorder?: () => void;
+	private attached?: ExtensionContext;
+	private persistenceWarningShown = false;
 	private readonly refresh = new SummaryRefresh();
 
 	constructor(private readonly pi: ExtensionAPI) {}
@@ -93,6 +95,8 @@ class WorkingSummary {
 		this.settings = loaded ?? { ...DEFAULTS };
 		this.configInvalid = !loaded;
 		this.refresh.reset();
+		this.attached = ctx;
+		this.persistenceWarningShown = false;
 		this.redrawBorder = installSummaryBorder(ctx, () => this.displayedLabels);
 		this.restore(ctx);
 		if (this.configInvalid) ctx.ui.notify(`Invalid ${SETTINGS_FILE}; check the summary switches and ollamaModel. Model summaries are off.`, "warning");
@@ -129,6 +133,7 @@ class WorkingSummary {
 		this.refresh.cancel();
 		this.displayedLabels = {};
 		this.redrawBorder = undefined;
+		this.attached = undefined;
 	}
 
 	settle(aborted: boolean) {
@@ -139,8 +144,15 @@ class WorkingSummary {
 
 	private persistMission() {
 		if (!this.pendingMission) return;
-		this.pi.appendEntry(MISSION_ENTRY, this.pendingMission);
+		const mission = this.pendingMission;
 		this.pendingMission = undefined;
+		try {
+			this.pi.appendEntry(MISSION_ENTRY, mission);
+		} catch {
+			if (this.persistenceWarningShown) return;
+			this.persistenceWarningShown = true;
+			this.attached?.ui.notify("Could not save the mission title. It may not survive a reload.", "warning");
+		}
 	}
 
 	deliver(ctx: ExtensionContext, message: UserMessage) {

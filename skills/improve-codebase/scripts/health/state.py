@@ -238,7 +238,7 @@ class Store:
 
     def cache(self, values):
         self.connection.executemany(
-            "INSERT OR IGNORE INTO detector_cache VALUES (?, ?)",
+            "INSERT OR REPLACE INTO detector_cache VALUES (?, ?)",
             ((key, packed(value)) for key, value in values.items()),
         )
 

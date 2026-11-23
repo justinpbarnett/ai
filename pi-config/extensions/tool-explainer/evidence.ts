@@ -93,6 +93,20 @@ const verbs = {
 } as const;
 
 export type Action = keyof typeof verbs;
+
+function bashAction(command: string): Action {
+	if (/[\n\r;&|<>`]/.test(command)) return "shell";
+	const git = /^git(?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+))?\s+(status|diff|log)(?:\s|$)/.exec(command)?.[1];
+	if (git === "status") return "gitStatus";
+	if (git === "diff") return "gitDiff";
+	if (git === "log") return "gitLog";
+	if (/^(?:rg|grep|find)(?:\s|$)/.test(command)) return "search";
+	if (/^ls(?:\s|$)/.test(command)) return "list";
+	if (/^(?:(?:uv\s+run\s+)?pytest|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+test)(?:\s|$)/.test(command)) return "test";
+	if (/^(?:printf|echo)(?:\s|$)/.test(command)) return "print";
+	return "shell";
+}
+
 function actionFor(call: Invocation): Action {
 	switch (call.toolName) {
 		case "read": case "edit": case "write": return call.toolName;
@@ -100,20 +114,7 @@ function actionFor(call: Invocation): Action {
 		case "ls": return "list";
 		case "web_search": return "webSearch";
 		case "web_scrape": case "web_crawl": return "webRead";
-		case "bash": {
-			const command = stringArg(call, "command")?.trim() ?? "";
-			if (!/[\n\r;&|<>`]/.test(command)) {
-				const git = /^git(?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+))?\s+(status|diff|log)(?:\s|$)/.exec(command)?.[1];
-				if (git === "status") return "gitStatus";
-				if (git === "diff") return "gitDiff";
-				if (git === "log") return "gitLog";
-				if (/^(?:rg|grep|find)(?:\s|$)/.test(command)) return "search";
-				if (/^ls(?:\s|$)/.test(command)) return "list";
-				if (/^(?:(?:uv\s+run\s+)?pytest|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+test)(?:\s|$)/.test(command)) return "test";
-				if (/^(?:printf|echo)(?:\s|$)/.test(command)) return "print";
-			}
-			return "shell";
-		}
+		case "bash": return bashAction(stringArg(call, "command")?.trim() ?? "");
 		case "powershell": return "shell";
 		default: return "tool";
 	}
@@ -150,21 +151,28 @@ export function toolActivity(call: Invocation, cwd: string): ToolActivity {
 	return { singular, plural, target: path ? purposeExcerpt(basename(path)) : undefined };
 }
 
+function manualLabel(call: Invocation, action: Action, cwd: string): string | undefined {
+	if (action === "tool") return safeName(call.toolName);
+	if (action === "shell") {
+		const command = stringArg(call, "command");
+		return command ? shellLabel(command, safeLabel) : undefined;
+	}
+	if (!isFileAction(action) && action !== "search" && action !== "list") return;
+	const path = stringArg(call, "path");
+	const target = path ? safeTarget(path, cwd) : undefined;
+	return target && (basename(target) || ".");
+}
+
 function manualDescription(call: Call, cwd: string): string {
-	const { content, isError, toolName } = call.result;
+	const { content, isError } = call.result;
 	const invocation = invocationOf(call);
 	const action = actionFor(invocation);
+	const label = manualLabel(invocation, action, cwd);
 	const image = content.some((block) => block.type === "image");
 	const text = content.some((block) => block.type === "text" && Boolean(block.text.trim()));
-	const file = isFileAction(action);
-	const path = file || action === "search" || action === "list" ? stringArg(invocation, "path") : undefined;
-	const target = path ? safeTarget(path, cwd) : undefined;
-	const command = action === "shell" ? stringArg(invocation, "command") : undefined;
-	const label = action === "tool" ? safeName(toolName) : command ? shellLabel(command, safeLabel) : target && (file ? target : basename(target) || ".");
-	const display = file && label ? basename(label) || "." : label;
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
 	const description = action === "shell" ? describeShell(label, isError)
-		: `${verbs[action][isError ? 1 : 0]}${display ? ` (${display})` : ""}`;
+		: `${verbs[action][isError ? 1 : 0]}${label ? ` (${label})` : ""}`;
 	return `${description}.${suffix}`;
 }
 
@@ -206,7 +214,9 @@ function isFileAction(action: Action): boolean {
 export type Evidence = { id: number; tool: string; operation: Action; failed: boolean; target?: string; output?: string; clipped?: true };
 export type ManualRow = { id: number; failed: boolean; text: string; evidence?: Evidence; note?: string };
 
-function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence" | "note"> {
+type ScreenedFields = { path: string; command: string; output: string } | { note: string };
+
+function screenEvidence(call: Call): ScreenedFields {
 	if (!call.args) return { note: "No matching call arguments in this branch; kept local." };
 	if (call.result.content.some((block) => block.type !== "text")) return { note: "Non-text result; kept local." };
 	const invocation = invocationOf(call);
@@ -220,9 +230,16 @@ function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence
 	if ([path, command, output].some((field) => SECRET.test(field) || PRIVATE_PATH.test(field))) {
 		return { note: "Possible credential or protected path; kept local." };
 	}
+	return { path, command, output };
+}
+
+function excerpt(call: Call, cwd: string, id: number): Pick<ManualRow, "evidence" | "note"> {
+	const fields = screenEvidence(call);
+	if ("note" in fields) return fields;
+	const { path, command, output } = fields;
 	const target = command || (path && workspacePath(path, cwd)) || undefined;
 	const evidence: Evidence = {
-		id, tool: safeName(call.result.toolName), operation: actionFor(invocation), failed: call.result.isError,
+		id, tool: safeName(call.result.toolName), operation: actionFor(invocationOf(call)), failed: call.result.isError,
 		target: target ? clip(target, 320) : undefined,
 		output: output ? clip(output, 640) : undefined,
 		clipped: (target?.length ?? 0) > 320 || output.length > 640 ? true : undefined,

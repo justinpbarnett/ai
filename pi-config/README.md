@@ -143,11 +143,14 @@ While summaries are on, Pi adds the same request to its prompt guidelines: one s
 Pi marks each assistant note with `●`, unless the note starts with a heading, list, quote, table, or code block.
 This guideline is the only model context the tool explainer adds, and `/explain-tools off` drops it from the next request.
 
-While tools run, Pi shows only the newest call: what that call is for, then up to three dim lines of the call itself, such as the shell command or file path.
-The next call replaces it.
-Until its summary is ready, the line names what runs, such as `Shell command…` or `File read: README.md…`, and a failed call reads `Tool failed: …`.
-When the next thinking run, assistant note, or user message appears, or the agent finishes, the calls since the last one collapse to one line, such as `Called 4 tools · ctrl+o to expand`, with a red count when any failed.
-File edits and writes always show as Pi draws them, with their diffs, and are never summarized or counted. An edit also collapses the calls before it, so each `Called N tools` line stays in order around it.
+While tools run, Pi shows one compact detail row: what the most recent running call is for, then up to three dim lines of the call itself, such as the shell command or file path.
+When that call finishes, Pi switches to another still-running call if there is one.
+The row shows the current batch's progress, such as `Running: Shell command · 1 done · 1 failed`, and failures appear as soon as they happen.
+Until its summary is ready, the row uses the tool name and target, such as `Running: File read: README.md…`.
+Once tools finish, the compact rows collapse to a count, such as `Called 4 tools · ctrl+o to expand`, with a red count when any failed.
+Thinking runs, assistant notes, and user messages separate collapsed groups.
+File edits and writes always show as Pi draws them, with their diffs, and are never summarized or counted.
+They also separate collapsed groups so each `Called N tools` line stays in order around them.
 
 Press `Ctrl+O` to switch between the summaries and Pi's original tool rows and full reasoning.
 Thinking summaries need `"hideThinkingBlock": false`, which this repo's `settings.json` sets.

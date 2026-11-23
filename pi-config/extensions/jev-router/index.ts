@@ -95,6 +95,7 @@ function choice<Key extends string>(answer: ClassifierAnswer | undefined, criter
 }
 
 async function classify(ctx: ExtensionContext, text: string, signal?: AbortSignal): Promise<Decision | undefined> {
+	if (!ctx.isProjectTrusted() || /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")) return;
 	const model = ctx.modelRegistry.findOfType("classifier", CLASSIFIER_PROVIDER, CLASSIFIER_MODEL);
 	if (!model || !ctx.modelRegistry.getProviderAuthStatus(CLASSIFIER_PROVIDER).configured) return;
 	const deadline = AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS);
@@ -118,6 +119,19 @@ async function classify(ctx: ExtensionContext, text: string, signal?: AbortSigna
 	const tier = choice(result.answers.tier, TIER_CRITERIA);
 	const thinkingLevel = choice(result.answers.thinking, THINKING_CRITERIA);
 	if (tier && thinkingLevel) return { tier, thinkingLevel, source: "jev" };
+}
+
+function keepUpgradeFloor(request: ModelRouteRequest<Decision>, tiers: Record<Tier, string>, decision: Decision): Decision {
+	const { previous, state } = request;
+	if (!previous || !state || !TIERS.includes(state.tier)) return decision;
+	if (tiers[state.tier] !== `${previous.model.provider}/${previous.model.id}`) return decision;
+	const previousEffort = previous.thinkingLevel ?? state.thinkingLevel;
+	return {
+		...decision,
+		tier: TIER_RANK[decision.tier] > TIER_RANK[state.tier] ? decision.tier : state.tier,
+		thinkingLevel: THINKING_RANK[decision.thinkingLevel] > THINKING_RANK[previousEffort]
+			? decision.thinkingLevel : previousEffort,
+	};
 }
 
 export default function (pi: ExtensionAPI) {
@@ -159,24 +173,14 @@ export default function (pi: ExtensionAPI) {
 
 				const text = lastUserText(request.messages);
 				const eligible = text && pending.delete(digest(text));
-				let decision = !eligible || !ctx.isProjectTrusted() || /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")
-					? FALLBACK : await classify(ctx, text, request.signal) ?? FALLBACK;
+				const decision = eligible ? await classify(ctx, text, request.signal) ?? FALLBACK : FALLBACK;
 				if (eligible && decision.source === "fallback" && !warned && ctx.hasUI) {
 					ctx.ui.notify("JEV via OpenRouter did not return a route. Using tier A / medium. Check /login openrouter if this persists.", "warning");
 					warned = true;
 				}
 
-				if (upgradeOnly && request.previous && request.state && TIERS.includes(request.state.tier) &&
-					activeTiers[request.state.tier] === `${request.previous.model.provider}/${request.previous.model.id}`) {
-					const current = request.state;
-					const tier = TIER_RANK[decision.tier] > TIER_RANK[current.tier] ? decision.tier : current.tier;
-					const previousEffort = request.previous.thinkingLevel ?? current.thinkingLevel;
-					const thinkingLevel = THINKING_RANK[decision.thinkingLevel] > THINKING_RANK[previousEffort]
-						? decision.thinkingLevel : previousEffort;
-					decision = { ...decision, tier, thinkingLevel };
-				}
-
-				return dispatch(ctx, activeTiers, decision, configPath);
+				const route = upgradeOnly ? keepUpgradeFloor(request, activeTiers, decision) : decision;
+				return dispatch(ctx, activeTiers, route, configPath);
 			},
 		});
 	}

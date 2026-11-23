@@ -27,13 +27,14 @@ export function showView(ctx: ExtensionContext, title: string, body: string, sig
 			invalidate: () => text.invalidate(),
 			dispose: () => signal.removeEventListener("abort", cancel),
 			handleInput(data) {
-				if (keys.matches(data, "tui.select.cancel")) cancel();
-				else if (allowSend && matchesKey(data, "s")) done(true);
-				else if (!allowSend && keys.matches(data, "tui.select.confirm")) cancel();
-				else if (keys.matches(data, "tui.select.up")) scroll.scrollBy(-1);
+				if (keys.matches(data, "tui.select.cancel")) return cancel();
+				if (allowSend && matchesKey(data, "s")) return done(true);
+				if (!allowSend && keys.matches(data, "tui.select.confirm")) return cancel();
+				const page = Math.max(1, scroll.viewportHeight - 1);
+				if (keys.matches(data, "tui.select.up")) scroll.scrollBy(-1);
 				else if (keys.matches(data, "tui.select.down")) scroll.scrollBy(1);
-				else if (matchesKey(data, "pageUp")) scroll.scrollBy(-Math.max(1, scroll.viewportHeight - 1));
-				else if (matchesKey(data, "pageDown")) scroll.scrollBy(Math.max(1, scroll.viewportHeight - 1));
+				else if (matchesKey(data, "pageUp")) scroll.scrollBy(-page);
+				else if (matchesKey(data, "pageDown")) scroll.scrollBy(page);
 			},
 		};
 	}, allowSend ? { blocked: { kind: "permission", message: "Share tool excerpts with OpenRouter?" } } : undefined);

@@ -11,56 +11,65 @@ function literal(word: string | undefined): string | undefined {
 	if (/^[\w./~][\w./~+:-]{0,159}$/.test(value)) return value;
 }
 
+type SafeArg = (index: number) => string | undefined;
+
+function scriptLabel(program: string, args: string[], boundary: string, safeArg: SafeArg): string {
+	if (boundary === "<<" && !args.length) return `${program} (inline script)`;
+	if (/^-(?:c|e|Command|EncodedCommand|eval)$/i.test(args[0] ?? "")) return `${program} (inline script)`;
+	const index = program === "deno" && args[0] === "run" ? 1 : 0;
+	const script = safeArg(index);
+	return script && /\.(?:py|[cm]?[jt]sx?|rb|pl|sh|ps1)$/i.test(script) ? `${program} ${basename(script)}` : program;
+}
+
+function gitLabel(args: string[]): string {
+	let index = 0;
+	while (args[index] === "-C" || args[index] === "-c") index += 2;
+	const operation = literal(args[index]);
+	return /^(?:add|apply|branch|checkout|clone|commit|diff|fetch|grep|log|ls-files|merge|pull|push|rebase|reset|restore|rev-parse|show|status|switch|tag|worktree)$/.test(operation ?? "") ? `git ${operation}` : "git";
+}
+
+function githubLabel(args: string[]): string {
+	const noun = literal(args[0]);
+	const verb = literal(args[1]);
+	if (/^(?:pr|issue|run|repo|release|workflow|auth)$/.test(noun ?? "")) {
+		return /^(?:list|view|diff|status|checks|watch|create|edit|checkout|merge)$/.test(verb ?? "") ? `gh ${noun} ${verb}` : `gh ${noun}`;
+	}
+	return noun === "api" || noun === "search" ? `gh ${noun}` : "gh";
+}
+
+function taskLabel(program: string, args: string[], safeArg: SafeArg): string {
+	const operation = literal(args[0]);
+	if (operation === "run") {
+		const task = safeArg(1);
+		return task && /^[\w][\w.:-]{0,31}$/.test(task) ? `${program} run ${task}` : `${program} run`;
+	}
+	return /^(?:build|check|fmt|install|lint|ls|ps|test|typecheck|exec|compose)$/.test(operation ?? "") ? `${program} ${operation}` : program;
+}
+
+function countLabel(flag: string | undefined, safeArg: SafeArg): string {
+	if (!/^-[cmlw]{1,4}$/.test(flag ?? "")) return "wc";
+	const file = safeArg(1);
+	const name = file ? basename(file) : "";
+	return name ? `wc ${flag} ${name}` : `wc ${flag}`;
+}
+
 function signature(words: string[], boundary: string, allow: (text: string) => boolean): string | undefined {
 	let i = 0;
 	while (ASSIGNMENT.test(words[i] ?? "")) i++;
-	const executable = literal(words[i++]);
+	const executable = literal(words[i]);
 	if (!executable || !allow(executable)) return;
 	const program = basename(executable);
 	if (!program || CONTROL_WORD.test(program) || /^[.~]+$/.test(program)) return;
-	const args = words.slice(i);
-	const arg = (index: number) => literal(args[index]);
+	const args = words.slice(i + 1);
 	const safeArg = (index: number) => {
-		const value = arg(index);
+		const value = literal(args[index]);
 		return value && allow(value) ? value : undefined;
 	};
-
-	if (SCRIPT_RUNNER.test(program)) {
-		if (boundary === "<<" && !args.length) return `${program} (inline script)`;
-		if (/^-(?:c|e|Command|EncodedCommand|eval)$/i.test(args[0] ?? "")) return `${program} (inline script)`;
-		const index = program === "deno" && args[0] === "run" ? 1 : 0;
-		const script = safeArg(index);
-		if (script && /\.(?:py|[cm]?[jt]sx?|rb|pl|sh|ps1)$/i.test(script)) return `${program} ${basename(script)}`;
-	}
-	if (program === "git") {
-		let index = 0;
-		while (args[index] === "-C" || args[index] === "-c") index += 2;
-		const operation = arg(index);
-		if (/^(?:add|apply|branch|checkout|clone|commit|diff|fetch|grep|log|ls-files|merge|pull|push|rebase|reset|restore|rev-parse|show|status|switch|tag|worktree)$/.test(operation ?? "")) return `git ${operation}`;
-	}
-	if (program === "gh") {
-		const noun = arg(0);
-		const verb = arg(1);
-		if (/^(?:pr|issue|run|repo|release|workflow|auth)$/.test(noun ?? "")) {
-			return /^(?:list|view|diff|status|checks|watch|create|edit|checkout|merge)$/.test(verb ?? "") ? `gh ${noun} ${verb}` : `gh ${noun}`;
-		}
-		if (noun === "api" || noun === "search") return `gh ${noun}`;
-	}
-	if (/^(?:npm|pnpm|yarn|bun|uv|go|cargo|docker|kubectl|make|just)$/.test(program)) {
-		const operation = arg(0);
-		if (operation === "run") {
-			const task = safeArg(1);
-			return task && /^[\w][\w.:-]{0,31}$/.test(task) ? `${program} run ${task}` : `${program} run`;
-		}
-		if (/^(?:build|check|fmt|install|lint|ls|ps|test|typecheck|exec|compose)$/.test(operation ?? "")) return `${program} ${operation}`;
-	}
-	if (program === "wc") {
-		const flag = args[0];
-		if (/^-[cmlw]{1,4}$/.test(flag ?? "")) {
-			const file = safeArg(1);
-			return file && basename(file) ? `wc ${flag} ${basename(file)}` : `wc ${flag}`;
-		}
-	}
+	if (SCRIPT_RUNNER.test(program)) return scriptLabel(program, args, boundary, safeArg);
+	if (program === "git") return gitLabel(args);
+	if (program === "gh") return githubLabel(args);
+	if (/^(?:npm|pnpm|yarn|bun|uv|go|cargo|docker|kubectl|make|just)$/.test(program)) return taskLabel(program, args, safeArg);
+	if (program === "wc") return countLabel(args[0], safeArg);
 	return program;
 }
 

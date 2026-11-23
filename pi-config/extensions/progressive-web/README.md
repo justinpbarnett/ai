@@ -112,7 +112,7 @@ Common parameters:
 - `timeoutMs`: 1000-120000 milliseconds per tier, default 30000.
   Bright Data receives at least 60000 milliseconds.
 - `waitForSelector`: CSS selector for browser extraction; defaults the starting tier to 3.
-- `fresh`: bypass the 15-minute in-process page cache.
+- `fresh`: bypass the 15-minute in-process page cache for individual scrapes.
 
 Crawl parameters:
 
@@ -123,6 +123,7 @@ Crawl parameters:
 - `delayMs`: inter-page delay, default 1000, minimum 250, maximum 30000.
 
 Crawls respect `robots.txt`, declared crawl delays, and page/link `nofollow` directives.
+They do not read or write the scrape cache, so each run applies its current crawl policy to redirects.
 An absent robots file permits crawling; a failed robots request stops the crawl rather than guessing.
 Login/logout, signup, checkout, cart, and common binary-asset links are excluded from automatic link following.
 Fragments and common tracking parameters are removed; other query parameters are preserved.

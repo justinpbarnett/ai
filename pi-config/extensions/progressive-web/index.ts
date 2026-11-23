@@ -45,7 +45,7 @@ const tierOptions = {
   ),
   fresh: Type.Optional(
     Type.Boolean({
-      description: "Bypass the 15-minute in-process page cache.",
+      description: "Bypass the 15-minute scrape cache; crawls never use it.",
     }),
   ),
 };

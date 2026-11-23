@@ -166,6 +166,50 @@ export async function status() {
   };
 }
 
+async function fetchPageAtTier(
+  url: string,
+  tier: (typeof tiers)[number],
+  timeoutMs: number,
+  waitForSelector: string | undefined,
+  runtime: ScrapeRuntime,
+) {
+  const tierTimeoutMs = Math.max(timeoutMs, tier.minimumTimeoutMs || 0);
+  const deadline = AbortSignal.timeout(tierTimeoutMs);
+  const signal = runtime.signal
+    ? AbortSignal.any([runtime.signal, deadline])
+    : deadline;
+  try {
+    const response = await tier.fetch(url, {
+      signal,
+      timeoutMs: tierTimeoutMs,
+      waitForSelector,
+      allowedUrl: runtime.allowedUrl,
+    });
+    signal.throwIfAborted();
+    checkScope(response.url, runtime.allowedUrl);
+    const content = extractPage(response);
+    signal.throwIfAborted();
+    return {
+      ok: true as const,
+      url: response.url,
+      status: response.status,
+      content,
+    };
+  } catch (error) {
+    runtime.signal?.throwIfAborted();
+    const message = deadline.aborted
+      ? `Tier timed out after ${tierTimeoutMs} ms.`
+      : error instanceof Error
+        ? error.message
+        : String(error);
+    return {
+      ok: false as const,
+      error: message,
+      terminal: error instanceof NonRetryableError,
+    };
+  }
+}
+
 export async function scrape(
   options: ScrapeOptions & { url: string },
   runtime: ScrapeRuntime = {},
@@ -189,16 +233,13 @@ export async function scrape(
   if (options.waitForSelector && maxTier < 3)
     throw new Error("waitForSelector requires browser tier 3.");
   runtime.signal?.throwIfAborted();
-  const cacheKey = JSON.stringify([
-    url,
-    startTier,
-    maxTier,
-    options.waitForSelector || "",
-  ]);
-  const cached = options.fresh ? undefined : cachedPage(cacheKey);
-  if (cached) {
-    checkScope(cached.url, runtime.allowedUrl);
-    return cached;
+  // Cached results do not record the redirect path checked by a crawl policy.
+  const cacheKey = runtime.allowedUrl
+    ? undefined
+    : JSON.stringify([url, startTier, maxTier, options.waitForSelector || ""]);
+  if (cacheKey && !options.fresh) {
+    const cached = cachedPage(cacheKey);
+    if (cached) return cached;
   }
   const attempts: PageAttempt[] = [];
   const started = Date.now();
@@ -207,57 +248,36 @@ export async function scrape(
     const transport = tiers[tier - 1];
     runtime.onProgress?.(`${url}: tier ${tier} (${transport.name})`);
     const attemptStarted = Date.now();
-    const tierTimeoutMs = Math.max(timeoutMs, transport.minimumTimeoutMs || 0);
-    const deadline = AbortSignal.timeout(tierTimeoutMs);
-    const signal = runtime.signal
-      ? AbortSignal.any([runtime.signal, deadline])
-      : deadline;
-    try {
-      const response = await transport.fetch(url, {
-        signal,
-        timeoutMs: tierTimeoutMs,
-        waitForSelector: options.waitForSelector,
-        allowedUrl: runtime.allowedUrl,
-      });
-      signal.throwIfAborted();
-      checkScope(response.url, runtime.allowedUrl);
-      const content = extractPage(response);
-      signal.throwIfAborted();
-      attempts.push({
-        tier,
-        durationMs: Date.now() - attemptStarted,
-        ok: true,
-      });
-      const result: PageSuccess = {
-        ok: true,
-        requestedUrl: url,
-        url: response.url,
-        ...content,
-        tier,
-        tierName: transport.name,
-        status: response.status,
-        attempts,
-        durationMs: Date.now() - started,
-        cached: false,
-      };
-      cachePage(cacheKey, result);
-      return result;
-    } catch (error) {
-      runtime.signal?.throwIfAborted();
-      const message = deadline.aborted
-        ? `Tier timed out after ${tierTimeoutMs} ms.`
-        : error instanceof Error
-          ? error.message
-          : String(error);
-      attempts.push({
-        tier,
-        durationMs: Date.now() - attemptStarted,
-        ok: false,
-        error: message,
-      });
-      runtime.onProgress?.(`Tier ${tier} failed: ${message}`);
-      if (error instanceof NonRetryableError) break;
+    const fetched = await fetchPageAtTier(
+      url,
+      transport,
+      timeoutMs,
+      options.waitForSelector,
+      runtime,
+    );
+    runtime.signal?.throwIfAborted();
+    const attempt = { tier, durationMs: Date.now() - attemptStarted };
+    if (!fetched.ok) {
+      attempts.push({ ...attempt, ok: false, error: fetched.error });
+      runtime.onProgress?.(`Tier ${tier} failed: ${fetched.error}`);
+      if (fetched.terminal) break;
+      continue;
     }
+    attempts.push({ ...attempt, ok: true });
+    const result: PageSuccess = {
+      ok: true,
+      requestedUrl: url,
+      url: fetched.url,
+      ...fetched.content,
+      tier,
+      tierName: transport.name,
+      status: fetched.status,
+      attempts,
+      durationMs: Date.now() - started,
+      cached: false,
+    };
+    if (cacheKey) cachePage(cacheKey, result);
+    return result;
   }
   return {
     ok: false,
@@ -325,10 +345,7 @@ function crawlablePath(path: string): boolean {
   );
 }
 
-export async function crawl(
-  options: CrawlOptions,
-  runtime: ScrapeRuntime = {},
-) {
+async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   const url = normalizeUrl(options.url);
   const origin = new URL(url).origin;
   const maxPages = boundedInteger(options.maxPages, 10, 1, 50, "maxPages");
@@ -348,7 +365,7 @@ export async function crawl(
   const deadline = AbortSignal.timeout(15000);
   const policy = await crawlPolicy(
     origin,
-    runtime.signal ? AbortSignal.any([runtime.signal, deadline]) : deadline,
+    signal ? AbortSignal.any([signal, deadline]) : deadline,
   );
   const crawlDelay =
     policy.getCrawlDelay("PiWebScraper") ?? policy.getCrawlDelay("*");
@@ -358,8 +375,36 @@ export async function crawl(
     throw new Error(
       "robots.txt requests a crawl delay over 30 seconds. Use individual page fetches instead.",
     );
+  const allowedByRobots = (value: string) =>
+    policy.isAllowed(value, "PiWebScraper") !== false;
   const allowedUrl = (value: string) =>
-    inScope(value) && policy.isAllowed(value, "PiWebScraper") !== false;
+    inScope(value) && allowedByRobots(value);
+  return {
+    url,
+    maxPages,
+    maxDepth,
+    delayMs,
+    pathPrefix,
+    inScope,
+    allowedByRobots,
+    allowedUrl,
+  };
+}
+
+export async function crawl(
+  options: CrawlOptions,
+  runtime: ScrapeRuntime = {},
+) {
+  const {
+    url,
+    maxPages,
+    maxDepth,
+    delayMs,
+    pathPrefix,
+    inScope,
+    allowedByRobots,
+    allowedUrl,
+  } = await prepareCrawl(options, runtime.signal);
   const queue = [{ url, depth: 0 }];
   const scheduled = new Set([url]);
   const visited = new Set<string>();
@@ -371,7 +416,7 @@ export async function crawl(
     const current = queue.shift()!;
     if (visited.has(current.url)) continue;
     visited.add(current.url);
-    if (policy.isAllowed(current.url, "PiWebScraper") === false) {
+    if (!allowedByRobots(current.url)) {
       skipped.push({ url: current.url, reason: "Disallowed by robots.txt" });
       continue;
     }

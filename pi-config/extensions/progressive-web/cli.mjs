@@ -29,7 +29,7 @@ Scrape/crawl options:
   --max-tier N      Highest permitted tier (3 prevents paid requests)
   --timeout N       Per-tier timeout in milliseconds (default 30000; tier 4 at least 60000)
   --wait-for CSS    Wait for a CSS selector; starts at browser tier 3 by default
-  --fresh           Bypass the 15-minute in-process cache
+  --fresh           Bypass the 15-minute scrape cache (crawls never use it)
   --max-pages N     Crawl page attempt limit, 1-50 (default 10)
   --max-depth N     Crawl depth, 0-5 (default 2)
   --path-prefix P   Only crawl paths beginning with P (default /)

@@ -30,5 +30,8 @@
   },
   "markdown": {
     "mermaid": "streaming"
+  },
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-autoresearch@1.9.0\",\"scope\":\"user\"}": "1.9.0"
   }
 }

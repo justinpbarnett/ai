@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import stat
@@ -9,6 +10,7 @@ from .paths import within
 
 STATE_DIR = ".improve-codebase"
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+OVERSIZED_REASON = "source exceeds size limit"
 UNMERGED_REASON = "unmerged index entry"
 UNENUMERABLE_REASON = "directory cannot be enumerated"
 TOO_DEEP_REASON = "filesystem traversal depth exceeded"
@@ -58,7 +60,6 @@ DEPENDENCIES = {
     ".bundle",
     ".yarn",
     "bower_components",
-    "vendor/bundle",
 }
 ARTIFACTS = {
     "__pycache__",
@@ -274,14 +275,25 @@ def read_source(path):
         if not stat.S_ISREG(st.st_mode):
             raise ValueError("not a regular file")
         if st.st_size > MAX_SOURCE_BYTES:
-            raise ValueError("source exceeds size limit")
+            raise ValueError(OVERSIZED_REASON)
         return read_within_limit(stream)
+
+
+def stream_hash(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    hasher = hashlib.sha256()
+    with os.fdopen(fd, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("not a regular file")
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 def read_within_limit(stream):
     data = stream.read(MAX_SOURCE_BYTES + 1)
     if len(data) > MAX_SOURCE_BYTES:
-        raise ValueError("source exceeds size limit")
+        raise ValueError(OVERSIZED_REASON)
     return data
 
 
@@ -380,6 +392,8 @@ def inventory_entry(root, name, reason, selected):
         return skipped_entry("tracked path absent in worktree", selected), None, None
     except (OSError, ValueError, RuntimeError) as exc:
         detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        if reason == LOCKFILE_REASON and detail == OVERSIZED_REASON:
+            return skipped_entry(reason, selected), None, stream_hash(path)
         return (
             skipped_entry(
                 detail,

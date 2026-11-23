@@ -7,10 +7,10 @@ from urllib.parse import unquote, urlsplit
 from .hashing import digest
 from .inventory import read_source, safe_file
 from .ledger import observe
+from .rules import EXIT_CODES
 from .validation import array, object_value, read_json, require, string
 
 SOURCE_NEWLINE = re.compile(r"\r\n|\n|\r")
-EXIT_CODES = {"ruff": {0, 1}, "eslint": {0, 1}, "stylelint": {0, 2}, "sarif": {0, 1}}
 
 
 def coordinates(line, column, end_line=None, end_column=None):

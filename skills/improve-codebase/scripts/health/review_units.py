@@ -4,7 +4,7 @@ from pathlib import Path
 from .hashing import digest
 from .inventory import WIRING_LANGUAGES, is_project_guide
 from .paths import in_paths, within
-from .rules import AXES, STAGES
+from .rules import AXES, RELATIONSHIP_AXES, STAGES
 
 REVIEW_VERSION = 3
 
@@ -134,7 +134,7 @@ class ReviewUnits:
                 for path in {left, right} & source:
                     uncertain_files[self.entries[path]["project"]].add(path)
             related = self.adjacent[left] | self.adjacent[right]
-            for axis in ("architecture", "contracts"):
+            for axis in RELATIONSHIP_AXES:
                 self.register(axis, [left, right], related)
 
 
@@ -145,7 +145,7 @@ def units_for(inv, scan, rubric):
     catalog.register_sources(source, uncertain)
     catalog.register_relationships(source, uncertain)
     for project, files in sorted(uncertain.items()):
-        for axis in ("architecture", "contracts"):
+        for axis in RELATIONSHIP_AXES:
             catalog.register(
                 axis, files, catalog.partition_paths(project), wiring=project
             )

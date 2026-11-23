@@ -273,13 +273,23 @@ def declaration_metric(surface, node, ancestry):
     }
 
 
+def is_else_if(node):
+    parent = node.parent
+    if node.type != "if_statement" or parent is None:
+        return False
+    if parent.type == "else_clause":
+        return True
+    alternative = parent.child_by_field_name("alternative")
+    return parent.type == "if_statement" and alternative == node
+
+
 def count_branch(node, branches, enclosing, depth):
     if enclosing is None:
         return depth
     kind = node.type
     if kind in branches:
         enclosing["complexity"] += 1
-        if kind not in FLAT_BRANCHES:
+        if kind not in FLAT_BRANCHES and not is_else_if(node):
             depth += 1
         enclosing["nesting"] = max(enclosing["nesting"], depth)
     elif kind == "binary_expression" and any(
@@ -518,7 +528,7 @@ def collect_tree(surface, root, result):
         if language == "python" and kind == "string":
             record_docstring(surface, node, result)
         errors = record_syntax_error(surface, node, result, errors)
-        if kind in callables or kind in CLASSES:
+        if node.is_named and (kind in callables or kind in CLASSES):
             ancestry, enclosing, depth = collect_declaration(
                 surface, node, ancestry, enclosing, depth, result
             )

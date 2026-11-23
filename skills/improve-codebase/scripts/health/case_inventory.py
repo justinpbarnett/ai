@@ -271,7 +271,12 @@ def skip_argument(data, attribute):
     )
 
 
+def last_segment(owner):
+    return owner.rsplit(".", 1)[-1]
+
+
 def is_csharp_snapshot_call(owner, name):
+    owner = last_segment(owner)
     return (
         (owner == "Verifier" and name == "Verify")
         or (owner == "Snapshot" and name.startswith("Match"))
@@ -291,7 +296,7 @@ def csharp_count(data, node, case):
                 name = node_text(data, function.child_by_field_name("name"))
                 if owner.endswith("Assert") or name.startswith("Should"):
                     case["assertions"] += 1
-                elif name in CSHARP_INTERACTIONS and owner != "Verifier":
+                elif name in CSHARP_INTERACTIONS and last_segment(owner) != "Verifier":
                     case["interactions"] += 1
                     case["assertions"] += 1
                 if is_csharp_snapshot_call(owner, name):

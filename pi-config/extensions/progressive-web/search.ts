@@ -1,8 +1,15 @@
 import { JSDOM } from "jsdom";
-import { responseText } from "./body.ts";
+import { deadlineSignal, responseText } from "./body.ts";
 import { braveCredentialsPath, loadBraveApiKey } from "./config.ts";
-import { deadlineSignal } from "./core.ts";
 import { normalizeUrl } from "./url-policy.ts";
+
+export const searchLimits = {
+  queryCharacters: { maximum: 600 },
+  queryWords: { maximum: 75 },
+  count: { minimum: 1, maximum: 20, fallback: 5 },
+  offset: { minimum: 0, maximum: 9, fallback: 0 },
+  timeoutMs: { minimum: 1000, maximum: 60000, fallback: 15000 },
+};
 
 export async function searchStatus() {
   const braveKey = await loadBraveApiKey();
@@ -64,22 +71,30 @@ function validDate(value: string): boolean {
 
 function searchParameters(options: SearchOptions) {
   const query = options.query.trim();
-  if (!query || query.length > 600 || query.split(/\s+/).length > 75) {
+  if (
+    !query ||
+    query.length > searchLimits.queryCharacters.maximum ||
+    query.split(/\s+/).length > searchLimits.queryWords.maximum
+  ) {
     throw new Error(
-      "Search query must contain 1-600 characters and no more than 75 words.",
+      `Search query must contain 1-${searchLimits.queryCharacters.maximum} characters and no more than ${searchLimits.queryWords.maximum} words.`,
     );
   }
-  const count = options.count ?? 5;
-  const offset = options.offset ?? 0;
-  const timeoutMs = options.timeoutMs ?? 15000;
-  for (const [name, value, minimum, maximum] of [
-    ["count", count, 1, 20],
-    ["offset", offset, 0, 9],
-    ["timeoutMs", timeoutMs, 1000, 60000],
+  const count = options.count ?? searchLimits.count.fallback;
+  const offset = options.offset ?? searchLimits.offset.fallback;
+  const timeoutMs = options.timeoutMs ?? searchLimits.timeoutMs.fallback;
+  for (const [name, value, limit] of [
+    ["count", count, searchLimits.count],
+    ["offset", offset, searchLimits.offset],
+    ["timeoutMs", timeoutMs, searchLimits.timeoutMs],
   ] as const) {
-    if (!Number.isInteger(value) || value < minimum || value > maximum)
+    if (
+      !Number.isInteger(value) ||
+      value < limit.minimum ||
+      value > limit.maximum
+    )
       throw new Error(
-        `${name} must be an integer from ${minimum} to ${maximum}.`,
+        `${name} must be an integer from ${limit.minimum} to ${limit.maximum}.`,
       );
   }
   const safeSearch = options.safeSearch ?? "moderate";

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .case_evidence import test_evidence, test_signature
-from .comments import comment_evidence, comment_signature
+from .comment_report import comment_evidence, comment_signature
 from .dependency_graph import components, resolve_edges
 from .hashing import digest
 from .layout import (

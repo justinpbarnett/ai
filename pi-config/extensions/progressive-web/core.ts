@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import robotsParser from "robots-parser";
+import { deadlineSignal } from "./body.ts";
 import { credentialsPath, loadCredentials } from "./config.ts";
 import { extractPage, type PageContent } from "./content.ts";
 import {
@@ -117,14 +118,6 @@ function boundedInteger(
     );
   }
   return result;
-}
-
-export function deadlineSignal(timeoutMs: number, caller?: AbortSignal) {
-  const deadline = AbortSignal.timeout(timeoutMs);
-  return {
-    deadline,
-    signal: caller ? AbortSignal.any([caller, deadline]) : deadline,
-  };
 }
 
 function boundedLimit(

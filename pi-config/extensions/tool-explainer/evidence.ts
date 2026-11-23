@@ -82,7 +82,9 @@ export type Action = keyof typeof verbs;
 function bashAction(command: string): Action {
 	if (/[\n\r;&|<>`]|\$\(/.test(command)) return "shell";
 	if (/^find(?:\s|$)/.test(command) && /\s-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)(?:\s|$)/.test(command)) return "shell";
+	if (/^rg(?:\s|$)/.test(command) && /\s--pre(?:[=\s]|$)/.test(command)) return "shell";
 	const git = /^git(?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+))?\s+(status|diff|log)(?:\s|$)/.exec(command)?.[1];
+	if (git && /\s--(?:ou|out|outp|outpu|output|ext-diff)(?=[=\s]|$)/.test(command)) return "shell";
 	if (git === "status") return "gitStatus";
 	if (git === "diff") return "gitDiff";
 	if (git === "log") return "gitLog";

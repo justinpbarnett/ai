@@ -1,10 +1,8 @@
 import re
 import textwrap
-from collections import Counter
 
 from .hashing import content_hash
 
-KEPT_CLASSES = ("directive", "legal")
 DIRECTIVE = re.compile(r"^///\s*<reference|^//go:|^//line |^#\s*syntax=|^/\*!")
 TOOL_DIRECTIVE = re.compile(
     r"(?:^|#)[ \t]*(?:noqa|type:\s*ignore|pyright:|pragma:\s*no cover"
@@ -39,7 +37,6 @@ CODE_SIGNAL = re.compile(
 )
 HTML_TAG = re.compile(r"<\/?[a-zA-Z][\w-]*(?:\s[^>]*)?\/?>")
 CSS_CODE = re.compile(r"[\w-]+\s*:\s*[^;]+;|[^{]+\{[^}]*\}")
-LOCATION_LIMIT = 50
 
 
 def line_prefix(data, record):
@@ -224,25 +221,3 @@ def finalize_comments(source, data, records, parse_with):
                 ]
             )
     return rows
-
-
-def comment_evidence(rows):
-    removable = [row for row in rows if row[1] not in KEPT_CLASSES]
-    locations = []
-    for line, label, lines, _ in removable[:LOCATION_LIMIT]:
-        entry = {"line": line, "class": label}
-        if lines > 1:
-            entry["lines"] = lines
-        locations.append(entry)
-    return {
-        "removable": len(removable),
-        "by_class": dict(sorted(Counter(row[1] for row in removable).items())),
-        "kept": dict(
-            sorted(Counter(row[1] for row in rows if row[1] in KEPT_CLASSES).items())
-        ),
-        "locations": locations,
-    }
-
-
-def comment_signature(rows):
-    return sorted([row[1], row[3]] for row in rows if row[1] not in KEPT_CLASSES)

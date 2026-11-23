@@ -11,7 +11,7 @@ import {
   status,
 } from "./core.ts";
 import { formatResults, hasFailures, saveDocument } from "./results.ts";
-import { search, searchStatus } from "./search.ts";
+import { search, searchLimits, searchStatus } from "./search.ts";
 
 const help = `Pi web search and progressive scraper
 
@@ -24,13 +24,13 @@ Usage:
   pbpaste | node cli.mjs configure-brave
 
 Search options:
-  --count N         Maximum results, 1-20 (default 5)
-  --offset N        Zero-based result page, 0-9 (default 0)
+  --count N         Maximum results, ${searchLimits.count.minimum}-${searchLimits.count.maximum} (default ${searchLimits.count.fallback})
+  --offset N        Zero-based result page, ${searchLimits.offset.minimum}-${searchLimits.offset.maximum} (default ${searchLimits.offset.fallback})
   --freshness F     pd, pw, pm, py, or YYYY-MM-DDtoYYYY-MM-DD
   --country CC      Brave-supported country code, e.g. US or GB
   --language CODE   Brave-supported search language, e.g. en or zh-hans
   --safe-search S   off, moderate (default), or strict
-  --timeout N       Search timeout in milliseconds (default 15000)
+  --timeout N       Search timeout in milliseconds (default ${searchLimits.timeoutMs.fallback})
   --                Put it before a query that starts with a dash: search -- "-spam site:example.com"
 
 Scrape/crawl options:

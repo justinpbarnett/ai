@@ -154,6 +154,17 @@ def select_fallout(changed, retired, sources, edges, fences):
     )
 
 
+def with_parse_gaps(limitations, parsed):
+    merged = {path: set(limits) for path, limits in limitations.items()}
+    for path, result in parsed.items():
+        for gap in result["gaps"]:
+            detail = gap.get("reason") or f"line {gap.get('line')}"
+            merged.setdefault(path, set()).add(
+                f"{gap['kind']} {gap['surface']}: {detail}"
+            )
+    return {path: sorted(limits) for path, limits in sorted(merged.items())}
+
+
 def wiring_review(targets, retired, entries, limitations):
     return sorted(
         path
@@ -190,6 +201,7 @@ def fallout_scope(store, root, state_dir, fences, base, includes):
     changed, retired = classify_changes(entries, touched, replaced)
     parsed = parse_for_graph(entries, sources, store)
     edges, limitations, _, _ = resolve_edges(entries, parsed, sources)
+    limitations = with_parse_gaps(limitations, parsed)
     base_edges = base_overlay(root, base, touched, entries, sources, parsed)
     primary, wiring_targets, selection = select_fallout(
         changed, retired, sources, chain(edges, base_edges), fences

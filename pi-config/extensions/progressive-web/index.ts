@@ -17,7 +17,7 @@ import {
   saveDocument,
   type WebResult,
 } from "./results.ts";
-import { search, searchStatus } from "./search.ts";
+import { search, searchLimits, searchStatus } from "./search.ts";
 
 const tierOptions = {
   startTier: Type.Optional(
@@ -100,8 +100,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_search",
     label: "Web Search",
-    description:
-      "Search the web using Brave Search. Returns ranked titles, URLs, snippets, extra excerpts, optional age, and pagination metadata. Default 5 results, maximum 20; offset is a page index from 0 to 9. Supports site: and other query operators, freshness, country, language, and SafeSearch. This discovers pages; use web_scrape on selected URLs for full content. Requires a separately configured Brave Search API key. Queries are sent to Brave and may incur API charges. One request per call, with no automatic retries or pagination. Preview is limited to 47 KB/1900 lines; full Markdown and JSON are saved privately.",
+    description: `Search the web using Brave Search. Returns ranked titles, URLs, snippets, extra excerpts, optional age, and pagination metadata. Default ${searchLimits.count.fallback} results, maximum ${searchLimits.count.maximum}; offset is a page index from ${searchLimits.offset.minimum} to ${searchLimits.offset.maximum}. Supports site: and other query operators, freshness, country, language, and SafeSearch. This discovers pages; use web_scrape on selected URLs for full content. Requires a separately configured Brave Search API key. Queries are sent to Brave and may incur API charges. One request per call, with no automatic retries or pagination. Preview is limited to 47 KB/1900 lines; full Markdown and JSON are saved privately.`,
     promptSnippet:
       "Search the web with Brave to discover relevant pages before scraping them",
     promptGuidelines: [
@@ -117,23 +116,21 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       query: Type.String({
         minLength: 1,
-        maxLength: 600,
-        description:
-          "Search query, up to 75 words. Supports operators such as site:example.com and quoted phrases.",
+        maxLength: searchLimits.queryCharacters.maximum,
+        description: `Search query, up to ${searchLimits.queryWords.maximum} words. Supports operators such as site:example.com and quoted phrases.`,
       }),
       count: Type.Optional(
         Type.Integer({
-          minimum: 1,
-          maximum: 20,
-          description: "Maximum web results to return, default 5.",
+          minimum: searchLimits.count.minimum,
+          maximum: searchLimits.count.maximum,
+          description: `Maximum web results to return, default ${searchLimits.count.fallback}.`,
         }),
       ),
       offset: Type.Optional(
         Type.Integer({
-          minimum: 0,
-          maximum: 9,
-          description:
-            "Zero-based result page, default 0. Keep count unchanged when paging.",
+          minimum: searchLimits.offset.minimum,
+          maximum: searchLimits.offset.maximum,
+          description: `Zero-based result page, default ${searchLimits.offset.fallback}. Keep count unchanged when paging.`,
         }),
       ),
       freshness: Type.Optional(
@@ -166,9 +163,9 @@ export default function (pi: ExtensionAPI) {
       ),
       timeoutMs: Type.Optional(
         Type.Integer({
-          minimum: 1000,
-          maximum: 60000,
-          description: "Request timeout in milliseconds, default 15000.",
+          minimum: searchLimits.timeoutMs.minimum,
+          maximum: searchLimits.timeoutMs.maximum,
+          description: `Request timeout in milliseconds, default ${searchLimits.timeoutMs.fallback}.`,
         }),
       ),
     }),

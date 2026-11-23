@@ -32,6 +32,7 @@ Everything else in this skill is reversible: do it, then report.
    - every check command passes on `main` today; run each one
    - `max_diff_lines` fits the largest ticket
    - `verify.start` serves the app on `{port}` for a UI, or is `""` for a CLI that verify drives through `verify.allow_bash`
+   - when a ticket builds the server, `verify.start` runs it once its module exists and serves a placeholder before that, and `verify.ready` names a route that answers before the UI exists; verify reaches endpoints with `curl <app>`
    - `verify.notes` names the local fixtures and repos verify may use, and what it must leave alone
    Seed `expertise.md` in the layer with the owner's code rules that the spec carries (style, no tests, naming); the learn step rewrites it later.
 
@@ -39,6 +40,7 @@ Everything else in this skill is reversible: do it, then report.
    - fit under `max_diff_lines`, and run in parallel with its siblings wherever the seams allow
    - name every file it may touch in Notes, and every shared file it must leave as on `main`
    - carry the full scope in its body; a resumed run does not reread anything else
+   - write `<scratch>` for verify's scratch folder; Arete fills `{scratch}` in layer notes only, never in an issue body
    - have Done lines that Arete's own steps can check: a check command, or a person's action in verify (run a CLI, click, drag, type, read the screen) on the one port Arete starts, plus Node scripts for numbers such as frame times
    - bound time with the checks step's default class deadline, so every timing runs inside Arete's sandbox
    - allow, in its scope lines, every write that `main` already makes (a launcher marker, a cache, a generated file)

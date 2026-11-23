@@ -378,6 +378,8 @@ def main(argv=None):
         error, code = str(exc), 3
     except KeyboardInterrupt:
         error, code = "interrupted; no partial updates committed", 3
+    except Exception as exc:
+        error, code = f"{type(exc).__name__}: {exc}", 3
     print(f"improve-codebase: {error}", file=sys.stderr)
     if args.format == "json":
         print(

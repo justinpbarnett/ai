@@ -40,7 +40,7 @@ LANGUAGES = {
     ".vbproj": "msbuild",
 }
 GENERIC = set(
-    "rb rs go java kt kts scala swift m mm c h cc cpp hpp sh bash zsh fish ps1 bat cmd php lua pl pm r ex exs erl hrl fs fsx vb dart zig nim clj cljs groovy gradle sql nix tf toml ini cfg json jsonc xml yaml yml sass less svelte astro mdx graphql gql proto properties make mk dockerfile ipynb props targets cshtml razor xaml jsx".split()
+    "rb rs go java kt kts scala swift m mm c h cc cpp hpp sh bash zsh fish ps1 bat cmd php lua pl pm r ex exs erl hrl fs fsx vb dart zig nim clj cljs groovy gradle sql nix tf toml ini cfg json jsonc xml yaml yml sass less svelte astro mdx graphql gql proto properties make mk dockerfile ipynb props targets cshtml razor xaml".split()
 )
 CONFIG = re.compile(
     r"^(?:AGENTS\.md|CLAUDE\.md|\.gitignore|\.editorconfig|Dockerfile|Makefile|Justfile|Gemfile|Rakefile|Pipfile|Procfile|\.python-version|\.node-version|\.nvmrc|\.gitlab-ci\.yml|global\.json|(?:eslint|stylelint|ruff|prettier|vite|vue|eslint\.config|\.eslintrc|\.stylelintrc|\.ruff|\.prettier|tsconfig|jsconfig|pyproject|setup|package|uv|requirements|Directory\.Build|Directory\.Packages)[.\w-]*)$",

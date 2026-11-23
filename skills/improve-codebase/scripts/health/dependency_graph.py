@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from .parsers import GRAMMARS
-from .paths import within
 
 JS_EXT = (
     ".ts",
@@ -316,12 +315,3 @@ def components(edges):
                 stack.extend(incoming[node] - visited)
         if len(group) > 1 or (group and group[0] in outgoing[group[0]]):
             yield sorted(group)
-
-
-def project_context(project, entries):
-    return {
-        path
-        for path, entry in entries.items()
-        if entry.get("hash")
-        and (entry.get("project") == project or within(path, project))
-    }

@@ -20,6 +20,11 @@ export function jevBlocker(ctx: ExtensionContext): string | undefined {
 	if (!ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL)) return "OpenRouter JEV model unavailable";
 }
 
+export function usableWriter(registry: ExtensionContext["modelRegistry"]) {
+	const writer = registry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL);
+	return writer?.api === "openai-completions" ? writer : undefined;
+}
+
 export function trustedJevAnswer(result: ClassifierResult | undefined, key: string) {
 	const answer = result?.stopReason === "stop" ? result.answers[key] : undefined;
 	if (answer?.type === "bool" && Number.isFinite(answer.probability) && answer.probability >= 0 && answer.probability <= 1) return answer;

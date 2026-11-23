@@ -1,6 +1,7 @@
 import { JSDOM } from "jsdom";
 import { responseText } from "./body.ts";
 import { braveCredentialsPath, loadBraveApiKey } from "./config.ts";
+import { deadlineSignal } from "./core.ts";
 import { normalizeUrl } from "./url-policy.ts";
 
 export async function searchStatus() {
@@ -210,10 +211,7 @@ export async function search(
     throw new Error(
       "Brave Search is not configured. Set BRAVE_SEARCH_API_KEY, or copy your key and run: !pbpaste | node ~/.pi/agent/extensions/progressive-web/cli.mjs configure-brave",
     );
-  const deadline = AbortSignal.timeout(timeoutMs);
-  const signal = runtime.signal
-    ? AbortSignal.any([runtime.signal, deadline])
-    : deadline;
+  const { deadline, signal } = deadlineSignal(timeoutMs, runtime.signal);
   const started = Date.now();
   try {
     const response = await fetch(

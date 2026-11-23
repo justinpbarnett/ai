@@ -161,8 +161,13 @@ def run_scripted_installer(config: dict[str, Any], target_dir: Path, *, uninstal
         run_script(config["installer"], ["--mode", "symlink"], target_dir, target_env, dry_run=dry_run)
 
 
+def resolve_target_dir(config: dict[str, Any]) -> Path:
+    override = os.environ.get(config.get("target_env", ""))
+    return expand_path(override or config["target"])
+
+
 def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry_run: bool) -> None:
-    target_dir = expand_path(config["target"])
+    target_dir = resolve_target_dir(config)
     action = "Uninstalling" if uninstall else "Installing"
     print(f"\n{action} {name}...")
     print(f"  Target: {target_dir}")

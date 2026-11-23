@@ -1,6 +1,6 @@
 import type { ClassifierQuestion, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
 import type { Slot } from "./labels.js";
 import { labelSchema, LABEL_INSTRUCTIONS, parseLabels, type Evidence, type SummaryResult } from "./writer.js";
 
@@ -49,16 +49,8 @@ const writerInstructions = [
 
 type Registry = ExtensionContext["modelRegistry"];
 
-function openRouterModels(registry: Registry) {
-	return {
-		jev: registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL),
-		writer: registry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL),
-	};
-}
-
 export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
-	return jevBlocker(ctx) ?? (ctx.modelRegistry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL)?.api === "openai-completions"
-		? undefined : "OpenRouter summary writer unavailable");
+	return jevBlocker(ctx) ?? (usableWriter(ctx.modelRegistry) ? undefined : "OpenRouter summary writer unavailable");
 }
 
 export async function classifyMissionWithJev(registry: Registry, evidence: MissionEvidence, signal: AbortSignal): Promise<"switch" | "keep" | undefined> {
@@ -86,8 +78,9 @@ function trustedChoice(result: ClassifierResult, key: string, question: typeof i
 }
 
 export async function summarizeWithOpenRouter(registry: Registry, requested: Slot[], evidence: Evidence, signal: AbortSignal): Promise<SummaryResult> {
-	const { jev, writer } = openRouterModels(registry);
-	if (!jev || writer?.api !== "openai-completions") return { labels: {}, failure: "OpenRouter summary models unavailable" };
+	const jev = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	const writer = usableWriter(registry);
+	if (!jev || !writer) return { labels: {}, failure: "OpenRouter summary models unavailable" };
 
 	const questions: Record<string, ClassifierQuestion> = {};
 	if (requested.includes("session")) questions.topic = topicQuestion;

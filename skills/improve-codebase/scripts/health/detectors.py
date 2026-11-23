@@ -15,7 +15,7 @@ from .layout import (
 )
 from .parsers import GRAMMARS, analyze
 from .paths import is_test_path
-from .rules import DEPENDENCY_CYCLE
+from .rules import DEPENDENCY_CYCLE, DUPLICATE_BLOCK
 from .syntax_tree import (
     GENERIC_STREAM,
     ROLLING_HASH_WIDTH,
@@ -82,7 +82,7 @@ def block_anchors(stream, language, length):
         if language == GENERIC_STREAM and last - first < 120:
             continue
         signature = digest([token[TOKEN_HASH] for token in stream[start : stop + 1]])
-        yield ("duplicate-block", language, signature), first, last
+        yield (DUPLICATE_BLOCK, language, signature), first, last
 
 
 def duplicate_buckets(parsed, selected, thresholds):
@@ -107,7 +107,7 @@ def duplicate_buckets(parsed, selected, thresholds):
 
 def duplicate_order(key, first_match):
     path, position, *_ = first_match
-    if key[0] == "duplicate-block":
+    if key[0] == DUPLICATE_BLOCK:
         start = f"{position:012}"
     else:
         start = f"{position['line']:012}{position['column']:012}"
@@ -168,7 +168,7 @@ def duplicates(parsed, data, selected, thresholds):
         matches = buckets[key]
         locations = (
             block_locations(matches, language, covered, data, source_map)
-            if rule == "duplicate-block"
+            if rule == DUPLICATE_BLOCK
             else group_locations(matches)
         )
         if not locations:

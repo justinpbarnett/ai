@@ -3,9 +3,11 @@ import { parseArgs } from "node:util";
 import { configure, configureBrave } from "./config.ts";
 import {
   crawl,
+  crawlLimits,
   dispose,
   MAX_SCRAPE_URLS,
   scrapeBatch,
+  scrapeTimeoutLimits,
   status,
 } from "./core.ts";
 import { formatResults, hasFailures, saveDocument } from "./results.ts";
@@ -34,13 +36,13 @@ Search options:
 Scrape/crawl options:
   --start-tier N    Start at tier 1, 2, 3, or 4
   --max-tier N      Highest permitted tier (3 prevents paid requests)
-  --timeout N       Per-tier timeout in milliseconds (default 30000; tier 4 at least 60000)
+  --timeout N       Per-tier timeout in milliseconds (default ${scrapeTimeoutLimits.fallback}; tier 4 at least 60000)
   --wait-for CSS    Wait for a CSS selector; starts at browser tier 3 by default
   --fresh           Bypass the 15-minute scrape cache (crawls never use it)
-  --max-pages N     Crawl page attempt limit, 1-50 (default 10)
-  --max-depth N     Crawl depth, 0-5 (default 2)
+  --max-pages N     Crawl page attempt limit, ${crawlLimits.maxPages.minimum}-${crawlLimits.maxPages.maximum} (default ${crawlLimits.maxPages.fallback})
+  --max-depth N     Crawl depth, ${crawlLimits.maxDepth.minimum}-${crawlLimits.maxDepth.maximum} (default ${crawlLimits.maxDepth.fallback})
   --path-prefix P   Only crawl paths beginning with P (default /)
-  --delay N         Crawl delay in milliseconds, at least 250 (default 1000)
+  --delay N         Crawl delay in milliseconds, at least ${crawlLimits.delayMs.minimum} (default ${crawlLimits.delayMs.fallback})
   --json            Print complete structured results instead of Markdown
 
 Tiers: HTTP + Readability -> cURL + browser headers -> Playwright -> Bright Data.

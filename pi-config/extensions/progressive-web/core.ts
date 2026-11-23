@@ -87,6 +87,16 @@ const tiers: {
 ];
 const browserTier = tiers.findIndex((tier) => tier.fetch === browserFetch) + 1;
 export const maxTierNumber = tiers.length;
+export const scrapeTimeoutLimits = {
+  minimum: 1000,
+  maximum: 120000,
+  fallback: 30000,
+};
+export const crawlLimits = {
+  maxPages: { minimum: 1, maximum: 50, fallback: 10 },
+  maxDepth: { minimum: 0, maximum: 5, fallback: 2 },
+  delayMs: { minimum: 250, maximum: 30000, fallback: 1000 },
+};
 const cache = new Map<
   string,
   { result: PageSuccess; bytes: number; expires: number }
@@ -107,6 +117,28 @@ function boundedInteger(
     );
   }
   return result;
+}
+
+export function deadlineSignal(timeoutMs: number, caller?: AbortSignal) {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return {
+    deadline,
+    signal: caller ? AbortSignal.any([caller, deadline]) : deadline,
+  };
+}
+
+function boundedLimit(
+  value: number | undefined,
+  limit: { minimum: number; maximum: number; fallback: number },
+  label: string,
+): number {
+  return boundedInteger(
+    value,
+    limit.fallback,
+    limit.minimum,
+    limit.maximum,
+    label,
+  );
 }
 
 function removeCachedPage(key: string): void {
@@ -167,10 +199,7 @@ async function fetchPageAtTier(
   runtime: ScrapeRuntime,
 ) {
   const tierTimeoutMs = Math.max(timeoutMs, tier.minimumTimeoutMs || 0);
-  const deadline = AbortSignal.timeout(tierTimeoutMs);
-  const signal = runtime.signal
-    ? AbortSignal.any([runtime.signal, deadline])
-    : deadline;
+  const { deadline, signal } = deadlineSignal(tierTimeoutMs, runtime.signal);
   try {
     const response = await tier.fetch(url, {
       signal,
@@ -220,9 +249,9 @@ function scrapeLimits(options: ScrapeOptions) {
   );
   const timeoutMs = boundedInteger(
     options.timeoutMs,
-    30000,
-    1000,
-    120000,
+    scrapeTimeoutLimits.fallback,
+    scrapeTimeoutLimits.minimum,
+    scrapeTimeoutLimits.maximum,
     "timeoutMs",
   );
   if (options.waitForSelector && maxTier < browserTier)
@@ -376,9 +405,17 @@ function crawlablePath(path: string): boolean {
 async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   const url = normalizeUrl(options.url);
   const origin = new URL(url).origin;
-  const maxPages = boundedInteger(options.maxPages, 10, 1, 50, "maxPages");
-  const maxDepth = boundedInteger(options.maxDepth, 2, 0, 5, "maxDepth");
-  let delayMs = boundedInteger(options.delayMs, 1000, 250, 30000, "delayMs");
+  const maxPages = boundedLimit(
+    options.maxPages,
+    crawlLimits.maxPages,
+    "maxPages",
+  );
+  const maxDepth = boundedLimit(
+    options.maxDepth,
+    crawlLimits.maxDepth,
+    "maxDepth",
+  );
+  let delayMs = boundedLimit(options.delayMs, crawlLimits.delayMs, "delayMs");
   scrapeLimits(options);
   const pathPrefix = options.pathPrefix || "/";
   if (!pathPrefix.startsWith("/"))
@@ -391,16 +428,15 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   };
   if (!inScope(url))
     throw new Error("The starting URL must be inside pathPrefix.");
-  const deadline = AbortSignal.timeout(15000);
   const policy = await crawlPolicy(
     origin,
-    signal ? AbortSignal.any([signal, deadline]) : deadline,
+    deadlineSignal(15000, signal).signal,
   );
   const crawlDelay =
     policy.getCrawlDelay("PiWebScraper") ?? policy.getCrawlDelay("*");
   if (crawlDelay !== undefined && Number.isFinite(crawlDelay))
     delayMs = Math.max(delayMs, crawlDelay * 1000);
-  if (delayMs > 30000)
+  if (delayMs > crawlLimits.delayMs.maximum)
     throw new Error(
       "robots.txt requests a crawl delay over 30 seconds. Use individual page fetches instead.",
     );

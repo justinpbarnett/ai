@@ -3,10 +3,12 @@ import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   crawl,
+  crawlLimits,
   dispose,
   MAX_SCRAPE_URLS,
   maxTierNumber,
   scrapeBatch,
+  scrapeTimeoutLimits,
   status,
 } from "./core.ts";
 import {
@@ -36,10 +38,9 @@ const tierOptions = {
   ),
   timeoutMs: Type.Optional(
     Type.Integer({
-      minimum: 1000,
-      maximum: 120000,
-      description:
-        "Per-tier timeout in milliseconds, default 30000. Bright Data gets at least 60000.",
+      minimum: scrapeTimeoutLimits.minimum,
+      maximum: scrapeTimeoutLimits.maximum,
+      description: `Per-tier timeout in milliseconds, default ${scrapeTimeoutLimits.fallback}. Bright Data gets at least 60000.`,
     }),
   ),
   waitForSelector: Type.Optional(
@@ -221,8 +222,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_crawl",
     label: "Web Crawl",
-    description:
-      "Crawl a public website using the same four-tier scraper. Follows links breadth-first on the starting origin, respects robots.txt, crawl-delay and nofollow, and deduplicates URLs. Defaults: 10 page attempts, depth 2, 1 second between pages. Hard maximum: 50 page attempts, depth 5. pathPrefix can constrain a documentation section. Every page, failure, skipped URL and discovered link is saved as JSON, alongside combined Markdown. Preview is limited to 47 KB/1900 lines. Each tier-4 page can incur a Bright Data charge; maxTier: 3 disables paid requests. No authentication or browser-profile access.",
+    description: `Crawl a public website using the same four-tier scraper. Follows links breadth-first on the starting origin, respects robots.txt, crawl-delay and nofollow, and deduplicates URLs. Defaults: ${crawlLimits.maxPages.fallback} page attempts, depth ${crawlLimits.maxDepth.fallback}, ${crawlLimits.delayMs.fallback / 1000} second between pages. Hard maximum: ${crawlLimits.maxPages.maximum} page attempts, depth ${crawlLimits.maxDepth.maximum}. pathPrefix can constrain a documentation section. Every page, failure, skipped URL and discovered link is saved as JSON, alongside combined Markdown. Preview is limited to 47 KB/1900 lines. Each tier-4 page can incur a Bright Data charge; maxTier: 3 disables paid requests. No authentication or browser-profile access.`,
     promptSnippet:
       "Crawl a bounded section of a public website into Markdown and JSON",
     annotations: {
@@ -234,17 +234,16 @@ export default function (pi: ExtensionAPI) {
       url: Type.String({ description: "Absolute HTTP(S) starting URL" }),
       maxPages: Type.Optional(
         Type.Integer({
-          minimum: 1,
-          maximum: 50,
-          description: "Maximum page attempts, including failures; default 10.",
+          minimum: crawlLimits.maxPages.minimum,
+          maximum: crawlLimits.maxPages.maximum,
+          description: `Maximum page attempts, including failures; default ${crawlLimits.maxPages.fallback}.`,
         }),
       ),
       maxDepth: Type.Optional(
         Type.Integer({
-          minimum: 0,
-          maximum: 5,
-          description:
-            "Link depth from the starting page, default 2; 0 fetches only the starting page.",
+          minimum: crawlLimits.maxDepth.minimum,
+          maximum: crawlLimits.maxDepth.maximum,
+          description: `Link depth from the starting page, default ${crawlLimits.maxDepth.fallback}; 0 fetches only the starting page.`,
         }),
       ),
       pathPrefix: Type.Optional(
@@ -255,10 +254,9 @@ export default function (pi: ExtensionAPI) {
       ),
       delayMs: Type.Optional(
         Type.Integer({
-          minimum: 250,
-          maximum: 30000,
-          description:
-            "Delay between pages in milliseconds, default 1000. robots.txt can increase it.",
+          minimum: crawlLimits.delayMs.minimum,
+          maximum: crawlLimits.delayMs.maximum,
+          description: `Delay between pages in milliseconds, default ${crawlLimits.delayMs.fallback}. robots.txt can increase it.`,
         }),
       ),
       ...tierOptions,

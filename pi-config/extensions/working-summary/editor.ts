@@ -9,11 +9,9 @@ const PREFIX = "Summary · ";
 const BORDER_LEAD = "── ";
 const BORDER_TRAIL = " ";
 const SPARE_RULE_CELLS = 1;
-const wrappedFactories = new WeakMap<object, EditorFactory | undefined>();
 
 export function installSummaryBorder(ctx: ExtensionContext, getLabels: () => Labels): () => void {
-	let previous = ctx.ui.getEditorComponent();
-	while (previous && wrappedFactories.has(previous)) previous = wrappedFactories.get(previous);
+	const previous = ctx.ui.getEditorComponent();
 	let redraw: (() => void) | undefined;
 	const factory: EditorFactory = (tui, theme, keybindings) => {
 		redraw = () => tui.requestRender();
@@ -38,7 +36,6 @@ export function installSummaryBorder(ctx: ExtensionContext, getLabels: () => Lab
 		};
 		return editor;
 	};
-	wrappedFactories.set(factory, previous);
 	ctx.ui.setEditorComponent(factory);
 	return () => redraw?.();
 }

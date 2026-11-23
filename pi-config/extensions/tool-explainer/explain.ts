@@ -1,6 +1,6 @@
 import type { ClassifierQuestion } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, OPENROUTER_WRITER_MODEL, isOpenRouterConfigured, trustedJevAnswer } from "../shared/openrouter.js";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
 import { ExplanationError } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { plain } from "./screening.js";
@@ -84,8 +84,8 @@ function parseExplanation(text: string, evidence: Evidence[]): Explanation {
 
 export async function explain(registry: Registry, calls: Evidence[], signal: AbortSignal): Promise<Explanation> {
 	const jev = requireJev(registry);
-	const writer = registry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL);
-	if (writer?.api !== "openai-completions") throw new ExplanationError("OpenRouter writing model unavailable.");
+	const writer = usableWriter(registry);
+	if (!writer) throw new ExplanationError("OpenRouter writing model unavailable.");
 	const questions = Object.fromEntries(calls.map(({ id }) => [`call${id}`, {
 		...outcome, instructions: `For call ${id}: ${outcome.instructions}`,
 	}]));

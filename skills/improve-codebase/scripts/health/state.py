@@ -279,7 +279,7 @@ class Store:
 
     def consume_packet(self, packet_id):
         self.connection.execute(
-            "UPDATE packets SET consumed = 1 WHERE id = ?", (packet_id,)
+            "DELETE FROM packets WHERE id = ? OR consumed = 1", (packet_id,)
         )
 
     def save_receipts(self, receipts):

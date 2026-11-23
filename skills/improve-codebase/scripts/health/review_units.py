@@ -1,10 +1,9 @@
 from collections import defaultdict
 from pathlib import Path
 
-from .dependency_graph import project_context
 from .hashing import digest
 from .inventory import WIRING_LANGUAGES, is_project_guide
-from .paths import in_paths
+from .paths import in_paths, within
 from .rules import AXES, STAGES
 
 REVIEW_VERSION = 3
@@ -15,6 +14,15 @@ def paths_by_directory(paths):
     for path in paths:
         grouped[Path(path).parent].add(path)
     return grouped
+
+
+def project_context(project, entries):
+    return {
+        path
+        for path, entry in entries.items()
+        if entry.get("hash")
+        and (entry.get("project") == project or within(path, project))
+    }
 
 
 class ReviewUnits:

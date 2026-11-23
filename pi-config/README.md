@@ -431,7 +431,8 @@ To copy files instead of linking them:
 ./install.sh --mode copy
 ```
 
-The installer creates missing directories and preserves local state that is not managed here.
+Copy mode uses `rsync` to merge managed directories without deleting local files and excludes machine-local files such as extension `.env` files and package caches.
+If a target is a symlink or has the wrong file type, copy mode backs it up before installing the replacement.
 
 ## Link this repo on the current machine
 
@@ -444,7 +445,7 @@ This is a small wrapper around `install.sh --mode symlink`.
 In symlink mode, `~/dev/ai/pi-config` is the source of truth.
 Pi's global settings, keybindings, and skills point back to this repo, while local-only files remain under `~/.pi/agent`.
 
-If an existing managed file or directory needs to be replaced, it is moved into a timestamped backup directory under:
+In symlink mode, an existing file or directory that must be replaced is moved into a unique timestamped backup directory under:
 
 ```bash
 ~/.local/state/pi-config-backups/

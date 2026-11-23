@@ -1,0 +1,4 @@
+# Copied to ~/.codex/config.toml only when no user config exists.
+# Codex stores machine-local settings and project trust in that copy.
+model = "gpt-6.2-sol"
+model_reasoning_effort = "high"

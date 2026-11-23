@@ -15,12 +15,13 @@ The old install.sh / uninstall.sh are thin wrappers for convenience.
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import tomllib
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
+from uuid import uuid4
 
 REPO_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = REPO_DIR / "harnesses.toml"
@@ -45,8 +46,11 @@ def get_harness_names(config: dict[str, Any]) -> list[str]:
 
 
 def backup_path(target: Path) -> Path:
-    ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    return target.with_suffix(target.suffix + f".bak.{ts}") if target.suffix else target.with_name(target.name + f".bak.{ts}")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    while True:
+        backup = target.with_name(f"{target.name}.bak.{timestamp}.{uuid4().hex}")
+        if not backup.exists() and not backup.is_symlink():
+            return backup
 
 
 def link_file(source: Path, target: Path, *, dry_run: bool = False) -> None:
@@ -65,10 +69,6 @@ def link_file(source: Path, target: Path, *, dry_run: bool = False) -> None:
             target.rename(backup)
         print(f"    BACKUP {target.name} -> {backup.name}")
 
-    if target.is_symlink():
-        if not dry_run:
-            target.unlink()
-
     if not dry_run:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(source)
@@ -76,103 +76,114 @@ def link_file(source: Path, target: Path, *, dry_run: bool = False) -> None:
     print(f"    LINK {target.name} -> {source}")
 
 
-def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool = False) -> None:
-    """Symlink each child of source_dir into target_dir (used by codex, droid, etc.)."""
+def is_managed_link(source: Path, target: Path) -> bool:
+    # Match the link we install, even when its source is missing or is itself a symlink.
+    return target.is_symlink() and target.readlink() == source
+
+
+def remove_managed_link(source: Path, target: Path, *, dry_run: bool) -> bool:
+    if not is_managed_link(source, target):
+        return False
+    if not dry_run:
+        target.unlink()
+    return True
+
+
+def seed_local_config(seed: Path, legacy_source: Path, target: Path, *, dry_run: bool) -> None:
+    migrating = is_managed_link(legacy_source, target)
+    if not migrating and (target.exists() or target.is_symlink()):
+        print(f"    KEEP {target.name} (local config)")
+        return
+
+    source = legacy_source if migrating else seed
+    if not source.is_file():
+        print(f"    SKIP {target.name} (source missing: {source})")
+        return
+
+    if not dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix=".config-", dir=target.parent) as directory:
+            staged = Path(directory) / target.name
+            staged.write_bytes(source.read_bytes())
+            staged.chmod(0o600)
+            if migrating and is_managed_link(legacy_source, target):
+                staged.replace(target)
+            else:
+                try:
+                    target.hardlink_to(staged)
+                except FileExistsError:
+                    print(f"    KEEP {target.name} (local config)")
+                    return
+
+    action = "LOCALIZE" if migrating else "SEED"
+    print(f"    {action} {target.name} from {source}")
+
+
+def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
     if not source_dir.is_dir():
         print(f"    SKIP {target_dir.name} (source dir missing)")
         return
 
-    target_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    if target_dir.is_dir():
+        for child in sorted(target_dir.iterdir()):
+            source = source_dir / child.name
+            if not source.exists() and remove_managed_link(source, child, dry_run=dry_run):
+                print(f"    REMOVE stale {child.name}")
 
-    # Clean up stale managed links first
-    for child in list(target_dir.iterdir()):
-        if child.is_symlink():
-            try:
-                dest = child.resolve()
-                if dest.is_relative_to(source_dir):
-                    if not dest.exists():
-                        if not dry_run:
-                            child.unlink()
-                        print(f"    REMOVE stale {child.name}")
-            except Exception:
-                pass
-
-    for src in sorted(source_dir.iterdir()):
-        if not src.is_dir() and not src.is_file():
-            continue
-        name = src.name
-        tgt = target_dir / name
-        link_file(src, tgt, dry_run=dry_run)
+    for source in sorted(source_dir.iterdir()):
+        if source.is_dir() or source.is_file():
+            link_file(source, target_dir / source.name, dry_run=dry_run)
 
 
-def install_harness(name: str, hcfg: dict[str, Any], *, dry_run: bool = False) -> None:
-    target = expand_path(hcfg["target"])
-    print(f"\nInstalling {name}...")
-    print(f"  Target: {target}")
+def unlink_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
+    if not target_dir.is_dir():
+        return
 
-    symlinks: dict[str, str] = hcfg.get("symlinks", {})
-    skills_mode = hcfg.get("skills_mode", "directory")
+    removed = remaining = False
+    for child in sorted(target_dir.iterdir()):
+        if remove_managed_link(source_dir / child.name, child, dry_run=dry_run):
+            removed = True
+            print(f"    REMOVE {child.name}")
+        else:
+            remaining = True
 
-    for tgt_name, src_rel in symlinks.items():
-        # Convention: key = name in target harness, value = path relative to repo root
-        src = REPO_DIR / src_rel
-
-        if src_rel == "skills" or tgt_name == "skills" or tgt_name.endswith("-skills"):
-            # Special skills handling (supports skills_mode + skills_name override)
-            if skills_mode == "children":
-                tgt_dir = target / tgt_name
-                link_children(src, tgt_dir, dry_run=dry_run)
-            else:
-                tgt = target / tgt_name
-                link_file(src, tgt, dry_run=dry_run)
-            continue
-
-        # Normal file or directory
-        tgt = target / tgt_name
-        link_file(src, tgt, dry_run=dry_run)
+    if removed and not remaining and not target_dir.is_symlink():
+        if not dry_run:
+            target_dir.rmdir()
+        print(f"    RMDIR {target_dir.name}")
 
 
-def uninstall_harness(name: str, hcfg: dict[str, Any], *, dry_run: bool = False) -> None:
-    target = expand_path(hcfg["target"])
-    print(f"\nUninstalling {name}...")
-    print(f"  Target: {target}")
+def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry_run: bool) -> None:
+    target_dir = expand_path(config["target"])
+    action = "Uninstalling" if uninstall else "Installing"
+    print(f"\n{action} {name}...")
+    print(f"  Target: {target_dir}")
 
-    symlinks: dict[str, str] = hcfg.get("symlinks", {})
-    skills_mode = hcfg.get("skills_mode", "directory")
+    for target_name, source_path in config.get("symlinks", {}).items():
+        source = REPO_DIR / source_path
+        target = target_dir / target_name
+        is_skills = source_path == "skills" or target_name == "skills" or target_name.endswith("-skills")
+        if is_skills and config.get("skills_mode") == "children":
+            if target.is_symlink():
+                print(f"    SKIP {target.name} (target dir is a symlink)")
+                continue
+            configure_children = unlink_children if uninstall else link_children
+            configure_children(source, target, dry_run=dry_run)
+        elif not uninstall:
+            link_file(source, target, dry_run=dry_run)
+        elif remove_managed_link(source, target, dry_run=dry_run):
+            print(f"    REMOVE {target.name}")
 
-    for tgt_name, src_rel in symlinks.items():
-        tgt = target / tgt_name
-
-        if src_rel == "skills":
-            if skills_mode == "children":
-                tgt_dir = target / tgt_name
-                if tgt_dir.exists():
-                    for child in list(tgt_dir.iterdir()):
-                        if child.is_symlink():
-                            try:
-                                if child.resolve().is_relative_to(REPO_DIR / "skills"):
-                                    if not dry_run:
-                                        child.unlink()
-                                    print(f"    REMOVE {child.name}")
-                            except Exception:
-                                pass
-                    try:
-                        if not any(tgt_dir.iterdir()):
-                            tgt_dir.rmdir()
-                            print(f"    RMDIR {tgt_dir.name}")
-                    except Exception:
-                        pass
-            else:
-                if tgt.is_symlink():
-                    if not dry_run:
-                        tgt.unlink()
-                    print(f"    REMOVE {tgt.name}")
-            continue
-
-        if tgt.is_symlink():
-            if not dry_run:
-                tgt.unlink()
-            print(f"    REMOVE {tgt.name}")
+    if not uninstall:
+        for target_name, spec in config.get("local_configs", {}).items():
+            seed_local_config(
+                REPO_DIR / spec["seed"],
+                REPO_DIR / spec["legacy_link"],
+                target_dir / target_name,
+                dry_run=dry_run,
+            )
 
 
 def main() -> None:
@@ -209,11 +220,7 @@ def main() -> None:
         selected.append(h)
 
     for name in selected:
-        hcfg = config[name]
-        if args.uninstall:
-            uninstall_harness(name, hcfg, dry_run=args.dry_run)
-        else:
-            install_harness(name, hcfg, dry_run=args.dry_run)
+        configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
 
     if not args.dry_run:
         print("\nDone. Restart your coding harness(es) to pick up changes.")

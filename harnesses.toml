@@ -12,6 +12,7 @@
 # skills_mode:
 #   "directory" (default) → symlink the whole skills/ folder into the target
 #   "children"            → create individual symlinks for each skill (codex, droid, etc.)
+# Children mode leaves a symlinked target skills directory and its contents untouched.
 # skills_name: override the directory name skills appear under (e.g. "skills-cursor" for Cursor)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +63,13 @@ config_format = "toml"
 
 [codex.symlinks]
 skills = "skills"
-"config.toml" = "harness/codex/config.toml"
+
+# Codex writes settings and project trust to its user config.
+# Install defaults once and localize only the link installed by older versions.
+# Subsequent installs and uninstalls leave the local config alone.
+[codex.local_configs."config.toml"]
+seed = "harness/codex/defaults.toml"
+legacy_link = "harness/codex/config.toml"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Factory.ai Droid

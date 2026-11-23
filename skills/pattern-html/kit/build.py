@@ -24,7 +24,9 @@ import os
 import re
 import subprocess
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
+from xml.etree import ElementTree
 
 KIT = Path(__file__).resolve().parent
 KINDS = "kit|css|js|img|svg|draw|font"
@@ -81,8 +83,15 @@ def draw(path, arg, src="--draw"):
     if run.returncode != 0:
         fail(f"{path} stopped with an error:\n{run.stderr.strip()}")
     svg = run.stdout.strip()
-    if not svg.startswith("<svg"):
-        fail(f"{path} must print one <svg> element and nothing else; it printed: {svg[:80]!r}")
+    contract = f"{path} must print one well-formed <svg> element"
+    if not re.match(r"<svg(?=[\s/>])", svg) or not re.search(r"(?:</svg\s*>|/>)$", svg):
+        fail(f"{contract}; it printed: {svg[:80]!r}")
+    try:
+        root = ElementTree.fromstring(svg)
+    except ElementTree.ParseError as error:
+        fail(f"{contract}: {error}")
+    if root.tag not in {"svg", "{http://www.w3.org/2000/svg}svg"}:
+        fail(f"{contract} in the SVG namespace or without a namespace")
     return svg
 
 
@@ -117,18 +126,82 @@ def expand(text, base, src):
     return PLACE.sub(sub, text)
 
 
+class DocumentShell(HTMLParser):
+    """Locate page-level tags without rewriting the surrounding source."""
+
+    TAGS = {"html", "head", "body"}
+    CDATA_CONTENT_ELEMENTS = (
+        *HTMLParser.CDATA_CONTENT_ELEMENTS, "title", "textarea", "iframe",
+        "xmp", "noembed", "noframes", "noscript", "plaintext",
+    )
+
+    def __init__(self, html):
+        super().__init__(convert_charrefs=False)
+        self.html = html
+        self.lines = [0, *(match.end() for match in re.finditer("\n", html))]
+        self.spans = []
+        self.template_depth = 0
+        self.has_skeleton = False
+        self.has_body_attributes = False
+        self.feed(html)
+        self.close()
+
+    def remove(self, length=None):
+        line, column = self.getpos()
+        start = self.lines[line - 1] + column
+        end = start + length if length is not None else self.html.index(">", start) + 1
+        while end < len(self.html) and self.html[end].isspace():
+            end += 1
+        self.spans.append((start, end))
+
+    def handle_decl(self, decl):
+        if not self.template_depth and decl.lower().startswith("doctype "):
+            self.remove()
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "template":
+            self.template_depth += 1
+        if self.template_depth:
+            return
+        if tag in self.TAGS:
+            self.has_skeleton = True
+            self.has_body_attributes |= tag == "body" and bool(attrs)
+        elif tag == "meta":
+            attributes = dict(attrs)
+            if "charset" not in attributes and (attributes.get("name") or "").lower() != "viewport":
+                return
+        else:
+            return
+        self.remove(len(self.get_starttag_text()))
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if tag == "template" and self.template_depth:
+            self.template_depth -= 1
+        if not self.template_depth and tag in self.TAGS:
+            self.remove()
+
+    def fragment(self):
+        parts = []
+        end = 0
+        for start, stop in self.spans:
+            parts.append(self.html[end:start])
+            end = stop
+        return ("".join(parts) + self.html[end:]).lstrip()
+
+
 def strip_skeleton(html):
     """Drop what the Artifact tool adds itself: doctype, html, head, body, charset, viewport."""
-    body = re.search(r"<body\b([^>]*)>", html, flags=re.I)
-    if body and body.group(1).strip():
+    shell = DocumentShell(html)
+    if shell.has_body_attributes:
         print("build: warning: the body tag's attributes are dropped in an Artifact; move them to .wrap", file=sys.stderr)
-    html = re.sub(r"<!doctype[^>]*>\s*", "", html, flags=re.I)
-    html = re.sub(r"</?(?:html|head|body)\b[^>]*>\s*", "", html, flags=re.I)
-    html = re.sub(r"<meta\s+(?:charset|name=[\"']viewport[\"'])[^>]*>\s*", "", html, flags=re.I)
+    html = shell.fragment()
     head = html.encode("utf-8")[:8192].decode("utf-8", "ignore")
     if not re.search(r"<title>[^<]+</title>", head, flags=re.I):
         print("build: warning: no <title> in the first 8 KB; put it above <style>", file=sys.stderr)
-    return html.lstrip()
+    return html
 
 
 def size(n):

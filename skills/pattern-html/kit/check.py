@@ -25,7 +25,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+from build import DocumentShell  # noqa: E402
 
 KIT = Path(__file__).resolve().parent
 PLACE = re.compile(r"\{\{(?:kit|css|js|img|svg|draw|font):[^{}\s]+\}\}")
@@ -78,19 +82,18 @@ class Browser:
     """One headless browser, driven by JSON messages over two pipes."""
 
     def __init__(self, exe, work):
-        for flags in ([], ["--no-sandbox"]):
-            self.start(exe, work, flags)
-            try:
-                self.call("Browser.getVersion")
-                break
-            except Gone:
-                self.stop()
-        else:
-            raise SystemExit("check: the browser would not start")
-        target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
-        self.tab = self.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-        self.call("Page.enable", tab=True)
-        self.call("Page.addScriptToEvaluateOnNewDocument", {"source": COUNT_REQUESTS}, tab=True)
+        for flags in ((), ("--no-sandbox",)):
+            with ExitStack() as cleanup:
+                self.start(exe, work, flags)
+                cleanup.callback(self.stop)
+                try:
+                    self.call("Browser.getVersion")
+                except Gone:
+                    continue
+                self.attach_tab()
+                cleanup.pop_all()
+                return
+        raise SystemExit("check: the browser would not start")
 
     def start(self, exe, work, flags):
         ours_r, theirs_w = os.pipe()
@@ -98,13 +101,21 @@ class Browser:
         # the browser listens on its descriptor 3 and answers on 4; the shell renumbers ours to those
         r, w = fcntl.fcntl(theirs_r, fcntl.F_DUPFD, 20), fcntl.fcntl(theirs_w, fcntl.F_DUPFD, 20)
         profile = tempfile.mkdtemp(prefix="profile-", dir=work)
+        # Off-viewport captures need complete compositor layers and a full raster pass to be repeatable.
         self.proc = subprocess.Popen(
             ["/bin/sh", "-c", f'exec "$@" 3<&{r} 4>&{w}', "sh", exe, "--headless=new", "--remote-debugging-pipe",
-             "--disable-gpu", "--hide-scrollbars", "--no-first-run", f"--user-data-dir={profile}", *flags],
+             "--run-all-compositor-stages-before-draw", "--disable-partial-raster", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+             f"--user-data-dir={profile}", *flags],
             pass_fds=(r, w), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for fd in (theirs_r, theirs_w, r, w):
             os.close(fd)
         self.r, self.w, self.buf, self.n, self.events = ours_r, ours_w, b"", 0, []
+
+    def attach_tab(self):
+        target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+        self.tab = self.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
+        self.call("Page.enable", tab=True)
+        self.call("Page.addScriptToEvaluateOnNewDocument", {"source": COUNT_REQUESTS}, tab=True)
 
     def stop(self):
         for fd in (self.r, self.w):
@@ -117,6 +128,7 @@ class Browser:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait()
 
     def read(self):
         end = time.monotonic() + PATIENCE
@@ -191,6 +203,17 @@ class Browser:
         path.write_bytes(base64.b64decode(got["data"]))
 
 
+@contextmanager
+def browser_session(exe, prefix):
+    with tempfile.TemporaryDirectory(prefix=prefix) as directory:
+        work = Path(directory)
+        browser = Browser(exe, work)
+        try:
+            yield browser, work
+        finally:
+            browser.stop()
+
+
 def tokens():
     """Token colors, read from the stylesheet so the check can never drift from it."""
     css = (KIT / "style.css").read_text(encoding="utf-8")
@@ -208,7 +231,7 @@ def script():
 
 def address(page, text, work):
     """Where the browser finds the page. An Artifact body first gets the skeleton the Artifact tool gives it."""
-    if re.search(r"<(?:html|head|body)\b", text, flags=re.I):
+    if DocumentShell(text).has_skeleton:
         return page.as_uri()
     whole = work / "page.html"
     whole.write_text('<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -244,7 +267,7 @@ def report(results):
 
 
 def source(text, size):
-    """What the page's own text shows, before any browser draws it."""
+    """Find problems in the markup independently of the computed styles."""
     found = {"fail": [], "warn": [], "note": []}
     for slot in sorted(set(PLACE.findall(text)))[:6]:
         found["fail"].append(["slot", f"{slot} was never filled: hand out the built page, never the template"])
@@ -255,6 +278,45 @@ def source(text, size):
     return found
 
 
+def check_viewport(browser, url, viewport, js, file_findings):
+    width, height, _, phone = viewport
+    settled = browser.open(url, width, height, phone)
+    if file_findings is None:
+        markup = browser.ask("JSON.stringify(document.documentElement.outerHTML)")
+        source_findings = source(markup, 0)
+    else:
+        source_findings = file_findings
+    result = browser.ask(js.replace("/*VIEWPORT_WIDTH*/null", str(width), 1))
+    for level, findings in source_findings.items():
+        result[level] = findings + result[level]
+    if not settled:
+        result["note"].append(["settle", f"the page still changed {SETTLE_S} s after it loaded, so it was read mid-change"])
+    info = result["info"]
+    actual = f"{info['width']} wide · {info['height']} tall"
+    print(actual if info["width"] == width else f"{actual} (asked for {width})")
+    return result
+
+
+def save_slices(browser, viewport, page_height, out, stem):
+    width, _, tall, _ = viewport
+    names = []
+    for number, (top, height) in enumerate(cuts(page_height, tall), 1):
+        path = out / f"{stem}-{width}-{number:02d}.png"
+        browser.shoot(path, top, width, height)
+        names.append(path)
+    return names
+
+
+def report_run(results, names):
+    worst = report(results)
+    print("FAIL" if worst else "PASS")
+    if names:
+        print(f"{len(names)} slices to read:")
+        for name in names:
+            print(f"  {name}")
+    return worst
+
+
 def main(argv):
     out = None
     if len(argv) == 3 and argv[1] == "--shots":
@@ -262,9 +324,10 @@ def main(argv):
     elif len(argv) != 1 or argv[0].startswith("--"):
         print(__doc__.strip(), file=sys.stderr)
         raise SystemExit(2)
+    file_findings = None
     served = re.match(r"https?://", argv[0], flags=re.I)
     if served:
-        url, static = argv[0], None     # a served page is read once the browser has it
+        url = argv[0]
         stem = re.sub(r"[^A-Za-z0-9]+", "-", url[served.end():]).strip("-") or "page"
         print(url)
     else:
@@ -273,7 +336,7 @@ def main(argv):
             raise SystemExit(f"check: no page at {page}")
         data = page.read_bytes()
         text, stem = data.decode("utf-8"), page.stem
-        static = source(text, len(data))
+        file_findings = source(text, len(data))
         print(f"{page} · {len(data) / 1e6:.2f} MB")
 
     exe = find_browser()
@@ -281,42 +344,22 @@ def main(argv):
         if served:
             print("check: no browser found, so nothing was checked. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
             raise SystemExit(2)
-        worst = report([static])
+        worst = report([file_findings])
         print("NOTE  no browser found, so only the file was read. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
         raise SystemExit(worst)
 
-    work = Path(tempfile.mkdtemp(prefix="pattern-check-"))
-    browser = Browser(exe, work)
-    try:
+    with browser_session(exe, "pattern-check-") as (browser, work):
         js, results, names = script(), [], []
         if not served:
             url = address(page, text, work)
         if out:
             out.mkdir(parents=True, exist_ok=True)
-        for width, height, tall, phone in WIDTHS:
-            settled = browser.open(url, width, height, phone)
-            if static is None:
-                static = source(browser.ask("JSON.stringify(document.documentElement.outerHTML)"), 0)
-            result = browser.ask(js)
-            for level in static:
-                result[level] = static[level] + result[level]
-            if not settled:
-                result["note"].append(["settle", f"the page still changed {SETTLE_S} s after it loaded, so it was read mid-change"])
+        for viewport in WIDTHS:
+            result = check_viewport(browser, url, viewport, js, file_findings)
             results.append(result)
-            info = result["info"]
-            print(f"{info['width']} wide · {info['height']} tall" + ("" if info["width"] == width else f" (asked for {width})"))
-            for n, (y, h) in enumerate(cuts(info["height"], tall) if out else [], 1):
-                names.append(out / f"{stem}-{width}-{n:02d}.png")
-                browser.shoot(names[-1], y, width, h)
-        worst = report(results)
-        print("FAIL" if worst else "PASS")
-        if names:
-            print(f"{len(names)} slices to read:")
-            for name in names:
-                print(f"  {name}")
-    finally:
-        browser.stop()
-        shutil.rmtree(work, ignore_errors=True)
+            if out:
+                names.extend(save_slices(browser, viewport, result["info"]["height"], out, stem))
+        worst = report_run(results, names)
     raise SystemExit(worst)
 
 

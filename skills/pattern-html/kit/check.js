@@ -1,6 +1,6 @@
-// Runs inside the page under test. check.py fills the two tables, evaluates this file in the page,
-// and gets back a promise of the findings as JSON.
-(function () {
+// Runs inside the page under test. check.py fills the tables and requested width,
+// evaluates this file in the page, and gets back a promise of the findings as JSON.
+(function (requestedWidth) {
   var TOKENS = /*TOKENS*/{};        // "#0B0C0E": "ground", and so on, read from style.css
   var COVERAGE = /*COVERAGE*/{};    // family: [[first, last], ...], the code points each face can draw
   var FACES = ["Routed Gothic", "JetBrains Mono"];
@@ -61,7 +61,7 @@
     Array.from(s).forEach(function (ch) {
       var cp = ch.codePointAt(0);
       if (cp <= 32 || cp === 0xAD || (cp >= 0x200B && cp <= 0x200D) || cp === 0xFEFF) return;
-      var label = ch + " U+" + ("000" + cp.toString(16).toUpperCase()).slice(-4);
+      var label = ch + " U+" + cp.toString(16).toUpperCase().padStart(4, "0");
       if (!drawable(fam, cp) && miss.indexOf(label) < 0) miss.push(label);
     });
     if (miss.length) put("warn", "glyph", fam + " cannot draw " + miss.join(", ") + " in " + name(el));
@@ -80,21 +80,16 @@
     return false;
   }
 
-  function run() {
-    var root = document.documentElement, W = window.innerWidth;
-    out.info = { width: W, wide: root.scrollWidth, height: root.scrollHeight };
-    var all = Array.prototype.slice.call(document.body.querySelectorAll("*")).filter(function (el) {
-      return el.namespaceURI === XHTML && !SKIP[el.tagName] && el.getClientRects().length;
-    });
+  function checkOverflow(root, width, elements) {
+    if (root.scrollWidth <= width + 1) return;
+    var over = elements.filter(function (el) { return el.getBoundingClientRect().right > width + 1 && !clipped(el); }).slice(0, 300);
+    var cause = over.filter(function (el) { return !over.some(function (o) { return o !== el && el.contains(o); }); });
+    put("fail", "sideways", "the page is " + root.scrollWidth + " wide in a " + width + " window: " +
+      (cause.slice(0, 4).map(name).join(" | ") || "nothing in the flow, look for a positioned part"));
+  }
 
-    if (root.scrollWidth > W + 1) {
-      var over = all.filter(function (el) { return el.getBoundingClientRect().right > W + 1 && !clipped(el); }).slice(0, 300);
-      var cause = over.filter(function (el) { return !over.some(function (o) { return o !== el && el.contains(o); }); });
-      put("fail", "sideways", "the page is " + root.scrollWidth + " wide in a " + W + " window: " +
-        (cause.slice(0, 4).map(name).join(" | ") || "nothing in the flow, look for a positioned part"));
-    }
-
-    all.forEach(function (el) {
+  function checkStyles(elements) {
+    elements.forEach(function (el) {
       var cs = getComputedStyle(el);
       if (["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"]
         .some(function (k) { return parseFloat(cs[k]) > 0; })) put("fail", "radius", "rounded corner on " + name(el));
@@ -115,8 +110,9 @@
       var s = ownText(el);
       if (s) lettering(el, getComputedStyle(el), s);
     });
+  }
 
-    // dashes between words
+  function checkText() {
     var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), node, words = [];
     while ((node = walk.nextNode())) {
       var host = node.parentElement;
@@ -131,7 +127,9 @@
       });
     }
     if (words.length) put("note", "hyphen", "hyphenated words, each either a true compound or to be reworded: " + words.slice(0, 30).join(", "));
+  }
 
+  function checkMarks() {
     var acts = document.querySelectorAll(".ask, .act").length;
     if (acts > 1) put("fail", "act", acts + " Act lines on the page: it takes one, on the one thing to do");
     Array.prototype.forEach.call(document.querySelectorAll(".state"), function (el) {
@@ -140,15 +138,19 @@
       if (!word) put("fail", "state", "a state that is not ok, caution, or fault: " + name(el));
       else if (shown !== word) put("fail", "state", "a " + word + ' state shows "' + shown + '": it shows its word, and the detail goes beside it');
     });
+  }
 
+  function checkImages() {
     Array.prototype.forEach.call(document.images, function (im) {
       var src = (im.getAttribute("src") || "").slice(0, 60);
       if (!(im.complete && im.naturalWidth > 0)) put("fail", "image", "did not load: " + src);
       if (!im.hasAttribute("alt")) put("warn", "alt", "an image with no alt text: " + src);
       else if (SLOT.test(im.alt)) put("warn", "slot", "double braces left in the alt text of " + src);
     });
+  }
 
-    // a file carries everything inside itself; a page that an app serves may take what its own app serves
+  // a file carries everything inside itself; a page that an app serves may take what its own app serves
+  function checkResources() {
     var served = /^https?:$/.test(location.protocol), outside = [];
     function own(u) {
       try { return served && new URL(u, document.baseURI).origin === location.origin; } catch (e) { return false; }
@@ -161,14 +163,18 @@
     outside.filter(function (u, i) { return outside.indexOf(u) === i && !own(u); }).forEach(function (u) {
       put("warn", "outside", "the page reaches " + (served ? "another site" : "outside its own file") + " for " + u.slice(0, 90));
     });
+  }
 
+  function checkPageMetadata() {
     if (!document.title.trim()) put("warn", "title", "the page has no title");
     else if (SLOT.test(document.title)) put("warn", "slot", "double braces left in the title: a slot that was never filled");
     ["header", "footer"].forEach(function (tag) {
       var n = document.querySelectorAll(tag).length;
       if (n > 1) put("warn", "once", n + " " + tag + " elements: the stylesheet draws " + tag + " as the page's own, so use it once");
     });
+  }
 
+  function checkFonts() {
     var faces = [];
     document.fonts.forEach(function (f) { faces.push(f); });
     faces.forEach(function (f) {
@@ -176,9 +182,27 @@
     });
     if (!faces.some(function (f) { return f.family.replace(/["']/g, "") === "Routed Gothic" && f.status === "loaded"; }))
       put("fail", "face", "Routed Gothic is not in use: titles and marks are set in it, so the stylesheet or its fonts are missing");
+  }
+
+  function run() {
+    var root = document.documentElement, width = window.innerWidth;
+    out.info = { width: width, wide: root.scrollWidth, height: root.scrollHeight };
+    var elements = Array.prototype.slice.call(document.body.querySelectorAll("*")).filter(function (el) {
+      return el.namespaceURI === XHTML && !SKIP[el.tagName] && el.getClientRects().length;
+    });
+
+    // Mobile Chrome can widen innerWidth to fit content that overflows the requested viewport.
+    checkOverflow(root, requestedWidth === null ? width : requestedWidth, elements);
+    checkStyles(elements);
+    checkText();
+    checkMarks();
+    checkImages();
+    checkResources();
+    checkPageMetadata();
+    checkFonts();
     return out;
   }
 
   var ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   return ready.then(function () { return JSON.stringify(run()); });
-})();
+})(/*VIEWPORT_WIDTH*/null);

@@ -59,7 +59,8 @@ Lettering never wraps, so count it before placing it. Capitals run about 0.72 of
 - Every label names a value the chart really reaches.
 - The script runs in its own folder, so it can read a data file that sits beside it.
 
-**Done when** the script prints one `<svg>` and every value on the drawing comes from the thing or from the data.
+**Done when** the script prints one well-formed `<svg>` element and every value on the drawing comes from the thing or from the data.
+Send messages to standard error so they do not become part of the SVG.
 
 ## 3. Place it
 

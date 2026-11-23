@@ -168,7 +168,7 @@ Options are command-specific: unsupported combinations such as `search "query" -
 
 ## Maintenance
 
-The engine is split into `core.ts` for scraping, caching, and crawl orchestration; `transports.ts` for the four network tiers; `content.ts` for page validation and extraction; and `config.ts` for credentials.
+The engine is split into `core.ts` for scraping, caching, and crawl orchestration; `robots.ts` for the robots.txt policy and its 15 second deadline; `transports.ts` for the four network tiers; `content.ts` for page validation and extraction; and `config.ts` for credentials.
 `search.ts` handles Brave request validation, API calls, and response normalization.
 `results.ts` owns formatting, metadata, and private artifacts for both search and page results.
 `index.ts` and `cli.mjs` are thin adapters over those shared engines.

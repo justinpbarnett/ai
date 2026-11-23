@@ -1,8 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import robotsParser from "robots-parser";
 import { credentialsPath, loadCredentials } from "./config.ts";
 import { extractPage, type PageContent } from "./content.ts";
 import { deadlineSignal } from "./deadline.ts";
+import { crawlPolicy } from "./robots.ts";
 import { searchStatus } from "./search.ts";
 import {
   checkScope,
@@ -368,29 +368,6 @@ export async function scrapeBatch(
   return { ok: pages.some((page) => page.ok), pages };
 }
 
-async function crawlPolicy(origin: string, signal: AbortSignal) {
-  const url = `${origin}/robots.txt`;
-  const response = await httpFetch(url, {
-    signal,
-    allowedUrl: (target) => new URL(target).origin === origin,
-  });
-  if ([404, 410].includes(response.status)) return robotsParser(url, "");
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      `robots.txt returned HTTP ${response.status}; crawl stopped rather than guessing permission.`,
-    );
-  }
-  if (
-    /html/i.test(response.contentType) &&
-    /^\s*(?:<!doctype|<html)/i.test(response.body)
-  ) {
-    throw new Error(
-      "robots.txt returned HTML instead of crawl rules; crawl stopped.",
-    );
-  }
-  return robotsParser(url, response.body);
-}
-
 function crawlablePath(path: string): boolean {
   return (
     !/\.(?:pdf|zip|gz|tar|exe|dmg|png|jpe?g|gif|svg|webp|ico|mp[34]|wav|woff2?|ttf|css|js)$/i.test(
@@ -401,8 +378,6 @@ function crawlablePath(path: string): boolean {
     )
   );
 }
-
-const robotsTimeoutMs = 15000;
 
 async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   const url = normalizeUrl(options.url);
@@ -430,15 +405,7 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   };
   if (!inScope(url))
     throw new Error("The starting URL must be inside pathPrefix.");
-  const robots = deadlineSignal(robotsTimeoutMs, signal);
-  const policy = await crawlPolicy(origin, robots.signal).catch(
-    (error: unknown) => {
-      signal?.throwIfAborted();
-      if (robots.deadline.aborted)
-        throw new Error(`robots.txt timed out after ${robotsTimeoutMs} ms.`);
-      throw error;
-    },
-  );
+  const policy = await crawlPolicy(origin, signal);
   const crawlDelay =
     policy.getCrawlDelay("PiWebScraper") ?? policy.getCrawlDelay("*");
   if (crawlDelay !== undefined && Number.isFinite(crawlDelay))

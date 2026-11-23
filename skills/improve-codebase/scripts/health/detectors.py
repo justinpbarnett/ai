@@ -1,7 +1,16 @@
 from collections import Counter, defaultdict, deque
 
+from .case_inventory import test_evidence, test_signature
+from .comments import comment_evidence, comment_signature
 from .dependency_graph import components, resolve_edges
 from .inventory import digest
+from .layout import (
+    change_coupling,
+    commit_sets,
+    directory_findings,
+    is_test_path,
+    locality,
+)
 from .parsers import GRAMMARS, Source, analyze
 
 DEFAULTS = {
@@ -18,10 +27,18 @@ DEFAULTS = {
     "selector_ids": 1,
     "duplicate_tokens": 50,
     "duplicate_lines": 8,
+    "comments": 1,
+    "folder_files": 30,
+    "coupling_revisions": 5,
+    "coupling_degree": 50,
 }
+MINIMUMS = {"duplicate_tokens": 50, "duplicate_lines": 8}
+MAXIMUMS = {"coupling_degree": 100}
 
 
-def candidate(rule, path, anchor, evidence, *, loc=None, related=None):
+def candidate(
+    rule, path, anchor, evidence, *, loc=None, related=None, signature_basis=None
+):
     location = {"path": path}
     if loc:
         location.update(
@@ -38,7 +55,9 @@ def candidate(rule, path, anchor, evidence, *, loc=None, related=None):
         "location": location,
         "related": related or [],
         "observation": evidence,
-        "signature": digest([rule, anchor, evidence]),
+        "signature": digest(
+            [rule, anchor, evidence if signature_basis is None else signature_basis]
+        ),
     }
 
 
@@ -48,11 +67,11 @@ def settings(document):
             "thresholds must be an object containing only supported detector names"
         )
     for name, value in document.items():
-        minimum = (
-            50 if name == "duplicate_tokens" else 8 if name == "duplicate_lines" else 1
-        )
-        if type(value) is not int or not minimum <= value <= 10000:
-            raise ValueError(f"{name} requires an integer between {minimum} and 10000")
+        minimum, maximum = MINIMUMS.get(name, 1), MAXIMUMS.get(name, 10000)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(
+                f"{name} requires an integer between {minimum} and {maximum}"
+            )
     return DEFAULTS | document
 
 
@@ -180,7 +199,14 @@ def duplicates(parsed, data, selected, thresholds):
 def parse_snapshot(entries, sources, parser_profile, core_only, cache_read, full):
     parsed, fresh, work = {}, {}, {}
     cache_keys = {
-        p: digest([entries[p]["hash"], entries[p]["language"], parser_profile])
+        p: digest(
+            [
+                entries[p]["hash"],
+                entries[p]["language"],
+                parser_profile,
+                is_test_path(p),
+            ]
+        )
         for p in sources
     }
     cached = {} if full else cache_read(set(cache_keys.values()))
@@ -189,7 +215,7 @@ def parse_snapshot(entries, sources, parser_profile, core_only, cache_read, full
         result = cached.get(key)
         if result is None:
             result = fresh.get(key) or analyze(
-                data, entries[path]["language"], core_only
+                data, entries[path]["language"], core_only, is_test_path(path)
             )
             if not result["gaps"]:
                 fresh[key] = result
@@ -299,6 +325,45 @@ def cycle_findings(edges, selected):
         )
 
 
+def comment_findings(path, rows, thresholds):
+    evidence = comment_evidence(rows)
+    if evidence["removable"] >= thresholds["comments"]:
+        yield candidate(
+            "comments",
+            path,
+            "file",
+            evidence,
+            signature_basis=comment_signature(rows),
+        )
+
+
+def test_findings(path, result, language):
+    if result["tests"] is not None:
+        yield candidate(
+            "tests",
+            path,
+            "file",
+            test_evidence(result["tests"], language),
+            signature_basis=test_signature(result["tests"], language),
+        )
+
+
+def layout_candidates(selected, edges, history, thresholds):
+    files = {path for path in selected if not is_test_path(path)}
+    found = [
+        candidate(rule, path, anchor, evidence, related=related)
+        for rule, path, anchor, evidence, related in directory_findings(
+            files, edges, thresholds
+        )
+    ]
+    sets = commit_sets(history, files)
+    found.extend(
+        candidate(rule, path, anchor, evidence, related=related, signature_basis=[])
+        for rule, path, anchor, evidence, related in change_coupling(sets, thresholds)
+    )
+    return found, locality(history, sets)
+
+
 def source_sizes(entries, selected):
     partition_sizes = defaultdict(lambda: {"files": 0, "nonblank_lines": 0})
     for path in selected:
@@ -312,7 +377,7 @@ def source_sizes(entries, selected):
 
 
 def scan_sources(
-    inventory, sources, thresholds, parser_profile, core_only, cache_read, full
+    inventory, sources, thresholds, parser_profile, core_only, cache_read, full, history
 ):
     entries = inventory["entries"]
     selected = {path for path in sources if entries[path]["disposition"] == "source"}
@@ -330,6 +395,13 @@ def scan_sources(
     ]
     findings.extend(duplicates(parsed, sources, selected, thresholds))
     findings.extend(cycle_findings(edges, selected))
+    for path in sorted(selected):
+        findings.extend(comment_findings(path, parsed[path]["comments"], thresholds))
+        findings.extend(test_findings(path, parsed[path], entries[path]["language"]))
+    found, layout = layout_candidates(selected, edges, history, thresholds)
+    findings.extend(found)
+    if not history["available"]:
+        limits["(git history)"] = [f"change coupling unavailable: {history['reason']}"]
     partitions, sizes = source_sizes(entries, selected)
     return {
         "candidates": findings,
@@ -340,5 +412,6 @@ def scan_sources(
         "partitions": partitions,
         "file_rankings": sizes,
         "metrics": metrics,
+        "layout": layout,
         "detector_work": work,
     }, fresh

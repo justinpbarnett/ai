@@ -3,6 +3,8 @@ from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from xml.etree import ElementTree
 
+from .case_inventory import TEST_LANGUAGES, extract_test_cases
+from .comments import finalize_comments, record_comment
 from .inventory import content_hash
 from .syntax_tree import (
     Source,
@@ -116,6 +118,8 @@ def syntax(surface, result, core_only):
         embedded_vue(surface, root, result, core_only)
     else:
         collect_tree(surface, root, result)
+        if result["tests"] is not None and surface.language in TEST_LANGUAGES:
+            result["tests"].extend(extract_test_cases(surface, root))
 
 
 def vue_surface(parent, block, opening, attrs, label):
@@ -161,7 +165,9 @@ def embedded_vue(parent, root, result, core_only):
         elif kind == "text":
             if text(parent.data, block).strip():
                 add_gap(result, "unsupported", "vue", "unexpected top-level text")
-        elif kind != "comment":
+        elif kind == "comment":
+            record_comment(parent, block, result)
+        else:
             result["limits"].append(f"Vue custom block: {kind}")
 
 
@@ -190,7 +196,7 @@ def project_references(data, result):
                 )
 
 
-def analyze(data, language, core_only):
+def analyze(data, language, core_only, test_file=False):
     result = {
         "metrics": [],
         "streams": [],
@@ -198,6 +204,8 @@ def analyze(data, language, core_only):
         "imports": [],
         "gaps": [],
         "limits": [],
+        "comments": [],
+        "tests": [] if test_file else None,
     }
     source = Source(data)
     if language in GRAMMARS:
@@ -206,6 +214,12 @@ def analyze(data, language, core_only):
         project_references(data, result)
     else:
         result["limits"].append("generic text only; semantic review required")
+    result["comments"] = finalize_comments(
+        source,
+        data,
+        result["comments"],
+        lambda name: select_parser(name, core_only)[0],
+    )
     if not result["streams"] and language != "msbuild":
         rows = []
         offset = 0

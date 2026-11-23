@@ -2,6 +2,7 @@ import re
 from bisect import bisect_right
 from dataclasses import dataclass
 
+from .comments import record_comment, record_docstring
 from .inventory import content_hash
 
 CALLABLES = {
@@ -408,7 +409,10 @@ def collect_tree(surface, root, result):
         node, ancestry, enclosing, depth, markup_depth = stack.pop()
         kind = node.type
         if "comment" in kind:
+            record_comment(surface, node, result)
             continue
+        if language == "python" and kind in {"expression_statement", "string"}:
+            record_docstring(surface, node, result)
         if errors < 5 and (node.is_error or node.is_missing):
             result["gaps"].append(
                 {"kind": "syntax-error", "surface": label, **surface.location(node)}

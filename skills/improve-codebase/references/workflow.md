@@ -20,7 +20,7 @@ For a wiring unit, inspect the actual registration, loading, dispatch, and consu
 ## Deepening and safe destinations
 
 Use the deletion test: if removing the module scatters decisions across its callers, it is hiding real complexity; if removal deletes only indirection, consider inlining it.
-Prefer putting decisions that change together behind a small, useful interface and placing the code where maintainers naturally look for it.
+Prefer putting decisions that change together behind a small, useful interface, beside the code that uses it, in a folder named for its domain feature; [lean-rules.md](lean-rules.md) holds the layout limits and checks.
 For substantial design work, compare at least two concrete destinations and check real users and shared state.
 Consolidation can be better than decomposition; introducing an interface for hypothetical variation is not an improvement.
 A length, nesting, or duplicate alert is a question, not an instruction to split, abstract, or shorten.
@@ -28,9 +28,9 @@ A length, nesting, or duplicate alert is a question, not an instruction to split
 For each actionable finding, cite the actual friction, affected contracts, simplest named transformation, and verification path.
 Reproduce a bug through the real CLI, API, or UI before fixing it; separate behavior changes from refactors.
 Read callers before moving or renaming code; preserve exported names, data formats, execution order, mutation, resource cleanup, and async behavior.
-Keep batches runnable, preserve user changes and existing assertions, and reverse only your own transformation if verification fails.
+Keep batches runnable, preserve user changes and every test that protects a business rule, and reverse only your own transformation if verification fails.
 Use a small internal compatibility bridge where necessary and verify mechanically necessary changes beyond the requested scope without expanding substantive edits there.
-Use existing checks and direct behavior by default; add automated suites, ADRs, or specs only when required.
+Verify with existing checks and direct behavior; add a test only for a business rule that no kept test protects, and leave suites, ADRs, and specs out.
 Run the repository's complete documented gate and exercise actual behavior, not only builds or lint.
 For UI flows use Claude in Chrome when available; otherwise record what was blocked rather than inferring pixel or interaction equivalence.
 

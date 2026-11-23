@@ -230,6 +230,17 @@ def resolution_inputs(state, finding, document, entries):
     return required_paths, removal
 
 
+GRAPH_WIDE_RULES = frozenset(
+    {
+        "dependency-cycle",
+        "folder-cycle",
+        "single-importer",
+        "wide-folder",
+        "generic-folder",
+    }
+)
+
+
 def require_scanner_rerun(state, finding, entries, required_paths):
     require(
         finding.get("detector_profile") == state.get("observation_profile", {}),
@@ -237,7 +248,7 @@ def require_scanner_rerun(state, finding, entries, required_paths):
     )
 
     def affects_finding(path):
-        return path in required_paths or finding["rule"] == "dependency-cycle"
+        return path in required_paths or finding["rule"] in GRAPH_WIDE_RULES
 
     require(
         state["scan_revision"] >= finding["pending_since"]

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .detectors import scan_sources
-from .inventory import content_hash, digest, hotspots, inventory
+from .inventory import commit_history, content_hash, digest, hotspots, inventory
 from .parsers import capabilities
 from .review_units import REVIEW_VERSION, units_for
 from .state import detect_moves, observe, require
@@ -12,6 +12,7 @@ from .verification import restore_legacy_baseline
 SKILL = Path(__file__).resolve().parents[2]
 REF = SKILL / "references" / "smell-guide.md"
 SCOPE_EVIDENCE_VERSION = 1
+HISTORY_RULES = frozenset({"change-coupling"})
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,9 @@ class ScanScope:
     scopes: list[str]
     thresholds: dict[str, int]
     state_dir: Path
+
+    def history(self):
+        return commit_history(self.root, self.is_git)
 
     def collect(self, *, gather=False):
         return inventory(
@@ -33,14 +37,26 @@ def analyzer_profiles(thresholds, caps):
         [
             caps,
             sys.version_info[:3],
-            *(module_hash(name) for name in ("inventory", "parsers", "syntax_tree")),
+            *(
+                module_hash(name)
+                for name in (
+                    "inventory",
+                    "parsers",
+                    "syntax_tree",
+                    "comments",
+                    "case_inventory",
+                )
+            ),
         ]
     )
     detector = digest(
         [
             parser,
             thresholds,
-            *(module_hash(name) for name in ("detectors", "dependency_graph")),
+            *(
+                module_hash(name)
+                for name in ("detectors", "dependency_graph", "layout")
+            ),
         ]
     )
     return parser, detector
@@ -56,7 +72,11 @@ def rubric_version():
             REVIEW_VERSION,
             *(
                 content_hash(path.read_bytes()) if path.is_file() else None
-                for path in (REF, SKILL / "references" / "workflow.md")
+                for path in (
+                    REF,
+                    SKILL / "references" / "workflow.md",
+                    SKILL / "references" / "lean-rules.md",
+                )
             ),
         ]
     )
@@ -78,7 +98,11 @@ def scope_evidence(live, analyzed, profile, rubric):
             profile,
             rubric,
             sorted(unit["inputs"] for unit in units.values()),
-            sorted(digest(item) for item in analyzed["candidates"]),
+            sorted(
+                digest(item)
+                for item in analyzed["candidates"]
+                if item["rule"] not in HISTORY_RULES
+            ),
             sorted(digest(item) for item in analyzed["gaps"]),
         ]
     )
@@ -147,6 +171,7 @@ def scan(args, store, state, scope):
         args.core_only,
         store.cached,
         args.full,
+        scope.history(),
     )
     scope_inputs, snapshot, units = scope_evidence(live, analyzed, profile, rubric)
     analyzed["hotspots"] = hotspots(scope.root, scope.is_git, analyzed["detector_work"])
@@ -209,7 +234,7 @@ def scan(args, store, state, scope):
     return live
 
 
-def scan_is_current(store, state, current, files, thresholds):
+def scan_is_current(store, state, current, files, thresholds, read_history):
     if state.get("scope_evidence_version") != SCOPE_EVIDENCE_VERSION:
         return False
     core_only = state["core_only"]
@@ -220,7 +245,14 @@ def scan_is_current(store, state, current, files, thresholds):
     if current["fingerprint"] == state["inventory"]["fingerprint"]:
         return True
     analyzed, _ = scan_sources(
-        current, files, thresholds, parser_profile, core_only, store.cached, False
+        current,
+        files,
+        thresholds,
+        parser_profile,
+        core_only,
+        store.cached,
+        False,
+        read_history(),
     )
     _, snapshot, _ = scope_evidence(current, analyzed, profile, rubric)
     return snapshot == state["snapshot"]
@@ -233,4 +265,6 @@ def current_inventory(store, state, scope):
         and state["inventory"]["fingerprint"] != current["fingerprint"]
     ):
         current, files = scope.collect(gather=True)
-    return current, scan_is_current(store, state, current, files, scope.thresholds)
+    return current, scan_is_current(
+        store, state, current, files, scope.thresholds, scope.history
+    )

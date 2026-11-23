@@ -11,7 +11,7 @@ Select the transformation that improves this code's actual responsibilities and 
 | Mysterious Name | Names obscure intent, units, domain meaning, or side effects. | Change Function Declaration, Rename Variable, Rename Field. |
 | Duplicated Code | Multiple implementations encode the same knowledge and must change together. | Extract Function, Slide Statements, Pull Up Method. |
 | Long Function | A function mixes intentions or requires tracing implementation details to understand its purpose. | Extract Function, Replace Temp with Query, Split Phase, Decompose Conditional, Replace Nested Conditional with Guard Clauses. |
-| Comments | Commentary compensates for obscure names, tangled control flow, or unexplained responsibilities. | Extract Function, Change Function Declaration; preserve comments explaining genuine constraints and reasons. |
+| Comments | Commentary compensates for obscure names, tangled control flow, or unexplained responsibilities. | Extract Function, Change Function Declaration, Replace Magic Literal, Introduce Assertion; delete the comment once the code says it, keeping only what the comment keep list in [lean-rules.md](lean-rules.md) names. |
 
 ## Data and state
 

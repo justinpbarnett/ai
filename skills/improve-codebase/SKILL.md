@@ -1,6 +1,6 @@
 ---
 name: improve-codebase
-description: Find, prioritize, and verify codebase improvements with a resumable scan and review loop.
+description: Find, prioritize, and verify codebase improvements with a resumable scan and review loop; prunes tests to business rules, replaces comments with clear code, and arranges folders by what changes together.
 argument-hint: "[paths or concern; fallout of a change; audit only; prepare a goal]"
 disable-model-invocation: true
 ---
@@ -21,6 +21,7 @@ The CLI tracks evidence and computes progress; you judge findings, change code w
    Use project tooling to distinguish a real defect from a parser limitation, and keep unrelated verified work moving when a gap remains.
    Continue from valid evidence on resume; use `--full` only for a requested or justified fresh investigation.
 3. **Baseline and review.** Read [workflow.md](references/workflow.md) for the three review axes, Fowler reference, architecture judgment, and delegation rules.
+   Read [lean-rules.md](references/lean-rules.md) for the three lean rules (tests, comments, layout), their keep lists, and their validation; triage every `tests`, `comments`, and layout candidate against it.
    Declare the verification manifest from actual project commands and interfaces and exercise representative behavior before editing.
    Fill the generated receipt with actual source evidence, then import it and batch related triage and verification records.
    Triage candidates by maintenance impact, not metrics alone, and classify fallout against the base.
@@ -29,6 +30,7 @@ The CLI tracks evidence and computes progress; you judge findings, change code w
 4. **Transform and verify.** Pick dependency-ready findings and work in small coherent batches; use parallel workers only for independent changes.
    Mark work pending verification, rescan, and confirm through current checks, real user flows, and source/caller review before closing findings.
    Separate end-to-end reproduced bugs from behavior-preserving transformations.
+   Move files in rename-only batches, and prune tests in the final batch after every refactor and move is verified.
    Continue independent safe work when another finding is blocked; do not fix by disabling checks or moving code outside scope.
 5. **Converge.** Repeat discovery for affected inputs, then run the distinct confirmation review for units still due.
    After a genuine fix/review cycle use `scan --checkpoint`; after three no-progress cycles, report the blocker rather than oscillating.
@@ -37,5 +39,6 @@ The CLI tracks evidence and computes progress; you judge findings, change code w
    A verified slice does not complete its parent run.
 
 Report verified improvements, score and coverage, real before/after results, diff statistics including untracked files, and any unresolved findings or unavailable checks.
+Include test count, removable comment count, and layout locality before and after.
 Report sequential confirmation if independent reviewers were unavailable.
 Leave commits, pushes, pull requests, deployments, and goal lifecycle controls to the user or explicitly authorized workflow.

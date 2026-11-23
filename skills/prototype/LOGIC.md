@@ -28,10 +28,10 @@ Pick whichever shape best fits the question being asked, *not* whichever is easi
 ### 3. Build the shareable HTML file
 
 Deliver one HTML file that opens by double-click and survives being emailed around, with no server, installation, or network connection needed at use time.
-Use UI SDK for interactive controls as directed in [SKILL.md](SKILL.md), and use the agreed framework if there is one; otherwise use plain HTML/CSS/JS and the Web Components adapter.
-A build step is fine: bundle the SDK, the adapter, and any framework into the HTML file so the delivered demo stays self-contained.
+Choose the framework and controls as directed in [SKILL.md](SKILL.md).
+If dependencies are needed, bundle them into the HTML file so the delivered demo stays self-contained.
 Verify it opens from `file://` with the network disabled.
-If the agreed framework or SDK cannot meet that constraint, explain the conflict and ask before changing the deliverable.
+If the agreed stack cannot meet that constraint, explain the conflict and ask before changing the deliverable.
 
 Write it for a non-developer. Every label is in **domain language**, not code – buttons and state read like the business, not the reducer. Explain in plain words what's happening.
 

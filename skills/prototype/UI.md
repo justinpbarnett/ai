@@ -35,7 +35,7 @@ Write down the plan in one line, in the prototype's location or a top-of-file co
 Draft each variant. Hold each one to:
 
 - The page's purpose and the data it has access to.
-- UI SDK controls in the agreed or existing framework, styled to fit the project's design system; see [SKILL.md](SKILL.md) for framework selection and package docs.
+- Controls chosen as directed in [SKILL.md](SKILL.md), styled to fit the project's design system.
 - A clear exported component name, e.g. `VariantA`, `VariantB`, `VariantC`.
 
 Variants must be **structurally different** – different layout, different information hierarchy, different primary affordance, not just different colours. Three slightly-tweaked card grids isn't a UI prototype, it's wallpaper. If two drafts come out too similar, redo one with explicit "do not use a card grid" guidance.

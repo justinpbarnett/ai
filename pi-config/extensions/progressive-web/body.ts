@@ -2,14 +2,6 @@ import { NonRetryableError } from "./url-policy.ts";
 
 export const maxResponseBytes = 10 * 1024 * 1024;
 
-export function deadlineSignal(timeoutMs: number, caller?: AbortSignal) {
-  const deadline = AbortSignal.timeout(timeoutMs);
-  return {
-    deadline,
-    signal: caller ? AbortSignal.any([caller, deadline]) : deadline,
-  };
-}
-
 export function oversizeError(): NonRetryableError {
   return new NonRetryableError("Response exceeds the 10 MiB download limit.");
 }

@@ -1,6 +1,7 @@
 import { JSDOM } from "jsdom";
-import { deadlineSignal, responseText } from "./body.ts";
-import { braveCredentialsPath, loadBraveApiKey } from "./config.ts";
+import { responseText } from "./body.ts";
+import { deadlineSignal } from "./deadline.ts";
+import { braveCredentialsPath, cliPath, loadBraveApiKey } from "./config.ts";
 import { normalizeUrl } from "./url-policy.ts";
 
 export const searchLimits = {
@@ -224,7 +225,7 @@ export async function search(
   const apiKey = await loadBraveApiKey();
   if (!apiKey)
     throw new Error(
-      "Brave Search is not configured. Set BRAVE_SEARCH_API_KEY, or copy your key and run: !pbpaste | node ~/.pi/agent/extensions/progressive-web/cli.mjs configure-brave",
+      `Brave Search is not configured. Set BRAVE_SEARCH_API_KEY, or copy your key and run: !pbpaste | node ${cliPath} configure-brave`,
     );
   const { deadline, signal } = deadlineSignal(timeoutMs, runtime.signal);
   const started = Date.now();

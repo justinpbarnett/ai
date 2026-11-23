@@ -1,11 +1,10 @@
-import hashlib
 import os
 import re
 import stat
 import subprocess
 from pathlib import Path
 
-from .hashing import content_hash, digest
+from .hashing import content_hash, digest, file_digest
 from .paths import within
 
 STATE_DIR = ".improve-codebase"
@@ -279,17 +278,6 @@ def read_source(path):
         return read_within_limit(stream)
 
 
-def stream_hash(path):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    hasher = hashlib.sha256()
-    with os.fdopen(fd, "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError("not a regular file")
-        for block in iter(lambda: stream.read(1 << 20), b""):
-            hasher.update(block)
-    return hasher.hexdigest()
-
-
 def read_within_limit(stream):
     data = stream.read(MAX_SOURCE_BYTES + 1)
     if len(data) > MAX_SOURCE_BYTES:
@@ -388,7 +376,7 @@ def inventory_entry(root, name, reason, selected):
         if inside_nested_checkout(root, path):
             return skipped_entry("nested Git boundary", selected), None, None
         if reason == LOCKFILE_REASON:
-            return skipped_entry(reason, selected), None, stream_hash(path)
+            return skipped_entry(reason, selected), None, file_digest(path)
         data = read_source(path)
     except FileNotFoundError:
         return skipped_entry("tracked path absent in worktree", selected), None, None

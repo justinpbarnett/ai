@@ -6,12 +6,12 @@ import {
   crawlLimits,
   dispose,
   MAX_SCRAPE_URLS,
+  readiness,
   scrapeBatch,
   scrapeTimeoutLimits,
-  status,
 } from "./core.ts";
 import { formatResults, hasFailures, saveDocument } from "./results.ts";
-import { search, searchLimits, searchStatus } from "./search.ts";
+import { search, searchLimits } from "./search.ts";
 
 const help = `Pi web search and progressive scraper
 
@@ -158,7 +158,7 @@ try {
   } else if (command === "status") {
     if (args.length)
       throw new Error("status does not take positional arguments.");
-    const result = { ...(await searchStatus()), ...(await status()) };
+    const result = await readiness();
     console.log(
       values.json
         ? JSON.stringify(result, null, 2)

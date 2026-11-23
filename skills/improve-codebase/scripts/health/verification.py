@@ -1,9 +1,6 @@
-import hashlib
-import os
-import stat
 from pathlib import Path
 
-from .hashing import digest
+from .hashing import digest, file_digest
 from .inventory import safe_file
 from .ledger import now
 from .validation import array, object_value, require, string
@@ -11,19 +8,10 @@ from .validation import array, object_value, require, string
 VERIFICATION_KINDS = {"baseline", "check", "flow", "final_diff"}
 SATISFACTORY_RESULTS = {"passed", "not_applicable"}
 VERIFICATION_VERSION = 1
-ARTIFACT_CHUNK_BYTES = 1024 * 1024
 
 
 def artifact_hash(state_dir, relative):
-    fd = os.open(
-        safe_file(state_dir, relative), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-    )
-    with os.fdopen(fd, "rb") as stream:
-        require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "not a regular file")
-        hasher = hashlib.sha256()
-        while chunk := stream.read(ARTIFACT_CHUNK_BYTES):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+    return file_digest(safe_file(state_dir, relative))
 
 
 def record_manifest(state, document):

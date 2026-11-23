@@ -153,15 +153,10 @@ def python_targets(paths, ancestors, project, ref):
     matches = []
     for base in bases:
         resolved = posixpath.normpath(posixpath.join(base, tail))
-        matches.extend(
-            path
-            for path in (
-                resolved + ".py",
-                resolved + ".pyi",
-                posixpath.join(resolved, "__init__.py"),
-            )
-            if path in paths
-        )
+        candidates = [posixpath.normpath(posixpath.join(resolved, "__init__.py"))]
+        if tail:
+            candidates = [resolved + ".py", resolved + ".pyi", *candidates]
+        matches.extend(path for path in candidates if path in paths)
     return matches
 
 

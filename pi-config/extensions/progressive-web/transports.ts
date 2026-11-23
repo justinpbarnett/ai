@@ -329,5 +329,17 @@ export async function brightDataFetch(
       `Bright Data returned HTTP ${response.status}. Check your API token, Web Unlocker zone, balance, and account permissions.`,
     );
   }
-  return readResponse(response, url, "text/html");
+  const unlockError = response.headers.get("x-brd-error");
+  if (unlockError) {
+    await response.body?.cancel();
+    throw new Error(
+      `Bright Data could not unlock the page: ${unlockError.slice(0, 200)}`,
+    );
+  }
+  const page = await readResponse(response, url, "text/html");
+  const targetStatus = Number.parseInt(
+    response.headers.get("x-brd-status-code") ?? "",
+    10,
+  );
+  return Number.isNaN(targetStatus) ? page : { ...page, status: targetStatus };
 }

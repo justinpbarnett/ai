@@ -21,11 +21,13 @@ function expandTilde(path: string): string {
   return path;
 }
 
-const stateDirectory = join(
-  expandTilde(
-    process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
-  ),
-  "web-scraper",
+const agentDirectory = process.env.PI_CODING_AGENT_DIR || "~/.pi/agent";
+const stateDirectory = join(expandTilde(agentDirectory), "web-scraper");
+export const cliPath = join(
+  agentDirectory,
+  "extensions",
+  "progressive-web",
+  "cli.mjs",
 );
 export const credentialsPath = join(stateDirectory, "credentials.json");
 export const braveCredentialsPath = join(stateDirectory, "brave-search.json");

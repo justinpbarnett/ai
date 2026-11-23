@@ -1,8 +1,9 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import robotsParser from "robots-parser";
-import { deadlineSignal } from "./body.ts";
 import { credentialsPath, loadCredentials } from "./config.ts";
 import { extractPage, type PageContent } from "./content.ts";
+import { deadlineSignal } from "./deadline.ts";
+import { searchStatus } from "./search.ts";
 import {
   checkScope,
   NonRetryableError,
@@ -182,6 +183,10 @@ export async function status() {
     credentialsPath,
     cacheEntries: cache.size,
   };
+}
+
+export async function readiness() {
+  return { ...(await searchStatus()), ...(await status()) };
 }
 
 async function fetchPageAtTier(

@@ -32,7 +32,14 @@ def add_local_exclusion(root, relative):
     require(path.resolve() == path, "Git local exclude is redirected by a symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_name(path.name + ".lock")
-    with lock.open("xb") as stream:
+    try:
+        stream = lock.open("xb")
+    except FileExistsError as error:
+        raise FileExistsError(
+            f"{lock} exists: another write holds it, or a killed command left it; "
+            "remove it if no improve_codebase command is running"
+        ) from error
+    with stream:
         try:
             old = path.read_bytes() if path.exists() else b""
             rule = f"/{relative}/".encode()

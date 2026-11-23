@@ -7,9 +7,9 @@ import {
   dispose,
   MAX_SCRAPE_URLS,
   maxTierNumber,
+  readiness,
   scrapeBatch,
   scrapeTimeoutLimits,
-  status,
 } from "./core.ts";
 import {
   formatResults,
@@ -17,7 +17,8 @@ import {
   saveDocument,
   type WebResult,
 } from "./results.ts";
-import { search, searchLimits, searchStatus } from "./search.ts";
+import { cliPath } from "./config.ts";
+import { search, searchLimits } from "./search.ts";
 
 const tierOptions = {
   startTier: Type.Optional(
@@ -275,28 +276,28 @@ export default function (pi: ExtensionAPI) {
     description:
       "Show search/scraper readiness and private credential setup instructions",
     async handler(_args, _ctx) {
-      const readiness = { ...(await searchStatus()), ...(await status()) };
+      const current = await readiness();
       pi.sendMessage({
         customType: "web-scraper-status",
         display: true,
         content: [
-          readiness.search,
-          ...readiness.tiers,
+          current.search,
+          ...current.tiers,
           "",
           "Ask Pi: Search the web for progressive web scraping techniques",
           "Ask Pi: Scrape https://example.com",
           "Ask Pi: Crawl https://example.com/docs/ with pathPrefix /docs/ and maxPages 10",
           "",
           "To configure search, get a Brave Search API key at https://api-dashboard.search.brave.com/ and copy it.",
-          "!pbpaste | node ~/.pi/agent/extensions/progressive-web/cli.mjs configure-brave",
+          `!pbpaste | node ${cliPath} configure-brave`,
           "",
           "To configure Bright Data, create a Web Unlocker zone and copy its API token.",
           "Then run this Pi shell command, replacing YOUR_WEB_UNLOCKER_ZONE with its name:",
-          "!pbpaste | node ~/.pi/agent/extensions/progressive-web/cli.mjs configure --zone YOUR_WEB_UNLOCKER_ZONE",
+          `!pbpaste | node ${cliPath} configure --zone YOUR_WEB_UNLOCKER_ZONE`,
           "",
           "Do not paste the token into chat. It is read from stdin and saved with owner-only permissions.",
-          `Brave credentials: ${readiness.braveCredentialsPath}`,
-          `Bright Data credentials: ${readiness.credentialsPath}`,
+          `Brave credentials: ${current.braveCredentialsPath}`,
+          `Bright Data credentials: ${current.credentialsPath}`,
         ].join("\n"),
       });
     },

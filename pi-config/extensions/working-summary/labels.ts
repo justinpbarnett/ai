@@ -9,7 +9,11 @@ export type Labels = Partial<Record<Slot, string>>;
 
 export const SUMMARY_WORD_LIMIT = 6;
 
-const EXCERPT_LENGTH = 384;
+export const EXCERPT_LENGTH = 384;
+const EARLIER_FROM_START = 2;
+const EARLIER_FROM_END = 1;
+export const REMOTE_EXCERPT_COUNT = 1 + EARLIER_FROM_START + EARLIER_FROM_END;
+export const JEV_EXCERPT_COUNT = 2;
 const FILE_BLOCK = /<file name="/;
 const FILE_END = /<\/file>(?:\r?\n|$)/g;
 const IMAGE_NOTE = /^\[Image(?: converted from| omitted:|: original )[^\]\r\n]*\][\t ]*\r?$/gm;
@@ -131,10 +135,11 @@ export function earlierExcerpts(branch: readonly UserMessage["content"][], lates
 	};
 	for (const content of branch) {
 		add(content);
-		if (earlier.size === 2) break;
+		if (earlier.size === EARLIER_FROM_START) break;
 	}
-	for (let index = branch.length - 1; index >= 0; index--) {
-		if (add(branch[index]!)) break;
+	const withLatestEarlier = earlier.size + EARLIER_FROM_END;
+	for (let index = branch.length - 1; index >= 0 && earlier.size < withLatestEarlier; index--) {
+		add(branch[index]!);
 	}
 	return [...earlier];
 }

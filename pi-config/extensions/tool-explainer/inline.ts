@@ -108,6 +108,19 @@ export class InlineToolOutput {
 	constructor(private readonly defaultExpanded: () => boolean | undefined) {}
 
 	reset(redraw: boolean) {
+		const ids = this.clearGroups();
+		if (redraw) for (const id of ids) this.redraw(id);
+		else this.views.clear();
+	}
+
+	rebuild(messages: Iterable<AgentMessage>, cwd: string) {
+		const before = this.clearGroups();
+		for (const message of messages) this.observe(message, cwd);
+		this.close();
+		for (const id of new Set([...before, ...this.groups.keys()])) this.redraw(id);
+	}
+
+	private clearGroups() {
 		const ids = [...this.groups.keys()];
 		this.groups.clear();
 		this.calls.clear();
@@ -116,16 +129,7 @@ export class InlineToolOutput {
 		this.messageCalls.clear();
 		this.nativeCalls.clear();
 		this.live = undefined;
-		if (redraw) for (const id of ids) this.redraw(id);
-		else this.views.clear();
-	}
-
-	rebuild(messages: Iterable<AgentMessage>, cwd: string) {
-		const before = [...this.groups.keys()];
-		this.reset(false);
-		for (const message of messages) this.observe(message, cwd);
-		this.close();
-		for (const id of new Set([...before, ...this.groups.keys()])) this.redraw(id);
+		return ids;
 	}
 
 	observe(message: AgentMessage, cwd: string) {

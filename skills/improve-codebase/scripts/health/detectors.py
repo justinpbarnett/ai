@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .dependency_graph import components, resolve_edges
 from .hashing import digest
 from .layout import (
+    EDGE_LIMIT,
     change_coupling,
     commit_sets,
     directory_findings,
@@ -148,7 +149,22 @@ def block_locations(matches, language, covered, data, source_map):
     return locations
 
 
-def group_locations(matches):
+def metric_start(metric):
+    return metric["line"], metric["column"]
+
+
+def metric_end(metric):
+    return metric["end_line"], metric["end_column"]
+
+
+def group_locations(matches, rule, language, covered):
+    if all(
+        is_covered(covered[(path, rule, language)], metric_start(metric))
+        for path, metric in matches
+    ):
+        return []
+    for path, metric in matches:
+        cover(covered[(path, rule, language)], metric_start(metric), metric_end(metric))
     return [
         {
             "path": path,
@@ -173,7 +189,7 @@ def duplicates(parsed, data, selected, thresholds):
         locations = (
             block_locations(matches, language, covered, data, source_map)
             if rule == DUPLICATE_BLOCK
-            else group_locations(matches)
+            else group_locations(matches, rule, language, covered)
         )
         if not locations:
             continue
@@ -328,8 +344,16 @@ def cycle_findings(edges, selected):
             DEPENDENCY_CYCLE,
             affected[0],
             "resolved-edges",
-            {"members": members, "edges": cycle_edges},
-            related=[{"path": path} for path in members if path != affected[0]],
+            {
+                "member_count": len(members),
+                "members": members[:EDGE_LIMIT],
+                "edge_count": len(cycle_edges),
+                "edges": cycle_edges[:EDGE_LIMIT],
+            },
+            related=[{"path": path} for path in members if path != affected[0]][
+                :EDGE_LIMIT
+            ],
+            signature_basis={"members": members, "edges": cycle_edges},
         )
 
 

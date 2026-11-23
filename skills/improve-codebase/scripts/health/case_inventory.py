@@ -271,6 +271,14 @@ def skip_argument(data, attribute):
     )
 
 
+def is_csharp_snapshot_call(owner, name):
+    return (
+        (owner == "Verifier" and name == "Verify")
+        or (owner == "Snapshot" and name.startswith("Match"))
+        or name == "MatchSnapshot"
+    )
+
+
 def csharp_count(data, node, case):
     for item in descendants(node):
         kind = item.type
@@ -286,11 +294,7 @@ def csharp_count(data, node, case):
                 elif name in CSHARP_INTERACTIONS and owner != "Verifier":
                     case["interactions"] += 1
                     case["assertions"] += 1
-                if (
-                    (owner == "Verifier" and name == "Verify")
-                    or (owner == "Snapshot" and name.startswith("Match"))
-                    or name == "MatchSnapshot"
-                ):
+                if is_csharp_snapshot_call(owner, name):
                     case["snapshots"] += 1
             elif (
                 function.type == "identifier" and node_text(data, function) == "Verify"

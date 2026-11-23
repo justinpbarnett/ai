@@ -148,12 +148,15 @@ While tools run, Pi shows one compact detail row: what the most recent running c
 When that call finishes, Pi switches to another still-running call if there is one.
 The row shows the current batch's progress, such as `Running: Shell command · 1 done · 1 failed`, and failures appear as soon as they happen.
 Until its summary is ready, the row uses the tool name and target, such as `Running: File read: README.md…`.
-Once tools finish, the compact rows collapse to a count, such as `Called 4 tools · ctrl+o to expand`, with a red count when any failed.
+Once tools finish, the compact rows collapse to a count, such as `Called 4 tools`, with a red count when any failed.
 Thinking runs, assistant notes, and user messages separate collapsed groups.
 File edits and writes always show as Pi draws them, with their diffs, and are never summarized or counted.
 They also separate collapsed groups so each `Called N tools` line stays in order around them.
 
-Press `Ctrl+O` to switch between the summaries and Pi's original tool rows and full reasoning.
+Click a tool group or thinking summary to open it, then click anywhere in its contents to collapse it again.
+Clicking toggles on mouse release, so dragging across the output still selects text for copying.
+Clicking requires Pi's fullscreen TUI, which this config enables.
+Press `Ctrl+O` to switch all tool groups and thinking summaries between compact and full views, including in regular mode.
 Thinking summaries need `"hideThinkingBlock": false`, which this repo's `settings.json` sets.
 `Ctrl+T` hides thinking entirely and writes that choice back to `settings.json`; press it again to bring the summaries back.
 Pi saves thinking summaries with the active session branch, so they survive `/reload` and resume without rerunning the writer.

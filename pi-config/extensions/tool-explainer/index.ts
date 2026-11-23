@@ -4,6 +4,7 @@ import { OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured } from "../shared/op
 import { manualRows, purposeCall, recentCalls, type Invocation } from "./evidence.js";
 import { ExplanationError } from "./errors.js";
 import { InlineToolOutput, shownNatively } from "./inline.js";
+import { TranscriptPresentation } from "./presentation.js";
 import { plain, purposeExcerpt, safeLabel } from "./screening.js";
 import { DEFAULT_COUNT, MAX_COUNT, config, defaults, parseCount } from "./settings.js";
 import { THINKING_ENTRY, ThinkingSummaries, thinkingRuns, type SavedThought } from "./thinking.js";
@@ -107,12 +108,13 @@ class ToolExplainer {
 	private attached?: ExtensionContext;
 	// Pi can rebuild tool rows before session_start during /reload.
 	private renderInline = true;
-	private shownExpanded = false;
+	private detachPresentation?: () => void;
 
-	private readonly inline = new InlineToolOutput(() => this.expandedChanged());
+	private readonly presentation = new TranscriptPresentation();
+	private readonly inline = new InlineToolOutput(() => this.attached?.ui.getToolsExpanded());
 	private readonly thinking = new ThinkingSummaries({
 		enabled: () => this.attached !== undefined && this.autoEnabled(this.attached),
-		expanded: () => this.attached?.ui.getToolsExpanded() ?? false,
+		expanded: () => this.presentation.thinkingExpanded ?? this.attached?.ui.getToolsExpanded() ?? false,
 		refresh: () => this.refreshThinking(),
 		write: (text, signal) => this.settings.writer.kind === "ollama" ? writeThinkingSummary(this.settings.writer.model, text, signal) : undefined,
 		save: (record) => this.persist(record),
@@ -141,13 +143,6 @@ class ToolExplainer {
 		this.attached?.ui.setHiddenThinkingLabel(undefined);
 	}
 
-	private expandedChanged() {
-		const expanded = this.attached?.ui.getToolsExpanded() ?? false;
-		if (expanded === this.shownExpanded) return;
-		this.shownExpanded = expanded;
-		this.refreshThinking();
-	}
-
 	private count(): number | undefined {
 		const flag = this.pi.getFlag(COUNT_FLAG);
 		return flag === undefined ? this.settings.count : parseCount(flag);
@@ -162,6 +157,7 @@ class ToolExplainer {
 		this.active.tool.abort();
 		this.active = state();
 		this.thinking.reset();
+		this.presentation.resetThinking();
 		this.inline.reset(redraw);
 	}
 
@@ -179,7 +175,6 @@ class ToolExplainer {
 		if (ctx.mode !== "tui" || !ctx.isProjectTrusted()) return;
 		this.thinking.restore(ctx.sessionManager.getBranch());
 		this.inline.rebuild(this.autoEnabled(ctx) ? shownMessages(ctx) : [], ctx.cwd);
-		this.shownExpanded = ctx.ui.getToolsExpanded();
 		setTimeout(() => this.refreshThinking(), 0);
 	}
 
@@ -220,6 +215,7 @@ class ToolExplainer {
 			this.renderInline = ctx.mode === "tui";
 			if (!this.renderInline) return;
 			this.attached = ctx;
+			this.detachPresentation = this.presentation.attach(() => this.autoEnabled(ctx), () => ctx.ui.getToolsExpanded());
 			const loaded = config();
 			this.settings = loaded;
 			this.auto = loaded.auto && !this.pi.getFlag(NO_AUTO_FLAG);
@@ -228,6 +224,8 @@ class ToolExplainer {
 			if (this.count() === undefined) ctx.ui.notify(`--${COUNT_FLAG} must be 1 to ${MAX_COUNT}. Manual explanations use ${DEFAULT_COUNT}.`, "warning");
 		});
 		this.pi.on("session_shutdown", () => {
+			this.detachPresentation?.();
+			this.detachPresentation = undefined;
 			this.history.length = 0;
 			this.reset();
 			this.attached = undefined;

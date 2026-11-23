@@ -18,7 +18,7 @@
   "theme": "dark",
   "quietStartup": true,
   "defaultProjectTrust": "always",
-  "tuiMode": "regular",
+  "tuiMode": "fullscreen",
   "deviceId": "ab071c5a-8a16-4bce-a1de-b58a412b157c",
   "compaction": {
     "modelOverrides": {

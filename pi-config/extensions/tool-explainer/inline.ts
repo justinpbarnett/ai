@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { genericActivity, toolActivity, type Invocation, type ToolActivity } from "./evidence.js";
+import { clickToToggle, removeExpansionHints } from "./presentation.js";
 import { plain } from "./screening.js";
 
 type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
@@ -9,7 +10,7 @@ type Context = Parameters<RenderCall>[2];
 type Theme = Parameters<RenderCall>[1];
 
 type CallState = { activity: ToolActivity; purpose?: string; pending?: boolean; phase: "queued" | "running" | "done" | "failed" };
-type Group = { ids: string[] };
+type Group = { ids: string[]; override?: { version: number; expanded: boolean } };
 type BatchStatus = { running: number; done: number; failed: number };
 type LiveBatch = { id: string; status: BatchStatus; rows: Set<string> };
 type View = { tui: boolean; call?: Component; result?: Component; redraw?: () => void };
@@ -39,11 +40,6 @@ function shown(message: AgentMessage): boolean {
 		(block.type === "text" && block.text.trim()) || (block.type === "thinking" && block.thinking.trim()));
 }
 
-function withHint(text: string, theme: Theme, context: Context): string {
-	const hint = context.keyHint("app.tools.expand", "to expand");
-	return hint ? `${text}${theme.fg("muted", " · ")}${hint}` : text;
-}
-
 function liveView(state: CallState, status: BatchStatus, call: Component, theme: Theme, context: Context): Component {
 	const box = new Box(context.outputPad, 0, (text) => theme.bg("toolPendingBg", text));
 	const label = theme.fg("accent", `${state.phase === "running" ? "Running: " : ""}${callLabel(state)}${state.pending ? "…" : ""}`);
@@ -54,9 +50,7 @@ function liveView(state: CallState, status: BatchStatus, call: Component, theme:
 		status.failed ? theme.fg("error", `${status.failed} failed`) : "",
 	].filter(Boolean).join(separator);
 	const head = progress ? label + separator + progress : label;
-	const hinted = withHint(head, theme, context);
 	const headingLines = (width: number) => {
-		if (visibleWidth(hinted) <= width) return [hinted];
 		if (visibleWidth(head) <= width) return [head];
 		return progress ? [...wrapTextWithAnsi(label, width), ...wrapTextWithAnsi(progress, width)] : wrapTextWithAnsi(label, width);
 	};
@@ -80,9 +74,9 @@ function closedView(count: number, failed: number, theme: Theme, context: Contex
 	const separator = failed ? theme.fg("muted", ", ") : "";
 	const failures = failed ? theme.fg("error", `${failed} failed`) : "";
 	const box = new Box(context.outputPad, 0);
-	const text = withHint(label + separator + failures, theme, context);
+	const text = label + separator + failures;
 	box.addChild({
-		render: (width) => [visibleWidth(text) <= width ? text : truncateToWidth(label + separator + failures, width)],
+		render: (width) => [truncateToWidth(text, width)],
 		invalidate() {},
 	});
 	return box;
@@ -98,8 +92,9 @@ export class InlineToolOutput {
 	private readonly nativeCalls = new Set<string>();
 	private live?: LiveBatch;
 	private lastExpanded?: boolean;
+	private expansionVersion = 0;
 
-	constructor(private readonly expandedChanged: () => void) {}
+	constructor(private readonly defaultExpanded: () => boolean | undefined) {}
 
 	reset(redraw: boolean) {
 		const ids = [...this.groups.keys()];
@@ -213,10 +208,21 @@ export class InlineToolOutput {
 		this.openGroup = undefined;
 	}
 
-	private noteExpanded(expanded: boolean) {
-		if (expanded === this.lastExpanded) return;
-		this.lastExpanded = expanded;
-		setTimeout(this.expandedChanged, 0);
+	private isExpanded(group: Group | undefined, rowExpanded: boolean) {
+		if (!group) return rowExpanded;
+		const defaultExpanded = this.defaultExpanded() ?? rowExpanded;
+		if (defaultExpanded !== this.lastExpanded) {
+			this.lastExpanded = defaultExpanded;
+			this.expansionVersion++;
+		}
+		return group.override?.version === this.expansionVersion ? group.override.expanded : defaultExpanded;
+	}
+
+	private groupRow(component: Component, group: Group, expanded: boolean) {
+		return clickToToggle(component, () => {
+			group.override = { version: this.expansionVersion, expanded: !expanded };
+			for (const id of group.ids) this.redraw(id);
+		});
 	}
 
 	private add(id: string, state: CallState) {
@@ -234,7 +240,7 @@ export class InlineToolOutput {
 		const previousAnchor = group.ids.at(-1);
 		const moved = group.ids.filter((id) => this.messageCalls.has(id));
 		group.ids = group.ids.filter((id) => !this.messageCalls.has(id));
-		const next = moved.length ? { ids: moved } : undefined;
+		const next = moved.length ? { ids: moved, override: group.override } : undefined;
 		this.openGroup = next;
 		if (next) for (const id of moved) this.groups.set(id, next);
 		this.refreshLive();
@@ -272,8 +278,8 @@ export class InlineToolOutput {
 			return renderCall ? {
 				...native,
 				renderCall: (args, theme, context) => {
-					this.noteExpanded(context.expanded);
-					return renderCall(args, theme, context);
+					const component = renderCall(args, theme, context);
+					return context.expanded ? component : removeExpansionHints(component);
 				},
 			} : native;
 		}
@@ -304,40 +310,48 @@ export class InlineToolOutput {
 		return {
 			renderShell: "self",
 			renderCall: (args, theme, context) => {
-				this.noteExpanded(context.expanded);
 				const view = viewFor(context);
 				const group = groupFor(view, context);
-				if (group && !context.expanded) {
+				const expanded = this.isExpanded(group, context.expanded);
+				if (group && !expanded) {
 					const id = context.toolCallId;
 					const state = this.calls.get(id);
 					if (state && this.live?.id === id) {
-						return liveView(state, this.live.status, nativeCall(args, theme, context, view), theme, context);
+						const row = liveView(state, this.live.status, nativeCall(args, theme, { ...context, expanded }, view), theme, context);
+						return this.groupRow(row, group, expanded);
 					}
 					if (group.ids.at(-1) === id && (!this.live || this.groups.get(this.live.id) !== group)) {
 						const ids = this.live ? group.ids.filter((callId) => !this.messageCalls.has(callId)) : group.ids;
 						if (ids.length) {
 							const failed = ids.filter((callId) => this.calls.get(callId)?.phase === "failed").length;
-							return closedView(ids.length, failed, theme, context);
+							return this.groupRow(closedView(ids.length, failed, theme, context), group, expanded);
 						}
 					}
 					return new Container();
 				}
-				return rawShell(nativeCall(args, theme, context, view), theme, context, view);
+				const raw = nativeCall(args, theme, { ...context, expanded }, view);
+				const row = rawShell(expanded ? raw : removeExpansionHints(raw), theme, context, view);
+				return group ? this.groupRow(row, group, expanded) : row;
 			},
 			renderResult: (result, options, theme, context) => {
 				const view = viewFor(context);
-				if (groupFor(view, context) && !options.expanded) return new Container();
-				const raw = native?.renderResult?.(result, options, theme, { ...context, lastComponent: view.result });
+				const group = groupFor(view, context);
+				const expanded = this.isExpanded(group, options.expanded);
+				if (group && !expanded) return new Container();
+				let raw = native?.renderResult?.(result, { ...options, expanded }, theme, { ...context, expanded, lastComponent: view.result });
 				if (raw) {
 					view.result = raw;
-					return rawShell(raw, theme, context, view);
+					if (!expanded) removeExpansionHints(raw);
+				} else {
+					const output = result.content.flatMap((part) => part.type === "text" ? [plain(part.text)] : []).join("\n");
+					if (!output) return new Container();
+					const lines = output.split("\n");
+					const text = expanded ? output : lines.slice(0, 10).join("\n");
+					const more = !expanded && lines.length > 10 ? theme.fg("muted", `\n… ${lines.length - 10} more lines`) : "";
+					raw = new Text(theme.fg("toolOutput", text) + more, 0, 0);
 				}
-				const output = result.content.flatMap((part) => part.type === "text" ? [plain(part.text)] : []).join("\n");
-				if (!output) return new Container();
-				const lines = output.split("\n");
-				const text = options.expanded ? output : lines.slice(0, 10).join("\n");
-				const more = !options.expanded && lines.length > 10 ? `\n… ${context.keyHint("app.tools.expand", "for raw output")}` : "";
-				return rawShell(new Text(theme.fg("toolOutput", text + more), 0, 0), theme, context, view);
+				const row = rawShell(raw, theme, context, view);
+				return group ? this.groupRow(row, group, expanded) : row;
 			},
 		};
 	}

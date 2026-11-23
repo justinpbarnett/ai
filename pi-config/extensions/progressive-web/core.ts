@@ -1,19 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import robotsParser from "robots-parser";
-import {
-  braveCredentialsPath,
-  credentialsPath,
-  loadBraveApiKey,
-  loadCredentials,
-} from "./config.ts";
+import { credentialsPath, loadCredentials } from "./config.ts";
+import { extractPage, type PageContent } from "./content.ts";
 import {
   checkScope,
-  extractPage,
   NonRetryableError,
   normalizeUrl,
-  type PageContent,
   type UrlPolicy,
-} from "./content.ts";
+} from "./url-policy.ts";
 import {
   brightDataFetch,
   browserFetch,
@@ -91,6 +85,8 @@ const tiers: {
   { name: "Playwright", fetch: browserFetch },
   { name: "Bright Data", fetch: brightDataFetch, minimumTimeoutMs: 60000 },
 ];
+const browserTier = tiers.findIndex((tier) => tier.fetch === browserFetch) + 1;
+export const maxTierNumber = tiers.length;
 const cache = new Map<
   string,
   { result: PageSuccess; bytes: number; expires: number }
@@ -150,11 +146,8 @@ export async function dispose(): Promise<void> {
 
 export async function status() {
   const { token, zone } = await loadCredentials();
-  const braveKey = await loadBraveApiKey();
   const installed = await browserInstalled();
   return {
-    search: `Brave Web Search: ${braveKey ? "configured (not yet validated)" : "not configured"}`,
-    braveCredentialsPath,
     tiers: [
       "1. HTTP fetch + Readability: ready",
       "2. cURL + browser headers: ready (requires curl on PATH)",
@@ -210,19 +203,21 @@ async function fetchPageAtTier(
   }
 }
 
-export async function scrape(
-  options: ScrapeOptions & { url: string },
-  runtime: ScrapeRuntime = {},
-): Promise<PageResult> {
-  const url = normalizeUrl(options.url);
+function scrapeLimits(options: ScrapeOptions) {
   const startTier = boundedInteger(
     options.startTier,
-    options.waitForSelector ? 3 : 1,
+    options.waitForSelector ? browserTier : 1,
     1,
-    4,
+    maxTierNumber,
     "startTier",
   );
-  const maxTier = boundedInteger(options.maxTier, 4, startTier, 4, "maxTier");
+  const maxTier = boundedInteger(
+    options.maxTier,
+    maxTierNumber,
+    startTier,
+    maxTierNumber,
+    "maxTier",
+  );
   const timeoutMs = boundedInteger(
     options.timeoutMs,
     30000,
@@ -230,8 +225,17 @@ export async function scrape(
     120000,
     "timeoutMs",
   );
-  if (options.waitForSelector && maxTier < 3)
-    throw new Error("waitForSelector requires browser tier 3.");
+  if (options.waitForSelector && maxTier < browserTier)
+    throw new Error(`waitForSelector requires browser tier ${browserTier}.`);
+  return { startTier, maxTier, timeoutMs };
+}
+
+export async function scrape(
+  options: ScrapeOptions & { url: string },
+  runtime: ScrapeRuntime = {},
+): Promise<PageResult> {
+  const url = normalizeUrl(options.url);
+  const { startTier, maxTier, timeoutMs } = scrapeLimits(options);
   runtime.signal?.throwIfAborted();
   // Cached results do not record the redirect path checked by a crawl policy.
   const cacheKey = runtime.allowedUrl
@@ -291,20 +295,44 @@ export async function scrape(
   };
 }
 
+async function scrapeOrReject(
+  options: ScrapeOptions & { url: string },
+  runtime: ScrapeRuntime,
+): Promise<PageResult> {
+  try {
+    normalizeUrl(options.url);
+  } catch (error) {
+    return {
+      ok: false,
+      requestedUrl: options.url,
+      url: options.url,
+      attempts: [],
+      durationMs: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return scrape(options, runtime);
+}
+
+export const MAX_SCRAPE_URLS = 10;
+
 export async function scrapeBatch(
   options: ScrapeOptions & { urls: string[] },
   runtime: ScrapeRuntime = {},
 ): Promise<PageCollection> {
-  if (!options.urls.length || options.urls.length > 10)
-    throw new Error("Scrape requires 1-10 URLs.");
-  const urls = options.urls.map((url) => normalizeUrl(url));
+  if (!options.urls.length || options.urls.length > MAX_SCRAPE_URLS)
+    throw new Error(`Scrape requires 1-${MAX_SCRAPE_URLS} URLs.`);
+  const urls = options.urls;
   const pages: PageResult[] = new Array(urls.length);
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(2, urls.length) }, async () => {
       while (next < urls.length) {
         const index = next++;
-        pages[index] = await scrape({ ...options, url: urls[index] }, runtime);
+        pages[index] = await scrapeOrReject(
+          { ...options, url: urls[index] },
+          runtime,
+        );
       }
     }),
   );
@@ -351,6 +379,7 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
   const maxPages = boundedInteger(options.maxPages, 10, 1, 50, "maxPages");
   const maxDepth = boundedInteger(options.maxDepth, 2, 0, 5, "maxDepth");
   let delayMs = boundedInteger(options.delayMs, 1000, 250, 30000, "delayMs");
+  scrapeLimits(options);
   const pathPrefix = options.pathPrefix || "/";
   if (!pathPrefix.startsWith("/"))
     throw new Error("pathPrefix must start with /.");

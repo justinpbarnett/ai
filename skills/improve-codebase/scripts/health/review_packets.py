@@ -2,17 +2,17 @@ import uuid
 from dataclasses import dataclass
 from functools import partial
 
-from .inventory import digest
-from .review import confirmed_fields
+from .hashing import digest
+from .ledger import now, observe
+from .review import change_relation, confirmed_fields
 from .review_units import (
-    STAGES,
     matching_receipts,
     review_work,
     unit_changes,
     unit_matches_paths,
 )
-from .runs import change_relation
-from .state import array, now, object_value, observe, packed, require, string, unpacked
+from .rules import MAX_PACKET_UNITS, STAGES
+from .validation import array, object_value, require, string
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,10 @@ class PacketSelection:
     template: bool
 
     def validate(self, units):
+        require(
+            1 <= self.limit <= MAX_PACKET_UNITS,
+            f"packet limit must be between 1 and {MAX_PACKET_UNITS}",
+        )
         require(
             all(identifier in units for identifier in [*self.include, *self.exclude]),
             "requested unit does not exist on this scan",
@@ -127,10 +131,7 @@ def save_packet(store, packet, valid):
             if stage == "confirmation"
         },
     }
-    store.connection.execute(
-        "INSERT INTO packets VALUES (?, ?, 0, ?)",
-        (packet["id"], store.key, packed(stored)),
-    )
+    store.save_packet(packet["id"], stored)
 
 
 def receipt_template(packet):
@@ -264,12 +265,8 @@ class ReceiptUpload:
 
 def read_upload(store, document):
     packet_id = string(document, "packet_id")
-    row = store.connection.execute(
-        "SELECT payload, consumed FROM packets WHERE id = ? AND scope = ?",
-        (packet_id, store.key),
-    ).fetchone()
-    require(row is not None and not row[1], "unknown or already imported review packet")
-    packet = unpacked(row[0])
+    packet = store.load_packet(packet_id)
+    require(packet is not None, "unknown or already imported review packet")
     require(
         packet["snapshot"] == document.get("snapshot"),
         "receipt snapshot does not match its packet",
@@ -407,8 +404,8 @@ def import_unit(upload, identifier, state, entries, known, profile):
     }
     rows = []
     if stage == "confirmation" and discovery.get("profile") != profile:
-        rows.append((unit["inputs"], "discovery", profile, packed(discovery)))
-    rows.append((unit["inputs"], stage, profile, packed(receipt)))
+        rows.append((unit["inputs"], "discovery", profile, discovery))
+    rows.append((unit["inputs"], stage, profile, receipt))
     if not previously_known:
         state["progress"] += 1
     return rows, identifiers
@@ -426,22 +423,19 @@ def import_review(store, state, document, entries):
     receipts, observed = [], []
     for identifier in upload.incoming:
         rows, findings = import_unit(
-            upload, identifier, state, entries, valid[identifier], store.key
+            upload, identifier, state, entries, valid.get(identifier, {}), store.key
         )
         receipts.extend(rows)
         observed.extend(findings)
-    store.connection.executemany(
-        "INSERT OR REPLACE INTO receipts VALUES (?, ?, ?, ?)", receipts
-    )
-    store.connection.execute(
-        "UPDATE packets SET consumed = 1 WHERE id = ?", (packet["id"],)
-    )
+    store.save_receipts(receipts)
+    store.consume_packet(packet["id"])
     store.save(
         state,
         "review",
         {
-            "packet": packet,
-            "receipts": [unpacked(r[3]) for r in receipts],
+            "packet_id": packet["id"],
+            "unit_ids": list(upload.incoming),
+            "receipt_packet_ids": sorted({row[3]["packet_id"] for row in receipts}),
             "findings": observed,
         },
     )

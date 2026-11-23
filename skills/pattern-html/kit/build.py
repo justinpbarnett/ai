@@ -62,6 +62,8 @@ def read(path, src, what):
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         fail(f"{src}: {what}: no file at {path}")
+    except (OSError, UnicodeDecodeError) as error:
+        fail(f"{src}: {what}: cannot read {path} as utf-8 text: {error}")
 
 
 def b64(path, src, what):
@@ -69,10 +71,11 @@ def b64(path, src, what):
         return base64.b64encode(path.read_bytes()).decode("ascii")
     except FileNotFoundError:
         fail(f"{src}: {what}: no file at {path}")
+    except OSError as error:
+        fail(f"{src}: {what}: cannot read {path}: {error}")
 
 
 def draw(path, arg, src="--draw"):
-    """Run a drawing script and return the SVG it prints."""
     if not path.is_file():
         fail(f"{src}: no drawing script at {path}")
     env = dict(os.environ)
@@ -95,8 +98,7 @@ def draw(path, arg, src="--draw"):
     return svg
 
 
-def expand(text, base, src):
-    """Fill every placeholder in text. base is the folder its paths start from."""
+def expand(text, base, src, including=()):
     for m in LOOSE.finditer(text):
         if not PLACE.fullmatch(m.group(0)):
             fail(f"{src}: malformed placeholder {m.group(0)!r} (no spaces, one colon, a path)")
@@ -106,13 +108,13 @@ def expand(text, base, src):
         if kind == "font":
             return b64(KIT / "fonts" / name, src, what)
         if kind == "kit":
-            return expand(read(KIT / name, src, what), KIT, f"kit/{name}")
+            return expand_file(KIT / name, KIT, f"kit/{name}", src, what, including)
         if kind == "draw":
             script, _, arg = name.partition("#")
             return draw(base / script, arg, src)
         path = base / name
         if kind == "css":
-            return expand(read(path, src, what), path.parent, str(path))
+            return expand_file(path, path.parent, str(path), src, what, including)
         if kind == "js":
             return re.sub(r"</(script)", r"<\\/\1", read(path, src, what), flags=re.I)
         if kind == "svg":
@@ -126,9 +128,15 @@ def expand(text, base, src):
     return PLACE.sub(sub, text)
 
 
-class DocumentShell(HTMLParser):
-    """Locate page-level tags without rewriting the surrounding source."""
+def expand_file(path, base, label, src, what, including):
+    resolved = path.resolve()
+    if resolved in including:
+        chain = " -> ".join(str(p) for p in (*including, resolved))
+        fail(f"{src}: {what}: includes itself: {chain}")
+    return expand(read(path, src, what), base, label, (*including, resolved))
 
+
+class DocumentShell(HTMLParser):
     TAGS = {"html", "head", "body"}
     CDATA_CONTENT_ELEMENTS = (
         *HTMLParser.CDATA_CONTENT_ELEMENTS, "title", "textarea", "iframe",
@@ -193,7 +201,6 @@ class DocumentShell(HTMLParser):
 
 
 def strip_skeleton(html):
-    """Drop what the Artifact tool adds itself: doctype, html, head, body, charset, viewport."""
     shell = DocumentShell(html)
     if shell.has_body_attributes:
         print("build: warning: the body tag's attributes are dropped in an Artifact; move them to .wrap", file=sys.stderr)

@@ -4,16 +4,18 @@ from importlib.metadata import PackageNotFoundError, version
 from xml.etree import ElementTree
 
 from .case_inventory import TEST_LANGUAGES, extract_test_cases
-from .comments import finalize_comments, record_comment
-from .inventory import content_hash
+from .comments import finalize_comments
 from .syntax_tree import (
+    GENERIC_STREAM,
     Source,
     Surface,
     attribute_values,
     collect_tree,
     local_web_path,
     opening_tag,
+    record_comment,
     text,
+    token_row,
 )
 
 GRAMMARS = sorted(
@@ -32,7 +34,6 @@ GRAMMARS = sorted(
 FONT_URL_TEMPLATE = re.compile(
     rb"(?<![\w-])(url\(data:font/woff2;base64,)(\{\{font:[\w.-]+\.woff2\}\})(?=\))"
 )
-PLACEHOLDER = re.compile(r"[$*{}<>]")
 VUE_LANGUAGES = {
     "script_element": {
         "js": "javascript",
@@ -83,14 +84,15 @@ def capabilities(core_only):
     return {"versions": versions, "grammars": grammars}
 
 
+def blank_font_url_payloads(data):
+    return FONT_URL_TEMPLATE.subn(lambda match: match[1] + b"A" * len(match[2]), data)
+
+
 def parse_tree(parser, surface, limits):
     tree = parser.parse(surface.data)
     if surface.language != "css" or tree is None or not tree.root_node.has_error:
         return tree
-    # Keep tree ranges aligned with the original bytes used for evidence.
-    css, substitutions = FONT_URL_TEMPLATE.subn(
-        lambda match: match[1] + b"A" * len(match[2]), surface.data
-    )
+    css, substitutions = blank_font_url_payloads(surface.data)
     if substitutions:
         tree = parser.parse(css)
         limits.append(f"{surface.label}: font URL placeholders parsed as base64")
@@ -226,10 +228,10 @@ def analyze(data, language, core_only, test_file=False):
         for line in data.splitlines(keepends=True):
             value = line.rstrip(b"\r\n")
             if value.strip():
-                rows.append([content_hash(value)[:24], offset, offset + len(value)])
+                rows.append(token_row(value, offset, offset + len(value)))
             offset += len(line)
         if rows:
-            result["streams"].append(["generic-lines", rows])
+            result["streams"].append([GENERIC_STREAM, rows])
     result["limits"] = sorted(set(result["limits"]))
     result["imports"] = sorted({tuple(pair) for pair in result["imports"]})
     return result

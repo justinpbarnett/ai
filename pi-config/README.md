@@ -11,6 +11,7 @@ Tracked items are copied from or linked into the target pi config directory:
 - `extensions/inline-commands.ts`
 - `extensions/prompt-stash.ts`
 - `extensions/jev-router/`
+- `extensions/progressive-web/` (install its dependencies as its README describes; copy mode skips `node_modules/`)
 - `extensions/self-compact/`
 - `extensions/shared/`
 - `extensions/tool-explainer/`
@@ -120,7 +121,7 @@ JEV checks for an independent task switch, not what to put in the summary.
 Pi skips queued prompts, commands, attachments and obvious credentials, but that filter is not a guarantee of redaction.
 For work that cannot send prompt excerpts off-machine, start Pi with `--no-self-compact-jev`, or run `/self-compact jev off` before submitting prompts.
 The command clears stored excerpts and turns JEV off for the loaded extension; the launch flag keeps it off by default across reloads.
-With missing credentials or an unavailable model, Pi shows `JEV off (unavailable)` without sending a request.
+With missing credentials, an unavailable model, or `--offline`, Pi shows `JEV off (unavailable)` without sending a request.
 If a request fails or times out, JEV also switches off and stops retrying; `/self-compact jev on` lets you retry.
 The agent tool and native compaction still work with JEV off.
 
@@ -167,7 +168,8 @@ For call summaries it receives selected tool arguments, a short excerpt of the u
 Pi excludes tool output and obvious secrets and protected paths from call requests, but its filters do not guarantee redaction.
 The optional hosted writer receives fixed operation hints for call summaries only and never writes thinking summaries, so no reasoning, raw commands, filenames, prompts, notes, or tool output are sent automatically.
 If the writer fails or returns an unusable summary, Pi tries once more with a narrower ask, without blocking the agent.
-`--offline` disables hosted writing, not local Ollama writing.
+`--offline` disables hosted writing, not local Ollama writing, and recent history records `writer disabled offline` for skipped hosted summaries.
+A manual `/explain-tools` still sends after you approve its preview, because `--offline` stops only automatic network activity.
 
 Run `/explain-tools` or `/explain-tools 1` for a more detailed explanation of the latest calls on the active branch.
 Pi shows the tool text excerpts first; press `S` to send or Escape to cancel.
@@ -421,6 +423,7 @@ cd ~/dev/ai/pi-config
 ```
 
 By default this links the portable config into `~/.pi/agent`.
+The root `./install.sh all` and `just sync` run this script in symlink mode, and the root uninstall runs `uninstall.sh`.
 
 To target a different location:
 

@@ -65,6 +65,7 @@ The readiness command reports key presence, not successful API authentication.
 Search parameters:
 
 - `query`: 1-600 characters and at most 75 words, including operators such as `site:example.com`, quoted phrases, and exclusions.
+  On the command line, put `--` before a query that starts with a dash: `node cli.mjs search -- "-spam site:example.com"`.
 - `count`: 1-20 web results, default 5; Brave may return fewer results.
 - `offset`: zero-based result page, 0-9, default 0; keep `count` unchanged when paging.
 - `freshness`: `pd` (24 hours), `pw` (7 days), `pm` (31 days), `py` (year), or a valid `YYYY-MM-DDtoYYYY-MM-DD` range.
@@ -162,6 +163,7 @@ node ~/.pi/agent/extensions/progressive-web/cli.mjs --help
 
 The CLI prints page content to stdout, progress and artifact paths to stderr, and returns a nonzero exit code when any requested page fails.
 The CLI and Pi tool share the same ordered batch pipeline, processing up to two pages concurrently.
+`scrape --json` always prints the batch object with a `pages` array, for one URL or several, matching the `web_scrape` tool.
 Options are command-specific: unsupported combinations such as `search "query" --max-tier 3` fail before any network request.
 
 ## Maintenance

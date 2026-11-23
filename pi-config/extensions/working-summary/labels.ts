@@ -1,6 +1,7 @@
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
-import { replaceControlCharacters, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { CREDENTIAL_LIKE } from "../shared/prompt-privacy.js";
+import { replaceControlCharacters, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 export const SLOTS = ["session", "prompt"] as const;
 export type Slot = (typeof SLOTS)[number];
@@ -8,14 +9,12 @@ export type Labels = Partial<Record<Slot, string>>;
 
 export const SUMMARY_WORD_LIMIT = 6;
 
-const SEPARATOR = "  |  ";
 const EXCERPT_LENGTH = 384;
 const FILE_BLOCK = /<file name="/;
 const FILE_END = /<\/file>(?:\r?\n|$)/g;
 const IMAGE_NOTE = /^\[Image(?: converted from| omitted:|: original )[^\]\r\n]*\][\t ]*\r?$/gm;
 const FILE_REFERENCE = /(?:^|\s)@[^\s]|\bfile:\/\//i;
 const CODE_FENCE = /```|~~~/;
-const SECRET_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
 const TOPIC_REQUESTS = [
 	{ prefix: /^(?:walk (?:me |us )?through|give (?:me|us) a walkthrough of) /i, kind: "walkthrough" },
 	{ prefix: /^give (?:me|us) (?:a quick overview|an overview) of /i, kind: "overview" },
@@ -38,7 +37,7 @@ function plainLine(text: string): string {
 
 function cleanLabel(value: string): string | undefined {
 	const text = plainLine(value);
-	if (text && !SECRET_LIKE.test(text) && visibleWidth(text) > 0) return text;
+	if (text && !CREDENTIAL_LIKE.test(text) && visibleWidth(text) > 0) return text;
 }
 
 function labelWords(text: string): string[] {
@@ -101,7 +100,7 @@ function inspectPrompt(content: UserMessage["content"]) {
 	const skill = parseSkillBlock(text);
 	const request = skill ? skill.userMessage ?? "" : text;
 	const line = plainLine(request);
-	const safeLine = SECRET_LIKE.test(line) ? undefined : line;
+	const safeLine = CREDENTIAL_LIKE.test(line) ? undefined : line;
 	return { request, skillName: skill?.name, safeLine, hasImage, hasFile };
 }
 
@@ -138,15 +137,4 @@ export function earlierExcerpts(branch: readonly UserMessage["content"][], lates
 		if (add(branch[index]!)) break;
 	}
 	return [...earlier];
-}
-
-export function formatSummary({ session, prompt }: Labels, width?: number): string {
-	if (!session || !prompt) {
-		const label = session ?? prompt ?? "";
-		return width === undefined ? label : truncateToWidth(label, width, "…");
-	}
-	if (width === undefined) return `${session}${SEPARATOR}${prompt}`;
-	const promptWidth = width - visibleWidth(session) - SEPARATOR.length;
-	if (promptWidth < 2) return truncateToWidth(session, width, "…");
-	return `${session}${SEPARATOR}${truncateToWidth(prompt, promptWidth, "…")}`;
 }

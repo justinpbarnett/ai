@@ -68,6 +68,8 @@ function parseThreshold(value: unknown, window: number | undefined, hard: number
 	return Number.isSafeInteger(tokens) && tokens > 0 ? tokens : undefined;
 }
 
+export const autoEnabled = (settings: Policy) => settings.enabled && !settings.problem;
+
 export function pressure(policy: Policy): Pressure {
 	const { tokens, hard, warning, notice } = policy;
 	if (tokens === null || policy.problem || hard === undefined || warning === undefined || notice === undefined) return "unknown";
@@ -81,9 +83,23 @@ export class PressureCycle {
 	private checkpointId: string | undefined;
 	private waitingForRelief = false;
 	private notified = 0;
+	private automaticAttempted = false;
+
+	get automaticAlreadyAttempted() { return this.automaticAttempted; }
+
+	recordAutomaticAttempt() { this.automaticAttempted = true; }
+
+	reset() {
+		this.checkpointId = undefined;
+		this.waitingForRelief = false;
+		this.notified = 0;
+		this.automaticAttempted = false;
+	}
 
 	observe(checkpointId: string | undefined, band: Pressure) {
-		if (checkpointId !== this.checkpointId) {
+		const checkpointChanged = checkpointId !== this.checkpointId;
+		if (checkpointChanged || band === "normal") this.automaticAttempted = false;
+		if (checkpointChanged) {
 			this.checkpointId = checkpointId;
 			this.waitingForRelief = true;
 		}

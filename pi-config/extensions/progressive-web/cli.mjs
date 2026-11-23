@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { configure, configureBrave } from "./config.ts";
-import { crawl, dispose, scrapeBatch, status } from "./core.ts";
+import {
+  crawl,
+  dispose,
+  MAX_SCRAPE_URLS,
+  scrapeBatch,
+  status,
+} from "./core.ts";
 import { formatResults, hasFailures, saveDocument } from "./results.ts";
-import { search } from "./search.ts";
+import { search, searchStatus } from "./search.ts";
 
 const help = `Pi web search and progressive scraper
 
@@ -23,6 +29,7 @@ Search options:
   --language CODE   Brave-supported search language, e.g. en or zh-hans
   --safe-search S   off, moderate (default), or strict
   --timeout N       Search timeout in milliseconds (default 15000)
+  --                Put it before a query that starts with a dash: search -- "-spam site:example.com"
 
 Scrape/crawl options:
   --start-tier N    Start at tier 1, 2, 3, or 4
@@ -149,7 +156,7 @@ try {
   } else if (command === "status") {
     if (args.length)
       throw new Error("status does not take positional arguments.");
-    const result = await status();
+    const result = { ...(await searchStatus()), ...(await status()) };
     console.log(
       values.json
         ? JSON.stringify(result, null, 2)
@@ -179,13 +186,13 @@ try {
   } else if (["scrape", "crawl"].includes(command)) {
     if (
       !args.length ||
-      args.length > 10 ||
+      args.length > MAX_SCRAPE_URLS ||
       (command === "crawl" && args.length !== 1)
     ) {
       throw new Error(
         command === "crawl"
           ? "Crawl requires exactly one starting URL."
-          : "Scrape requires 1-10 URLs.",
+          : `Scrape requires 1-${MAX_SCRAPE_URLS} URLs.`,
       );
     }
     const options = {
@@ -215,8 +222,7 @@ try {
         runtime,
       );
     } else {
-      const batch = await scrapeBatch({ ...options, urls: args }, runtime);
-      result = batch.pages.length === 1 ? batch.pages[0] : batch;
+      result = await scrapeBatch({ ...options, urls: args }, runtime);
     }
     await printResults(command, result, values.json);
   } else {

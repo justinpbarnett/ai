@@ -1,22 +1,19 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ClassifierAnswer, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ModelRouteRequest } from "@earendil-works/pi-coding-agent";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker } from "../shared/openrouter.js";
+import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
 
 const PROVIDER = "jev";
 const MODEL = "auto";
 const UPGRADE_MODEL = "upgrade";
-const TIERS: Tier[] = ["S+", "S", "A", "B"];
 const TIER_RANK: Record<Tier, number> = { "S+": 3, S: 2, A: 1, B: 0 };
 const THINKING_RANK: Record<ModelThinkingLevel, number> = { off: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
-const CLASSIFIER_PROVIDER = "openrouter";
-const CLASSIFIER_MODEL = "typesafe/jev-1.14";
 const CLASSIFIER_TIMEOUT_MS = 3500;
 const EXCERPT_LIMIT = 2000;
 const PENDING_PROMPT_LIMIT = 32;
 const LOCAL_ONLY_INPUT = /(?:^|\s)@\S|<(?:file|skill|attachment)\b|file:\/\/|```|~~~/i;
-const CREDENTIAL_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
 
 const DEFAULT_TIERS = {
 	"S+": "openai/gpt-6.2-astra",
@@ -24,6 +21,8 @@ const DEFAULT_TIERS = {
 	A: "openai/gpt-6.1-terra",
 	B: "openai/gpt-6-luna",
 };
+
+const TIER_NAMES = Object.keys(DEFAULT_TIERS);
 
 type Tier = keyof typeof DEFAULT_TIERS;
 type Decision = { tier: Tier; thinkingLevel: ModelThinkingLevel; source: "jev" | "fallback" };
@@ -57,7 +56,7 @@ function loadTiers(path: string): Record<Tier, string> {
 	}
 	const tiers = { ...DEFAULT_TIERS };
 	for (const [tier, value] of Object.entries(config)) {
-		if (!Object.hasOwn(tiers, tier)) throw new Error(`${path}: unknown tier ${tier}; use S+, S, A, or B.`);
+		if (!Object.hasOwn(tiers, tier)) throw new Error(`${path}: unknown tier ${tier}; use ${TIER_NAMES.slice(0, -1).join(", ")}, or ${TIER_NAMES.at(-1)}.`);
 		if (typeof value !== "string" || !/^[^/\s]+\/[^/\s][^\s]*$/.test(value)) {
 			throw new Error(`${path}: tier ${tier} must be a provider/model ID.`);
 		}
@@ -88,16 +87,14 @@ function lastUserText(messages: ModelRouteRequest["messages"]): string | undefin
 	return content.map((block) => block.type === "text" ? block.text : "").join("").trim();
 }
 
-const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-
 function choice<Key extends string>(answer: ClassifierAnswer | undefined, criteria: Record<Key, string>): Key | undefined {
 	if (answer?.type === "choice" && Object.hasOwn(criteria, answer.choice)) return answer.choice as Key;
 }
 
 async function classify(ctx: ExtensionContext, text: string, signal?: AbortSignal): Promise<Decision | undefined> {
-	if (!ctx.isProjectTrusted() || /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")) return;
-	const model = ctx.modelRegistry.findOfType("classifier", CLASSIFIER_PROVIDER, CLASSIFIER_MODEL);
-	if (!model || !ctx.modelRegistry.getProviderAuthStatus(CLASSIFIER_PROVIDER).configured) return;
+	if (jevBlocker(ctx)) return;
+	const model = ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	if (!model) return;
 	const deadline = AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS);
 	const result = await ctx.modelRegistry.classify(model, {
 		state: { request: text.slice(0, EXCERPT_LIMIT) },
@@ -123,7 +120,7 @@ async function classify(ctx: ExtensionContext, text: string, signal?: AbortSigna
 
 function keepUpgradeFloor(request: ModelRouteRequest<Decision>, tiers: Record<Tier, string>, decision: Decision): Decision {
 	const { previous, state } = request;
-	if (!previous || !state || !TIERS.includes(state.tier)) return decision;
+	if (!previous || !state) return decision;
 	if (tiers[state.tier] !== `${previous.model.provider}/${previous.model.id}`) return decision;
 	const previousEffort = previous.thinkingLevel ?? state.thinkingLevel;
 	return {
@@ -137,22 +134,21 @@ function keepUpgradeFloor(request: ModelRouteRequest<Decision>, tiers: Record<Ti
 export default function (pi: ExtensionAPI) {
 	const configPath = join(getAgentDir(), "jev-router.json");
 	let tiers: Record<Tier, string> | undefined;
-	const pending = new Set<string>();
+	const typedPromptDigests = new Set<string>();
 	let warned = false;
 
-	// Match the routed message to actual input so Pi's expanded files and templates never reach JEV.
 	pi.on("input", (event, ctx) => {
 		if (ctx.model?.provider !== PROVIDER || ![MODEL, UPGRADE_MODEL].includes(ctx.model.id) || !ctx.isProjectTrusted() || event.source === "extension") return;
 		const text = event.text.trim();
 		if (!text || event.images?.length || text.startsWith("/") || LOCAL_ONLY_INPUT.test(text) || CREDENTIAL_LIKE.test(text)) return;
-		if (pending.size >= PENDING_PROMPT_LIMIT) {
-			const oldest = pending.values().next().value;
-			if (oldest !== undefined) pending.delete(oldest);
+		if (typedPromptDigests.size >= PENDING_PROMPT_LIMIT) {
+			const oldest = typedPromptDigests.values().next().value;
+			if (oldest !== undefined) typedPromptDigests.delete(oldest);
 		}
-		pending.add(digest(text));
+		typedPromptDigests.add(promptDigest(text));
 	});
-	pi.on("session_tree", () => { pending.clear(); });
-	pi.on("agent_settled", () => { pending.clear(); });
+	pi.on("session_tree", () => { typedPromptDigests.clear(); });
+	pi.on("agent_settled", () => { typedPromptDigests.clear(); });
 
 	for (const { id, name, upgradeOnly } of [
 		{ id: MODEL, name: "JEV Auto", upgradeOnly: false },
@@ -172,7 +168,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const text = lastUserText(request.messages);
-				const eligible = text && pending.delete(digest(text));
+				const eligible = text && typedPromptDigests.delete(promptDigest(text));
 				const decision = eligible ? await classify(ctx, text, request.signal) ?? FALLBACK : FALLBACK;
 				if (eligible && decision.source === "fallback" && !warned && ctx.hasUI) {
 					ctx.ui.notify("JEV via OpenRouter did not return a route. Using tier A / medium. Check /login openrouter if this persists.", "warning");

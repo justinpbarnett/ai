@@ -1,42 +1,29 @@
+from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict, deque
+from collections.abc import Callable
+from dataclasses import dataclass
 
-from .case_inventory import test_evidence, test_signature
+from .case_evidence import test_evidence, test_signature
 from .comments import comment_evidence, comment_signature
 from .dependency_graph import components, resolve_edges
-from .inventory import digest
+from .hashing import digest
 from .layout import (
     change_coupling,
     commit_sets,
     directory_findings,
-    is_test_path,
     locality,
 )
-from .parsers import GRAMMARS, Source, analyze
-
-DEFAULTS = {
-    "file_lines": 500,
-    "callable_lines": 80,
-    "parameters": 6,
-    "nesting": 4,
-    "complexity": 15,
-    "type_lines": 350,
-    "html_nodes": 160,
-    "html_nesting": 12,
-    "css_declarations": 25,
-    "selector_terms": 9,
-    "selector_ids": 1,
-    "duplicate_tokens": 50,
-    "duplicate_lines": 8,
-}
-LEDGER_NEUTRAL_DEFAULTS = {
-    "comments": 1,
-    "folder_files": 30,
-    "coupling_revisions": 5,
-    "coupling_degree": 50,
-}
-DEFAULTS |= LEDGER_NEUTRAL_DEFAULTS
-MINIMUMS = {"duplicate_tokens": 50, "duplicate_lines": 8}
-MAXIMUMS = {"coupling_degree": 100}
+from .parsers import GRAMMARS, analyze
+from .paths import is_test_path
+from .rules import DEPENDENCY_CYCLE
+from .syntax_tree import (
+    GENERIC_STREAM,
+    ROLLING_HASH_WIDTH,
+    TOKEN_END,
+    TOKEN_HASH,
+    TOKEN_START,
+    Source,
+)
 
 
 def candidate(
@@ -64,36 +51,13 @@ def candidate(
     }
 
 
-def settings(document):
-    if not isinstance(document, dict) or document.keys() - DEFAULTS.keys():
-        raise ValueError(
-            "thresholds must be an object containing only supported detector names"
-        )
-    for name, value in document.items():
-        minimum, maximum = MINIMUMS.get(name, 1), MAXIMUMS.get(name, 10000)
-        if type(value) is not int or not minimum <= value <= maximum:
-            raise ValueError(
-                f"{name} requires an integer between {minimum} and {maximum}"
-            )
-    return DEFAULTS | document
-
-
-def ledger_thresholds(thresholds):
-    return {
-        name: value
-        for name, value in thresholds.items()
-        if LEDGER_NEUTRAL_DEFAULTS.get(name) != value
-    }
-
-
 def window_starts(tokens, length):
-    """Winnow rolling hashes, preserving a shared anchor for matching runs of length + window - 1."""
     if len(tokens) < length:
         return
     mask = (1 << 64) - 1
     base, width = 37, min(12, len(tokens) - length + 1)
     power = pow(base, length - 1, mask + 1)
-    values = [int(token[0][-16:], 16) for token in tokens]
+    values = [int(token[TOKEN_HASH][-ROLLING_HASH_WIDTH:], 16) for token in tokens]
     value = 0
     for item in values[: length - 1]:
         value = (value * base + item) & mask
@@ -114,10 +78,10 @@ def window_starts(tokens, length):
 def block_anchors(stream, language, length):
     for start in window_starts(stream, length):
         stop = start + length - 1
-        first, last = stream[start][1], stream[stop][2]
-        if language == "generic-lines" and last - first < 120:
+        first, last = stream[start][TOKEN_START], stream[stop][TOKEN_END]
+        if language == GENERIC_STREAM and last - first < 120:
             continue
-        signature = digest([token[0] for token in stream[start : stop + 1]])
+        signature = digest([token[TOKEN_HASH] for token in stream[start : stop + 1]])
         yield ("duplicate-block", language, signature), first, last
 
 
@@ -127,7 +91,7 @@ def duplicate_buckets(parsed, selected, thresholds):
         result = parsed[path]
         for name, stream in result["streams"]:
             length = thresholds[
-                "duplicate_lines" if name == "generic-lines" else "duplicate_tokens"
+                "duplicate_lines" if name == GENERIC_STREAM else "duplicate_tokens"
             ]
             for key, first, last in block_anchors(stream, name, length):
                 matches = buckets[key]
@@ -143,19 +107,36 @@ def duplicate_buckets(parsed, selected, thresholds):
 
 def duplicate_order(key, first_match):
     path, position, *_ = first_match
-    start = f"{position:012}" if key[0] == "duplicate-block" else str(position)
+    if key[0] == "duplicate-block":
+        start = f"{position:012}"
+    else:
+        start = f"{position['line']:012}{position['column']:012}"
     return path, start, key
 
 
 DUPLICATE_LOCATION_LIMIT = 100
 
 
-def block_locations(matches, language, covered_ends, data, source_map):
-    if all(covered_ends[(path, language)] > start for path, start, _ in matches):
+def is_covered(intervals, position):
+    index = bisect_right(intervals, position, key=lambda interval: interval[0])
+    return index > 0 and intervals[index - 1][1] > position
+
+
+def cover(intervals, start, end):
+    left = bisect_left(intervals, start, key=lambda interval: interval[1])
+    right = bisect_right(intervals, end, key=lambda interval: interval[0])
+    if left < right:
+        start = min(start, intervals[left][0])
+        end = max(end, intervals[right - 1][1])
+    intervals[left:right] = [(start, end)]
+
+
+def block_locations(matches, language, covered, data, source_map):
+    if all(is_covered(covered[(path, language)], start) for path, start, _ in matches):
         return []
     locations = []
     for path, start, end in matches:
-        covered_ends[(path, language)] = max(covered_ends[(path, language)], end)
+        cover(covered[(path, language)], start, end)
         if len(locations) < DUPLICATE_LOCATION_LIMIT:
             if path not in source_map:
                 source_map[path] = Source(data[path])
@@ -177,7 +158,7 @@ def group_locations(matches):
 
 def duplicates(parsed, data, selected, thresholds):
     buckets, sizes = duplicate_buckets(parsed, selected, thresholds)
-    covered_ends, source_map = defaultdict(int), {}
+    covered, source_map = defaultdict(list), {}
     ordering = sorted(
         (key for key, matches in buckets.items() if len(matches) >= 2),
         key=lambda key: duplicate_order(key, buckets[key][0]),
@@ -186,7 +167,7 @@ def duplicates(parsed, data, selected, thresholds):
         rule, language, signature = key
         matches = buckets[key]
         locations = (
-            block_locations(matches, language, covered_ends, data, source_map)
+            block_locations(matches, language, covered, data, source_map)
             if rule == "duplicate-block"
             else group_locations(matches)
         )
@@ -207,33 +188,42 @@ def duplicates(parsed, data, selected, thresholds):
         )
 
 
-def parse_snapshot(entries, sources, parser_profile, core_only, cache_read, full):
+@dataclass(frozen=True)
+class ParseOptions:
+    parser_profile: str
+    core_only: bool
+    cache_read: Callable
+    full: bool
+
+
+def parse_snapshot(entries, sources, options):
     parsed, fresh, work = {}, {}, {}
     cache_keys = {
-        p: digest(
+        p: f"{options.parser_profile}:"
+        + digest(
             [
                 entries[p]["hash"],
                 entries[p]["language"],
-                parser_profile,
+                options.parser_profile,
                 is_test_path(p),
             ]
         )
         for p in sources
     }
-    cached = {} if full else cache_read(set(cache_keys.values()))
+    cached = {} if options.full else options.cache_read(set(cache_keys.values()))
     for path, data in sources.items():
         key = cache_keys[path]
         result = cached.get(key)
         if result is None:
             result = fresh.get(key) or analyze(
-                data, entries[path]["language"], core_only, is_test_path(path)
+                data, entries[path]["language"], options.core_only, is_test_path(path)
             )
             if not result["gaps"]:
                 fresh[key] = result
             work[path] = {
                 "status": "investigated" if not result["gaps"] else "pending",
                 "reason": "forced refresh"
-                if full
+                if options.full
                 else "no valid detector result for current inputs",
             }
         else:
@@ -328,7 +318,7 @@ def cycle_findings(edges, selected):
             if edge[1] in member_set
         ]
         yield candidate(
-            "dependency-cycle",
+            DEPENDENCY_CYCLE,
             affected[0],
             "resolved-edges",
             {"members": members, "edges": cycle_edges},
@@ -354,8 +344,10 @@ def test_findings(path, result, language):
             "tests",
             path,
             "file",
-            test_evidence(result["tests"], language),
-            signature_basis=test_signature(result["tests"], language),
+            test_evidence(result["tests"], language, bool(result["gaps"])),
+            signature_basis=test_signature(
+                result["tests"], language, bool(result["gaps"])
+            ),
         )
 
 
@@ -387,14 +379,10 @@ def source_sizes(entries, selected):
     return dict(partition_sizes), sizes
 
 
-def scan_sources(
-    inventory, sources, thresholds, parser_profile, core_only, cache_read, full, history
-):
+def scan_sources(inventory, sources, thresholds, options, history):
     entries = inventory["entries"]
     selected = {path for path in sources if entries[path]["disposition"] == "source"}
-    parsed, fresh, work = parse_snapshot(
-        entries, sources, parser_profile, core_only, cache_read, full
-    )
+    parsed, fresh, work = parse_snapshot(entries, sources, options)
     edges, limits, graph_gaps, projects = resolve_edges(entries, parsed, sources)
     metrics = {path: parsed[path]["metrics"] for path in sorted(selected)}
     findings = [

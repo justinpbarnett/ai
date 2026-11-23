@@ -74,8 +74,7 @@ function signature(words: string[], boundary: string, allow: (text: string) => b
 }
 
 export function shellLabel(command: string, allow: (text: string) => boolean): string | undefined {
-	// Read literal command words for display, not shell syntax for execution. Stop before redirects, substitutions and heredoc bodies.
-	const tokens = /\\\r?\n|[ \t]+|&&|\|\||<<|[;|\r\n]|[<>&(){}#`]|(?:'[^']*'|"(?:\\[\s\S]|[^"\\])*"|\\[^\r\n]|[^\s\\'"|;<>&(){}#`])+/gy;
+	const displayWordTokens = /\\\r?\n|[ \t]+|&&|\|\||<<|[;|\r\n]|[<>&(){}#`]|(?:'[^']*'|"(?:\\[\s\S]|[^"\\])*"|\\[^\r\n]|[^\s\\'"|;<>&(){}#`])+/gy;
 	const prefix = command.slice(0, 2048);
 	const labels: string[] = [];
 	let words: string[] = [];
@@ -86,7 +85,7 @@ export function shellLabel(command: string, allow: (text: string) => boolean): s
 		words = [];
 		return label;
 	};
-	for (const [token] of prefix.matchAll(tokens)) {
+	for (const [token] of prefix.matchAll(displayWordTokens)) {
 		if (/^[ \t]+$|^\\\r?\n$/.test(token)) continue;
 		if (SEPARATOR.test(token)) {
 			if (!words.length) continue;

@@ -3,11 +3,10 @@ import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { CREDENTIAL_LIKE } from "../shared/prompt-privacy.js";
+import { PRIVATE_PATH, clip, plain, purposeExcerpt, safeLabel } from "./screening.js";
 import { shellLabel } from "./shell-label.js";
 
-const SECRET = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
-const PRIVATE_PATH = /(?:^|[\s/\\'"=@])(?:\.env(?:\.[\w.-]+)?|\.ssh|\.aws|\.gnupg|auth\.json|credentials(?:\.json)?|id_(?:rsa|ed25519))(?:$|[\s/\\'";])/i;
 const MAX_BATCH_BYTES = 12 * 1024;
 const MAX_INSPECT_CHARS = 128 * 1024;
 
@@ -16,16 +15,6 @@ export type Invocation = { toolName: string; args?: Record<string, unknown> };
 
 function invocationOf(call: Call): Invocation {
 	return { toolName: call.result.toolName, args: call.args };
-}
-
-export function plain(text: string): string {
-	return stripTerminalSequences(text).replace(/[^\S\n]/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, (char) => char === "\n" ? char : "");
-}
-
-export function clip(text: string, max: number): string {
-	if (text.length <= max) return text;
-	const half = Math.floor((max - 3) / 2);
-	return `${text.slice(0, half)} … ${text.slice(-half)}`;
 }
 
 export function* callsIn(messages: Iterable<AgentMessage>): Generator<Call> {
@@ -54,17 +43,13 @@ function stringArg(call: Invocation, key: string): string | undefined {
 }
 
 function safeName(name: string): string {
-	return /^[\w.-]{1,80}$/.test(name) && !SECRET.test(name) ? name : "tool";
+	return /^[\w.-]{1,80}$/.test(name) && !CREDENTIAL_LIKE.test(name) ? name : "tool";
 }
 
 function workspacePath(path: string, cwd: string): string | undefined {
 	if (path.startsWith("~") || /^[a-z]:[/\\]|^\\/i.test(path)) return;
 	const target = relative(cwd, resolve(cwd, path.replace(/^@/, "")));
 	if (target !== ".." && !target.startsWith("../") && !isAbsolute(target)) return plain(target || ".");
-}
-
-export function safeLabel(text: string): boolean {
-	return !/[\p{Cc}\p{Cf}]/u.test(text) && !SECRET.test(text) && !PRIVATE_PATH.test(text);
 }
 
 function safeTarget(raw: string, cwd: string): string | undefined {
@@ -95,7 +80,8 @@ const verbs = {
 export type Action = keyof typeof verbs;
 
 function bashAction(command: string): Action {
-	if (/[\n\r;&|<>`]/.test(command)) return "shell";
+	if (/[\n\r;&|<>`]|\$\(/.test(command)) return "shell";
+	if (/^find(?:\s|$)/.test(command) && /\s-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)(?:\s|$)/.test(command)) return "shell";
 	const git = /^git(?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+))?\s+(status|diff|log)(?:\s|$)/.exec(command)?.[1];
 	if (git === "status") return "gitStatus";
 	if (git === "diff") return "gitDiff";
@@ -181,13 +167,7 @@ function shellCommand(call: Invocation): string | undefined {
 	const command = stringArg(call, "command");
 	if (!command || Buffer.byteLength(command, "utf8") > 512) return;
 	const screened = plain(command).trim();
-	if (screened && !SECRET.test(screened) && !PRIVATE_PATH.test(screened)) return screened;
-}
-
-export function purposeExcerpt(value: string): string | undefined {
-	if (value.length > 16_384 || /```|~~~|<(?:file\s|skill\b)|(?:^|\s)@\S|\bfile:\/\//i.test(value)) return;
-	const text = plain(value).replace(/\s+/gu, " ").trim();
-	if (text && safeLabel(text)) return clip(text, 300);
+	if (screened && !CREDENTIAL_LIKE.test(screened) && !PRIVATE_PATH.test(screened)) return screened;
 }
 
 export type PurposeCall = { operation: Action; tool?: string; command?: string; target?: string; search?: string };
@@ -227,7 +207,7 @@ function screenEvidence(call: Call): ScreenedFields {
 	if (rawFields.reduce((size, field) => size + field.length, 0) > MAX_INSPECT_CHARS) return { note: "Result too large to screen; kept local." };
 	const [path, command, ...body] = rawFields.map(plain);
 	const output = body.join("\n");
-	if ([path, command, output].some((field) => SECRET.test(field) || PRIVATE_PATH.test(field))) {
+	if ([path, command, output].some((field) => CREDENTIAL_LIKE.test(field) || PRIVATE_PATH.test(field))) {
 		return { note: "Possible credential or protected path; kept local." };
 	}
 	return { path, command, output };

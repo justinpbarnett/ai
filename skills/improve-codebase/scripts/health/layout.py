@@ -1,15 +1,17 @@
-import re
 from collections import Counter, defaultdict
 from itertools import combinations
 from pathlib import PurePosixPath
 
 from .dependency_graph import components
-from .inventory import within
-
-TEST_SEGMENTS = {"test", "tests", "__tests__", "spec", "specs"}
-TEST_FILE = re.compile(
-    r"test_.*\.py|.*_test\.py|conftest\.py|.*\.test\..*|.*\.spec\..*|.*_test\.go|.*Tests?\.cs"
+from .paths import is_test_path, within
+from .rules import (
+    CHANGE_COUPLING,
+    FOLDER_CYCLE,
+    GENERIC_FOLDER,
+    SINGLE_IMPORTER,
+    WIDE_FOLDER,
 )
+
 GENERIC_FOLDERS = {
     "utils",
     "util",
@@ -24,16 +26,6 @@ GENERIC_FOLDERS = {
 }
 SAMPLE_LIMIT = 20
 EDGE_LIMIT = 100
-
-
-def is_test_path(path):
-    parts = PurePosixPath(path).parts
-    folders, name = parts[:-1], parts[-1]
-    return (
-        any(p.lower() in TEST_SEGMENTS or p.endswith(".Tests") for p in folders)
-        or PurePosixPath(name).stem.lower() in TEST_SEGMENTS
-        or bool(TEST_FILE.fullmatch(name))
-    )
 
 
 def directory(path):
@@ -71,7 +63,7 @@ def generic_folders(files, edges):
             }
         )
         yield (
-            "generic-folder",
+            GENERIC_FOLDER,
             paths[0],
             f"directory:{folder}",
             {
@@ -99,7 +91,7 @@ def single_importers(by_directory, edges):
         if len(importers) != 1 or within(importer, folder) or within(folder, importer):
             continue
         yield (
-            "single-importer",
+            SINGLE_IMPORTER,
             paths[0],
             f"directory:{folder}",
             {
@@ -136,7 +128,7 @@ def folder_cycles(by_directory, edges):
         )
         path = by_directory[owned[0]][0]
         yield (
-            "folder-cycle",
+            FOLDER_CYCLE,
             path,
             "directories",
             {
@@ -156,7 +148,7 @@ def wide_folders(by_directory, threshold):
     for folder, paths in sorted(by_directory.items()):
         if len(paths) > threshold:
             yield (
-                "wide-folder",
+                WIDE_FOLDER,
                 paths[0],
                 f"directory:{folder}",
                 {"directory": folder, "files": len(paths), "threshold": threshold},
@@ -200,7 +192,7 @@ def change_coupling(sets, thresholds):
             and degree >= thresholds["coupling_degree"]
         ):
             yield (
-                "change-coupling",
+                CHANGE_COUPLING,
                 first,
                 f"with:{second}",
                 {

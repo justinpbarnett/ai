@@ -1,17 +1,14 @@
 from pathlib import Path
 
-from .review_units import STAGES, matching_receipts
-from .runs import change_relation
-from .state import (
+from .ledger import (
     SEVERITIES,
-    array,
     now,
-    object_value,
-    require,
-    string,
     validate_dependencies,
     validate_prerequisite_cycle,
 )
+from .review_units import matching_receipts
+from .rules import GRAPH_WIDE_RULES, STAGES
+from .validation import array, object_value, require, string
 from .verification import checks
 
 TRANSITIONS = {
@@ -21,6 +18,7 @@ TRANSITIONS = {
         "blocked",
         "accepted_risk",
         "pending_verification",
+        "false_positive",
         "superseded",
     },
     "in_progress": {"open", "pending_verification", "blocked", "accepted_risk"},
@@ -144,6 +142,10 @@ def record_transition(state, before, after, reason):
     after["history"] = [*before["history"], event]
 
 
+def batch_identity(event):
+    return string(event, "id")
+
+
 def triage(store, state, document, state_dir, entries):
     key = string(document, "id")
     before = state["findings"].get(key)
@@ -230,17 +232,6 @@ def resolution_inputs(state, finding, document, entries):
     return required_paths, removal
 
 
-GRAPH_WIDE_RULES = frozenset(
-    {
-        "dependency-cycle",
-        "folder-cycle",
-        "single-importer",
-        "wide-folder",
-        "generic-folder",
-    }
-)
-
-
 def require_scanner_rerun(state, finding, entries, required_paths):
     require(
         finding.get("detector_profile") == state.get("observation_profile", {}),
@@ -262,12 +253,18 @@ def require_scanner_rerun(state, finding, entries, required_paths):
 
 
 def require_diagnostic_rerun(state, finding):
-    result = state.get("diagnostic_runs", {}).get(finding["tool"], {})
+    runs = [
+        *state.get("diagnostic_run_index", {}).values(),
+        state.get("diagnostic_runs", {}).get(finding["tool"], {}),
+    ]
     require(
-        result.get("snapshot") == state["snapshot"]
-        and result.get("revision", 0) >= finding["pending_since"]
-        and finding["location"]["path"] in result.get("coverage", [])
-        and result.get("profile") == finding.get("diagnostic_profile"),
+        any(
+            result.get("snapshot") == state["snapshot"]
+            and result.get("revision", 0) >= finding["pending_since"]
+            and finding["location"]["path"] in result.get("coverage", [])
+            and result.get("profile") == finding.get("diagnostic_profile")
+            for result in runs
+        ),
         "rerun and import the same applicable diagnostic check after marking pending",
     )
 
@@ -333,3 +330,15 @@ def verify_resolution(store, state, finding, document, state_dir, entries):
         "a current review still reports this finding",
     )
     return removal
+
+
+def change_relation(document):
+    relation = string(document, "change_relation")
+    require(
+        relation in {"regression", "pre_existing", "unclassified"},
+        "unknown change relation",
+    )
+    return {
+        "change_relation": relation,
+        "relation_evidence": string(document, "relation_evidence"),
+    }

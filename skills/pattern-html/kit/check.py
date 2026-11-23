@@ -14,211 +14,23 @@ can pass every rule and still look wrong: read each one.
 The browser is $PATTERN_BROWSER, or the first of chromium and google-chrome on the PATH.
 It is driven over its debugging pipe, so nothing needs installing beyond the browser.
 """
-import base64
-import fcntl
 import json
-import os
 import re
-import select
-import shutil
-import subprocess
 import sys
-import tempfile
-import time
-from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from build import DocumentShell  # noqa: E402
+from browser import BROWSERS, SETTLE_S, WIDTHS, BrowserError, browser_session, cuts, find_browser  # noqa: E402
+from build import PLACE, DocumentShell  # noqa: E402
+from tokens import tokens as page_tokens  # noqa: E402
 
 KIT = Path(__file__).resolve().parent
-PLACE = re.compile(r"\{\{(?:kit|css|js|img|svg|draw|font):[^{}\s]+\}\}")
-WIDTHS = ((1280, 900, 1500, False), (390, 844, 2200, True))     # width, height, slice height, phone
-BROWSERS = ("chromium", "chromium-browser", "google-chrome-stable", "google-chrome",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium")
-LIMIT = 16 * 1024 * 1024                                        # the largest page the Artifact tool takes
-PATIENCE = 120                                                  # seconds to wait for any one answer
-QUIET_MS = 400                                                  # a page is drawn once it stays unchanged this long
-SETTLE_S = 10                                                   # the longest wait for a page to be drawn
-COUNT_REQUESTS = """(() => {
-  let busy = 0;
-  const fetchFirst = window.fetch;
-  window.fetch = function () { busy++; return fetchFirst.apply(this, arguments).finally(() => busy--); };
-  const sendFirst = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function () {
-    busy++;
-    this.addEventListener("loadend", () => busy--, { once: true });
-    return sendFirst.apply(this, arguments);
-  };
-  Object.defineProperty(window, "__patternBusy", { get: () => busy });
-})();"""
-SETTLE = """(quiet, cap) => new Promise((done) => {
-  const start = performance.now();
-  let changed = start;
-  new MutationObserver(() => { changed = performance.now(); })
-    .observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
-  (function look() {
-    const now = performance.now();
-    if (!window.__patternBusy && now - changed >= quiet) return done("true");
-    if (now - start >= cap) return done("false");
-    setTimeout(look, 50);
-  })();
-})"""
-
-
-def find_browser():
-    for name in (os.environ.get("PATTERN_BROWSER"),) + BROWSERS:
-        if name and (shutil.which(name) or Path(name).is_file()):
-            return shutil.which(name) or name
-    return None
-
-
-class Gone(Exception):
-    pass
-
-
-class Browser:
-    """One headless browser, driven by JSON messages over two pipes."""
-
-    def __init__(self, exe, work):
-        for flags in ((), ("--no-sandbox",)):
-            with ExitStack() as cleanup:
-                self.start(exe, work, flags)
-                cleanup.callback(self.stop)
-                try:
-                    self.call("Browser.getVersion")
-                except Gone:
-                    continue
-                self.attach_tab()
-                cleanup.pop_all()
-                return
-        raise SystemExit("check: the browser would not start")
-
-    def start(self, exe, work, flags):
-        ours_r, theirs_w = os.pipe()
-        theirs_r, ours_w = os.pipe()
-        # the browser listens on its descriptor 3 and answers on 4; the shell renumbers ours to those
-        r, w = fcntl.fcntl(theirs_r, fcntl.F_DUPFD, 20), fcntl.fcntl(theirs_w, fcntl.F_DUPFD, 20)
-        profile = tempfile.mkdtemp(prefix="profile-", dir=work)
-        # Off-viewport captures need complete compositor layers and a full raster pass to be repeatable.
-        self.proc = subprocess.Popen(
-            ["/bin/sh", "-c", f'exec "$@" 3<&{r} 4>&{w}', "sh", exe, "--headless=new", "--remote-debugging-pipe",
-             "--run-all-compositor-stages-before-draw", "--disable-partial-raster", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-             f"--user-data-dir={profile}", *flags],
-            pass_fds=(r, w), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for fd in (theirs_r, theirs_w, r, w):
-            os.close(fd)
-        self.r, self.w, self.buf, self.n, self.events = ours_r, ours_w, b"", 0, []
-
-    def attach_tab(self):
-        target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
-        self.tab = self.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-        self.call("Page.enable", tab=True)
-        self.call("Page.addScriptToEvaluateOnNewDocument", {"source": COUNT_REQUESTS}, tab=True)
-
-    def stop(self):
-        for fd in (self.r, self.w):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            self.proc.wait()
-
-    def read(self):
-        end = time.monotonic() + PATIENCE
-        while b"\0" not in self.buf:
-            if not select.select([self.r], [], [], max(0, end - time.monotonic()))[0]:
-                raise SystemExit("check: the browser stopped answering")
-            chunk = os.read(self.r, 1 << 20)
-            if not chunk:
-                raise Gone()
-            self.buf += chunk
-        raw, _, self.buf = self.buf.partition(b"\0")
-        return json.loads(raw)
-
-    def call(self, method, params=None, tab=False):
-        self.n += 1
-        msg = {"id": self.n, "method": method, "params": params or {}}
-        if tab:
-            msg["sessionId"] = self.tab
-        try:
-            os.write(self.w, json.dumps(msg).encode("utf-8") + b"\0")
-        except OSError:
-            raise Gone()
-        while True:
-            got = self.read()
-            if got.get("id") == self.n:
-                if "error" in got:
-                    raise SystemExit(f"check: {method}: {got['error'].get('message')}")
-                return got["result"]
-            self.events.append(got.get("method"))
-
-    def wait(self, event):
-        while event not in self.events:
-            self.events.append(self.read().get("method"))
-        self.events.clear()
-
-    def open(self, url, width, height, phone):
-        self.call("Emulation.setDeviceMetricsOverride",
-                  {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": phone}, tab=True)
-        self.go("about:blank")      # a page reopened at the same address with a #fragment never fires load
-        self.go(url)
-        return self.settle()
-
-    def settle(self):
-        """Wait until the page has drawn what it fetched after load: no request in flight and no change
-        for QUIET_MS. Say whether it got there within SETTLE_S."""
-        return self.ask(f"({SETTLE})({QUIET_MS}, {SETTLE_S * 1000})")
-
-    def go(self, url):
-        self.events.clear()
-        got = self.call("Page.navigate", {"url": url}, tab=True)
-        if got.get("errorText"):
-            raise SystemExit(f"check: could not open {url}: {got['errorText']}")
-        self.wait("Page.loadEventFired")
-
-    def ask(self, js):
-        got = self.call("Runtime.evaluate", {"expression": js, "awaitPromise": True, "returnByValue": True}, tab=True)
-        if "exceptionDetails" in got:
-            detail = got["exceptionDetails"]
-            raise SystemExit(f"check: the check itself broke: {detail.get('exception', {}).get('description') or detail.get('text')}")
-        return json.loads(got["result"]["value"])
-
-    def shoot(self, path, y, width, height):
-        got = self.call("Page.captureScreenshot", {
-            "format": "png", "captureBeyondViewport": True,
-            "clip": {"x": 0, "y": y, "width": width, "height": height, "scale": 1}}, tab=True)
-        path.write_bytes(base64.b64decode(got["data"]))
-
-    def view(self, path):
-        """Photograph what the window shows right now. shoot() draws the page from its own top,
-        so only this sees what floats over the window: an open dialog, a part fixed in place."""
-        got = self.call("Page.captureScreenshot", {"format": "png"}, tab=True)
-        path.write_bytes(base64.b64decode(got["data"]))
-
-
-@contextmanager
-def browser_session(exe, prefix):
-    with tempfile.TemporaryDirectory(prefix=prefix) as directory:
-        work = Path(directory)
-        browser = Browser(exe, work)
-        try:
-            yield browser, work
-        finally:
-            browser.stop()
+ARTIFACT_BYTE_LIMIT = 16 * 1024 * 1024
 
 
 def tokens():
-    """Token colors, read from the stylesheet so the check can never drift from it."""
-    css = (KIT / "style.css").read_text(encoding="utf-8")
     found = {"#000000": "black"}
-    for name, value in re.findall(r"--(ground|ink|muted|rule|act|ok|fault):\s*(#[0-9A-Fa-f]{6})", css):
+    for name, value in page_tokens().items():
         found.setdefault(value.upper(), name)
     return found
 
@@ -230,7 +42,6 @@ def script():
 
 
 def address(page, text, work):
-    """Where the browser finds the page. An Artifact body first gets the skeleton the Artifact tool gives it."""
     if DocumentShell(text).has_skeleton:
         return page.as_uri()
     whole = work / "page.html"
@@ -240,16 +51,7 @@ def address(page, text, work):
     return whole.as_uri()
 
 
-def cuts(height, tall):
-    """Where each slice starts and how tall it is. A short last piece joins the slice before it."""
-    tops = list(range(0, height, tall))
-    if len(tops) > 1 and height - tops[-1] < tall // 4:
-        tops.pop()
-    return [(y, (tops[i + 1] if i + 1 < len(tops) else height) - y) for i, y in enumerate(tops)]
-
-
 def report(results):
-    """Print the findings of both widths together. A finding seen at one width only says which."""
     worst = 0
     for level in ("fail", "warn", "note"):
         kinds = {}
@@ -267,11 +69,10 @@ def report(results):
 
 
 def source(text, size):
-    """Find problems in the markup independently of the computed styles."""
     found = {"fail": [], "warn": [], "note": []}
-    for slot in sorted(set(PLACE.findall(text)))[:6]:
+    for slot in sorted({m.group(0) for m in PLACE.finditer(text)})[:6]:
         found["fail"].append(["slot", f"{slot} was never filled: hand out the built page, never the template"])
-    if size > LIMIT:
+    if size > ARTIFACT_BYTE_LIMIT:
         found["warn"].append(["size", "over 16 MB, which is more than an Artifact takes: shrink the images"])
     if re.search(r"<html\b", text, flags=re.I) and not re.search(r"<meta[^>]+name=[\"']viewport", text, flags=re.I):
         found["warn"].append(["viewport", "no viewport meta, so a phone draws the page at desktop width"])
@@ -279,10 +80,10 @@ def source(text, size):
 
 
 def check_viewport(browser, url, viewport, js, file_findings):
-    width, height, _, phone = viewport
-    settled = browser.open(url, width, height, phone)
+    width = viewport.width
+    settled = browser.open(url, width, viewport.height, viewport.phone)
     if file_findings is None:
-        markup = browser.ask("JSON.stringify(document.documentElement.outerHTML)")
+        markup = browser.ask("fetch(location.href).then((got) => got.text()).then(JSON.stringify)")
         source_findings = source(markup, 0)
     else:
         source_findings = file_findings
@@ -298,11 +99,10 @@ def check_viewport(browser, url, viewport, js, file_findings):
 
 
 def save_slices(browser, viewport, page_height, out, stem):
-    width, _, tall, _ = viewport
     names = []
-    for number, (top, height) in enumerate(cuts(page_height, tall), 1):
-        path = out / f"{stem}-{width}-{number:02d}.png"
-        browser.shoot(path, top, width, height)
+    for number, (top, height) in enumerate(cuts(page_height, viewport.tall), 1):
+        path = out / f"{stem}-{viewport.width}-{number:02d}.png"
+        browser.shoot(path, top, viewport.width, height)
         names.append(path)
     return names
 
@@ -335,11 +135,14 @@ def main(argv):
         if not page.is_file():
             raise SystemExit(f"check: no page at {page}")
         data = page.read_bytes()
-        text, stem = data.decode("utf-8"), page.stem
+        try:
+            text, stem = data.decode("utf-8"), page.stem
+        except UnicodeDecodeError:
+            raise SystemExit(f"check: {page} is not valid UTF-8")
         file_findings = source(text, len(data))
         print(f"{page} · {len(data) / 1e6:.2f} MB")
 
-    exe = find_browser()
+    exe = find_browser(BROWSERS)
     if not exe:
         if served:
             print("check: no browser found, so nothing was checked. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
@@ -363,5 +166,18 @@ def main(argv):
     raise SystemExit(worst)
 
 
+def run(argv):
+    try:
+        main(argv)
+    except BrowserError as failure:
+        print(f"check: {failure}", file=sys.stderr)
+        raise SystemExit(2)
+    except SystemExit as stop:
+        if isinstance(stop.code, str):
+            print(stop.code, file=sys.stderr)
+            raise SystemExit(2)
+        raise
+
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    run(sys.argv[1:])

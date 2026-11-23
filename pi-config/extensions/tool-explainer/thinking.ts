@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { plain, safeLabel } from "./evidence.js";
-import { usableSummary } from "./writer.js";
+import { plain, safeLabel, usableSummary } from "./screening.js";
 
 export const THINKING_ENTRY = "tool-explainer.thinking.v1";
 const MAX_QUEUE = 12;

@@ -29,8 +29,7 @@ function replaceIndicator(line: string, width: number, label: string) {
 	return visibleWidth(detailed) <= width ? detailed : truncateToWidth(fit("proactive"), width, "");
 }
 
-function installProactiveFooter(ctx: ExtensionContext) {
-	// Pi has no label hook. Capture its mounted footer through the widget factory, without replacing another footer.
+function captureMountedFooter(ctx: ExtensionContext) {
 	let host: { tui: TUI; footer: FooterComponent } | undefined;
 	ctx.ui.setWidget(CAPTURE_WIDGET, (tui) => {
 		const footer = findNativeFooter(tui);
@@ -38,6 +37,11 @@ function installProactiveFooter(ctx: ExtensionContext) {
 		return { render: () => [], invalidate() {} };
 	});
 	ctx.ui.setWidget(CAPTURE_WIDGET, undefined);
+	return host;
+}
+
+function installProactiveFooter(ctx: ExtensionContext) {
+	const host = captureMountedFooter(ctx);
 	if (!host) return;
 
 	const { tui, footer } = host;
@@ -69,8 +73,7 @@ export function registerProactiveFooter(pi: ExtensionAPI, background: Background
 		const band = settings.problem ? "policy unavailable" : pressure(settings);
 		const job = background.status();
 		const progress = job === "idle" ? "" : ` (${job})`;
-		const jevLabel = jev.label(jev.mode(ctx), !settings.enabled || Boolean(settings.problem));
-		footer.update(`proactive: ${band}${progress} | JEV ${jevLabel}`);
+		footer.update(`proactive: ${band}${progress} | JEV ${jev.describe(ctx, settings)}`);
 	}
 
 	pi.on("session_start", (_, ctx) => {
@@ -80,9 +83,6 @@ export function registerProactiveFooter(pi: ExtensionAPI, background: Background
 	});
 	pi.on("session_shutdown", () => { footer?.dispose(); footer = undefined; });
 	const refreshOn = (_: unknown, ctx: ExtensionContext) => refresh(ctx);
-	pi.on("session_tree", refreshOn);
-	pi.on("model_select", refreshOn);
-	pi.on("session_before_compact", refreshOn);
 	pi.on("session_compact", refreshOn);
 	pi.on("session_compact_failed", refreshOn);
 	pi.on("turn_start", refreshOn);

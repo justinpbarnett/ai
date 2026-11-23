@@ -3,31 +3,24 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import replace
 from itertools import islice
-from pathlib import Path
 
-from .arguments import arguments
-from .detectors import settings
-from .diagnostics import ingest
+from .arguments import CommandHandlers, arguments
+from .evidence import STALE_INPUTS, import_evidence
 from .inventory import discover_root, normalize_scope
+from .ledger import UNRESOLVED
 from .parsers import capabilities
-from .review import triage
-from .review_packets import PacketSelection, import_review, prepare
-from .review_units import STAGES
+from .review_packets import PacketSelection, prepare
+from .rules import STAGES
 from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
-from .state import (
-    Store,
-    array,
-    object_value,
-    read_json,
-    require,
-    safe_state_dir,
-    string,
-)
-from .verification import record_verification
+from .state import Store
+from .state_dir import safe_state_dir
+from .thresholds import settings
+from .validation import read_json, require
 
 
 def configure_run(args, store, scope):
@@ -57,7 +50,12 @@ def configure_run(args, store, scope):
         if args.base:
             require(scope.is_git, "fallout mode requires a Git worktree")
             paths, fallout = fallout_scope(
-                scope.root, scope.state_dir, scope.scopes, args.base, args.include
+                store,
+                scope.root,
+                scope.state_dir,
+                scope.scopes,
+                args.base,
+                args.include,
             )
             configuration.update(scope=paths, fallout=fallout)
     with store.transaction():
@@ -67,53 +65,6 @@ def configure_run(args, store, scope):
         )
         store.save_run(name, configuration)
     return {"run": name, "configuration": configuration}
-
-
-def record_batch(command, store, state, document, entries):
-    finding = command == "finding"
-    state_dir = store.path.parent
-    root = Path(state["root"])
-    key = "updates" if finding else "records"
-    kind = "finding" if finding else "verification"
-    if key in document:
-        require(
-            document.keys() == {"revision", "snapshot", key},
-            "batch requires only revision, snapshot, and event list",
-        )
-        events = array(document, key)
-        require(events, "batch must not be empty")
-    else:
-        events = [document]
-    results, seen = [], set()
-    for value in events:
-        event = object_value(value, "batch event")
-        require(key not in event, "nested batches are not supported")
-        if key in document:
-            require(
-                not {"revision", "snapshot"} & event.keys(),
-                "put revision and snapshot on the batch, not each event",
-            )
-            identifier = (
-                None
-                if not finding and event.get("kind") == "manifest"
-                else string(event, "id")
-            )
-            require(
-                identifier not in seen, "duplicate event for the same ID in a batch"
-            )
-            seen.add(identifier)
-            event = event | {"snapshot": document["snapshot"]}
-        results.append(
-            triage(store, state, event, state_dir, entries)
-            if finding
-            else record_verification(state, event, root, state_dir)
-        )
-    result = results if key in document else results[0]
-    if key in document:
-        store.save(state, f"{kind}_batch", {key: result})
-    else:
-        store.save(state, kind, {"finding" if finding else "record": result})
-    return result
 
 
 def doctor_report(core_only, is_git, thresholds):
@@ -134,7 +85,6 @@ def doctor_report(core_only, is_git, thresholds):
 
 
 def prepare_packet(args, store, state, entries, root, view):
-    require(1 <= args.limit <= 50, "packet limit must be between 1 and 50")
     with store.transaction():
         store.assert_revision(state["revision"])
         selection = PacketSelection(
@@ -150,53 +100,6 @@ def prepare_packet(args, store, state, entries, root, view):
             template=args.receipt_template,
         )
         return prepare(store, state, entries, root, selection)
-
-
-STALE_INPUTS = "scan before writing evidence: inputs are stale or unscanned"
-
-
-def import_evidence(args, store, state, current, scope):
-    diagnostic = args.command == "import-diagnostics"
-    document = object_value(
-        read_json(args.metadata if diagnostic else args.input), "input"
-    )
-    entries = current["entries"]
-    with store.transaction():
-        if args.command == "review":
-            # Packets bind to exact inputs, not to the last ledger revision.
-            latest = store.load()
-            if latest["revision"] != state["revision"]:
-                latest_inventory, fresh = current_inventory(store, latest, scope)
-                require(
-                    fresh and latest_inventory["fingerprint"] == current["fingerprint"],
-                    STALE_INPUTS,
-                )
-            state = latest
-            result = import_review(store, state, document, entries)
-        else:
-            store.assert_revision(
-                document.get("revision", state["revision"] if diagnostic else None)
-            )
-            store.assert_revision(state["revision"])
-            require(
-                document.get("snapshot") == state["snapshot"], "input snapshot is stale"
-            )
-            if diagnostic:
-                result = ingest(
-                    store, state, Path(state["root"]), args.tool, args.input, document
-                )
-            else:
-                result = record_batch(args.command, store, state, document, entries)
-        current_again, _ = scope.collect()
-        require(
-            current_again["fingerprint"] == current["fingerprint"],
-            "source changed during import; no evidence was committed",
-        )
-    return {
-        "revision": state["revision"],
-        "snapshot": state["snapshot"],
-        "result": result,
-    }
 
 
 def command_report(args, store, state, current, fresh, view):
@@ -237,9 +140,7 @@ def command_report(args, store, state, current, fresh, view):
         )
     if args.command == "next" and not summary:
         report["backlog"] = [
-            f
-            for f in state["findings"].values()
-            if f["status"] not in {"resolved", "false_positive", "superseded"}
+            f for f in state["findings"].values() if f["status"] in UNRESOLVED
         ]
     return report
 
@@ -252,15 +153,7 @@ def command_workspace(args, envelope):
     )
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
-    run_write = args.command == "run" and args.action != "list"
-    writes = run_write or args.command in {
-        "scan",
-        "review",
-        "import-diagnostics",
-        "finding",
-        "verification",
-    }
-    initialize = not args.run and (args.command == "scan" or run_write)
+    initialize = not args.run and args.writes and args.command in {"scan", "run"}
     state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
     envelope.update(
         root=str(root),
@@ -269,7 +162,7 @@ def command_workspace(args, envelope):
         state_dir=str(state_dir),
         state_path=str(state_dir / "state.sqlite3"),
     )
-    if writes and not initialize:
+    if args.writes and not initialize:
         require(
             (state_dir / "state.sqlite3").is_file(),
             "no named run ledger in this worktree"
@@ -277,55 +170,108 @@ def command_workspace(args, envelope):
             else "scan before recording evidence",
         )
         state_dir = safe_state_dir(root, is_git, args.state_dir, True)
-    return ScanScope(root, is_git, scopes, thresholds, state_dir), writes
+    return ScanScope(root, is_git, scopes, thresholds, state_dir)
 
 
-def execute(args, envelope):
-    scope, writes = command_workspace(args, envelope)
-    if args.command == "doctor":
-        return doctor_report(args.core_only, scope.is_git, scope.thresholds), 0
+def doctor_command(args, scope, envelope):
+    return doctor_report(args.core_only, scope.is_git, scope.thresholds), 0
+
+
+@contextmanager
+def open_store(args, scope):
     store = Store(
         scope.state_dir / "state.sqlite3",
         scope.root,
         scope.scopes,
         scope.thresholds,
-        write=writes,
+        write=args.writes,
     )
     try:
-        if args.command == "run":
-            return configure_run(args, store, scope), 0
-        run = current_run(store, args.run) if args.run else {}
-        view = run.get("slice")
-        base = run.get("fallout", {}).get("base")
-        if run:
-            scope = replace(
-                scope, scopes=run["scope"], thresholds=settings(run["thresholds"])
-            )
-            store.select(scope.scopes, scope.thresholds, base)
-            envelope.update(
-                run=args.run, scope=scope.scopes, fallout=run.get("fallout")
-            )
-        state = store.load()
-        if base:
-            state["fallout_base"] = base
-        target = getattr(args, "target", 0)
-        require(target >= 0, "debt target must not be negative")
-        if args.command == "scan":
-            current = scan(args, store, state, scope)
-            fresh = True
-        else:
-            current, fresh = current_inventory(store, state, scope)
-        if writes and args.command != "scan":
-            require(fresh, STALE_INPUTS)
-            if args.command == "review" and args.action == "prepare":
-                return prepare_packet(
-                    args, store, state, current["entries"], scope.root, view
-                ), 0
-            return import_evidence(args, store, state, current, scope), 0
-        report = command_report(args, store, state, current, fresh, view)
-        return report, int(args.command == "complete" and not report["complete"])
+        yield store
     finally:
         store.close()
+
+
+def run_command(args, scope, envelope):
+    with open_store(args, scope) as store:
+        return configure_run(args, store, scope), 0
+
+
+def load_ledger(args, store, scope, envelope):
+    run = current_run(store, args.run) if args.run else {}
+    view = run.get("slice")
+    base = run.get("fallout", {}).get("base")
+    if run:
+        scope = replace(
+            scope, scopes=run["scope"], thresholds=settings(run["thresholds"])
+        )
+        store.select(scope.scopes, scope.thresholds, base)
+        envelope.update(run=args.run, scope=scope.scopes, fallout=run.get("fallout"))
+    state = store.load()
+    if base:
+        state["fallout_base"] = base
+    require(getattr(args, "target", 0) >= 0, "debt target must not be negative")
+    return scope, state, view
+
+
+def scan_command(args, scope, envelope):
+    with open_store(args, scope) as store:
+        scope, state, view = load_ledger(args, store, scope, envelope)
+        current = scan(args, store, state, scope)
+        return command_report(args, store, state, current, True, view), 0
+
+
+def report_for(args, scope, envelope):
+    with open_store(args, scope) as store:
+        scope, state, view = load_ledger(args, store, scope, envelope)
+        current, fresh = current_inventory(store, state, scope)
+        return command_report(args, store, state, current, fresh, view)
+
+
+def report_command(args, scope, envelope):
+    return report_for(args, scope, envelope), 0
+
+
+def complete_command(args, scope, envelope):
+    report = report_for(args, scope, envelope)
+    return report, int(not report["complete"])
+
+
+def fresh_ledger(args, store, scope, envelope):
+    scope, state, view = load_ledger(args, store, scope, envelope)
+    current, fresh = current_inventory(store, state, scope)
+    require(fresh, STALE_INPUTS)
+    return scope, state, current, view
+
+
+def prepare_command(args, scope, envelope):
+    with open_store(args, scope) as store:
+        scope, state, current, view = fresh_ledger(args, store, scope, envelope)
+        return prepare_packet(
+            args, store, state, current["entries"], scope.root, view
+        ), 0
+
+
+def evidence_command(args, scope, envelope):
+    with open_store(args, scope) as store:
+        scope, state, current, _ = fresh_ledger(args, store, scope, envelope)
+        return import_evidence(args, store, state, current, scope), 0
+
+
+HANDLERS = CommandHandlers(
+    doctor=doctor_command,
+    scan=scan_command,
+    report=report_command,
+    complete=complete_command,
+    run=run_command,
+    prepare=prepare_command,
+    evidence=evidence_command,
+)
+
+
+def execute(args, envelope):
+    scope = command_workspace(args, envelope)
+    return args.handler(args, scope, envelope)
 
 
 def scope_lines(output):
@@ -413,7 +359,7 @@ def render_text(output):
 
 
 def main(argv=None):
-    args = arguments(argv)
+    args = arguments(argv, HANDLERS)
     envelope = {}
     try:
         payload, code = execute(args, envelope)
@@ -426,7 +372,7 @@ def main(argv=None):
         return code
     except FileNotFoundError as exc:
         error, code = str(exc), 2
-    except (ValueError, TypeError, KeyError, RuntimeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         error, code = str(exc), 2
     except (OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
         error, code = str(exc), 3

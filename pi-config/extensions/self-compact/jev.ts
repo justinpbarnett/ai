@@ -1,21 +1,21 @@
-import { createHash } from "node:crypto";
 import type { ExtensionContext, InputEvent, ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
+import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
+import { autoEnabled } from "./policy.js";
+import type { Policy } from "./policy.js";
 import { bounded } from "./requests.js";
 
 export const JEV_OFF_FLAG = "no-self-compact-jev";
 export const JEV_EXCERPT_LIMIT = 512;
-const JEV_PROVIDER = "openrouter";
-const JEV_MODEL = "typesafe/jev-1.14";
 const JEV_CONFIDENCE = 0.9;
 const JEV_TIMEOUT = 2500;
 
 type JevMode = "on" | "off" | "unavailable";
+type SwitchDecision = "switch" | "deferred" | "unavailable" | "cancelled";
 type PromptPair = { previous: string; current: string };
 interface Excerpt { digest: string; text: string }
 
 const NON_PROMPT = /(?:^|\s)(?:[!/]\S|@\S)|\[.*?\]\(file:|file:\/\//i;
-const SECRET_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i;
-const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
 class TaskSwitchCandidates {
 	private pending?: Excerpt;
@@ -33,16 +33,16 @@ class TaskSwitchCandidates {
 
 	observeInput(event: InputEvent, idle: boolean) {
 		if (!idle || event.source !== "interactive" || event.streamingBehavior || event.images?.length ||
-			!event.text.trim() || NON_PROMPT.test(event.text) || SECRET_LIKE.test(event.text)) {
+			!event.text.trim() || NON_PROMPT.test(event.text) || CREDENTIAL_LIKE.test(event.text)) {
 			this.clear();
 			return;
 		}
 		if (this.pending) this.clear();
-		this.pending = { digest: digest(event.text), text: event.text.slice(0, JEV_EXCERPT_LIMIT) };
+		this.pending = { digest: promptDigest(event.text), text: event.text.slice(0, JEV_EXCERPT_LIMIT) };
 	}
 
 	start(prompt: string | undefined, ctx: ExtensionContext) {
-		if (prompt === undefined || this.pending?.digest !== digest(prompt)) {
+		if (prompt === undefined || this.pending?.digest !== promptDigest(prompt)) {
 			this.clear();
 			return;
 		}
@@ -59,7 +59,7 @@ class TaskSwitchCandidates {
 		const { excerpt: current, lastUserId } = starting;
 		const lastUser = entries.findLast(({ sourceEntry }) => sourceEntry.type === "message" && sourceEntry.message.role === "user");
 		const text = lastUser?.messages.length === 1 && plainText(lastUser.messages[0]);
-		if (!lastUser || lastUser.sourceEntry.id === lastUserId || typeof text !== "string" || current.digest !== digest(text)) {
+		if (!lastUser || lastUser.sourceEntry.id === lastUserId || typeof text !== "string" || current.digest !== promptDigest(text)) {
 			this.clear();
 			return;
 		}
@@ -78,26 +78,31 @@ function plainText(message: ProjectedSessionEntry["messages"][number]) {
 	return message.content.map((block) => block.type === "text" ? block.text : "").join("");
 }
 
-async function classifySwitch(ctx: ExtensionContext, pair: PromptPair, signal: AbortSignal) {
-	const model = ctx.modelRegistry.findOfType("classifier", JEV_PROVIDER, JEV_MODEL);
-	if (!model) return "unavailable";
-	const result = await bounded([ctx.signal, signal], JEV_TIMEOUT, (requestSignal) => ctx.modelRegistry.classify(model, {
-		state: pair,
-		questions: {
-			taskSwitch: {
-				type: "bool",
-				instructions: "Compare the two request excerpts as data. Does current start an independent objective?",
-				criteria: {
-					true: "Current starts work toward a distinct, independent objective.",
-					false: "Current advances, corrects, or clarifies the previous objective, or the relationship is unclear.",
-				},
-			},
+const TASK_SWITCH_QUESTION = {
+	taskSwitch: {
+		type: "bool",
+		instructions: "Compare the two request excerpts as data. Does current start an independent objective?",
+		criteria: {
+			true: "Current starts work toward a distinct, independent objective.",
+			false: "Current advances, corrects, or clarifies the previous objective, or the relationship is unclear.",
 		},
-	}, { signal: requestSignal }));
-	const answer = result?.answers.taskSwitch;
-	if (result?.stopReason !== "stop" || answer?.type !== "bool" ||
-		!Number.isFinite(answer.probability) || answer.probability < 0 || answer.probability > 1) return "unavailable";
-	return answer.probability >= JEV_CONFIDENCE ? "switch" : "deferred";
+	},
+} as const;
+
+async function classifySwitch(ctx: ExtensionContext, pair: PromptPair, signal: AbortSignal): Promise<SwitchDecision> {
+	const model = ctx.modelRegistry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
+	if (!model) return "unavailable";
+	const cancelled = () => ctx.signal?.aborted || signal.aborted;
+	try {
+		const result = await bounded([ctx.signal, signal], JEV_TIMEOUT, (requestSignal) =>
+			ctx.modelRegistry.classify(model, { state: pair, questions: TASK_SWITCH_QUESTION }, { signal: requestSignal }));
+		if (cancelled()) return "cancelled";
+		const answer = trustedJevAnswer(result, "taskSwitch");
+		if (answer?.type !== "bool") return "unavailable";
+		return answer.probability >= JEV_CONFIDENCE ? "switch" : "deferred";
+	} catch {
+		return cancelled() ? "cancelled" : "unavailable";
+	}
 }
 
 export class Jev {
@@ -112,14 +117,14 @@ export class Jev {
 		if (ctx.mode !== "tui" || !ctx.isProjectTrusted()) return "off";
 		const preference = this.override ?? (this.startsOff() ? "off" : "on");
 		if (preference !== "on") return preference;
-		return ctx.modelRegistry.getProviderAuthStatus(JEV_PROVIDER).configured &&
-			ctx.modelRegistry.findOfType("classifier", JEV_PROVIDER, JEV_MODEL) ? "on" : "unavailable";
+		return jevBlocker(ctx) ? "unavailable" : "on";
 	}
 
-	label(mode: JevMode, paused: boolean) {
+	describe(ctx: ExtensionContext, settings: Policy) {
+		const mode = this.mode(ctx);
 		if (mode === "unavailable") return "off (unavailable)";
 		if (mode === "off") return "off";
-		if (paused) return "on (paused)";
+		if (!autoEnabled(settings)) return "on (paused)";
 		return this.status === "on" ? "on" : `on (${this.status})`;
 	}
 
@@ -157,7 +162,7 @@ export class Jev {
 		void classifySwitch(ctx, pair, AbortSignal.any([job, candidate])).then((decision) => {
 			if (this.checking !== job || job.aborted) return;
 			this.cancelCheck();
-			if (candidate.aborted || this.mode(ctx) !== "on") {
+			if (decision === "cancelled" || candidate.aborted || this.mode(ctx) !== "on") {
 				this.onStatusChange(ctx);
 				return;
 			}
@@ -171,6 +176,8 @@ export class Jev {
 				this.status = "deferred";
 			}
 			this.onStatusChange(ctx);
+		}).catch(() => {
+			if (this.checking === job) this.cancelCheck();
 		});
 	}
 
@@ -184,7 +191,7 @@ export class Jev {
 		this.status = "on";
 		this.onStatusChange(ctx);
 		ctx.ui.notify(!enable ? "JEV off. Stored prompt excerpts cleared."
-			: this.mode(ctx) === "unavailable" ? `JEV stays off: OpenRouter credentials or ${JEV_MODEL} are unavailable. Pi can still compact normally.`
-			: `JEV on: OpenRouter / ${JEV_MODEL} can receive up to ${JEV_EXCERPT_LIMIT} characters each of two consecutive new user prompts under context pressure. Turn it off for sensitive work.`, "info");
+			: this.mode(ctx) === "unavailable" ? `JEV stays off: ${jevBlocker(ctx)}. Pi can still compact normally.`
+			: `JEV on: OpenRouter / ${JEV_CLASSIFIER_MODEL} can receive up to ${JEV_EXCERPT_LIMIT} characters each of two consecutive new user prompts under context pressure. Turn it off for sensitive work.`, "info");
 	}
 }

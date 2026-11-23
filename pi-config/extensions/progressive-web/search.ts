@@ -1,7 +1,15 @@
 import { JSDOM } from "jsdom";
-import { loadBraveApiKey } from "./config.ts";
-import { normalizeUrl } from "./content.ts";
-import { responseText } from "./transports.ts";
+import { responseText } from "./body.ts";
+import { braveCredentialsPath, loadBraveApiKey } from "./config.ts";
+import { normalizeUrl } from "./url-policy.ts";
+
+export async function searchStatus() {
+  const braveKey = await loadBraveApiKey();
+  return {
+    search: `Brave Web Search: ${braveKey ? "configured (not yet validated)" : "not configured"}`,
+    braveCredentialsPath,
+  };
+}
 
 export interface SearchOptions {
   query: string;

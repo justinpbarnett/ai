@@ -5,20 +5,21 @@ from pathlib import PurePosixPath
 
 from .dependency_graph import resolve_edges
 from .inventory import (
-    GENERATED,
     MAX_SOURCE_BYTES,
     PROJECT,
+    WIRING_LANGUAGES,
+    classify_content,
     excluded,
     git,
     inventory,
     normalize_scope,
+    owning_project,
     source_language,
-    within,
 )
 from .parsers import analyze
-from .state import DEBT, require, string
-
-WIRING_LANGUAGES = {"unknown", "generic", "csharp", "html", "vue", "css", "scss"}
+from .paths import in_paths
+from .scanning import parse_for_graph
+from .validation import require
 
 
 def run_name(name):
@@ -33,10 +34,6 @@ def current_run(store, name):
     return configuration
 
 
-def in_paths(path, paths):
-    return any(within(path, prefix) for prefix in paths)
-
-
 def slice_configuration(root, parent_name, parent, requested):
     require(
         not parent.get("slice"), "create a slice from the parent run, not another slice"
@@ -49,23 +46,12 @@ def slice_configuration(root, parent_name, parent, requested):
     return parent | {"slice": {"parent": parent_name, "paths": paths}}
 
 
-def graph(entries, sources, parsed=None):
-    if parsed is None:
-        parsed = {
-            path: analyze(data, entries[path]["language"], False)
-            for path, data in sources.items()
-        }
-    edges, limitations, _, _ = resolve_edges(entries, parsed, sources)
-    return edges, limitations, parsed
-
-
-def base_overlay(root, base, touched, entries, sources, parsed):
+def historical_blobs(root, base, touched):
     historical = {}
-    state_relative = None
     for record in filter(None, git(root, "ls-tree", "-rlz", base).stdout.split(b"\0")):
         metadata, raw_path = record.split(b"\t", 1)
         path = os.fsdecode(raw_path)
-        if path not in touched or excluded(path, state_relative):
+        if path not in touched or excluded(path, None):
             continue
         mode, kind, oid, size = metadata.split()
         if (
@@ -75,6 +61,11 @@ def base_overlay(root, base, touched, entries, sources, parsed):
             and source_language(path)
         ):
             historical[path] = oid.decode()
+    return historical
+
+
+def base_overlay(root, base, touched, entries, sources, parsed):
+    historical = historical_blobs(root, base, touched)
     if not historical:
         return []
     base_sources = {path: data for path, data in sources.items() if path not in touched}
@@ -85,33 +76,23 @@ def base_overlay(root, base, touched, entries, sources, parsed):
         path: result for path, result in parsed.items() if path not in touched
     }
     projects = {
-        PurePosixPath(path).parent
+        PurePosixPath(path).parent.as_posix()
         for path in base_sources.keys() | historical.keys()
         if PROJECT.fullmatch(PurePosixPath(path).name)
     }
     for path, oid in historical.items():
         data = git(root, "cat-file", "blob", oid).stdout
-        try:
-            text = data.decode("utf-8-sig")
-        except UnicodeError:
+        entry = classify_content(path, data, None, False)
+        if entry is None or entry["disposition"] != "context":
             continue
-        if "\x00" in text or GENERATED.search(b"\n".join(data.splitlines()[:12])):
-            continue
-        language = source_language(path)
-        base_entries[path] = {"language": language, "disposition": "context"}
+        base_entries[path] = entry
         base_sources[path] = data
-        base_parsed[path] = analyze(data, language, False)
+        base_parsed[path] = analyze(data, entry["language"], False)
     for path in base_sources:
-        project = next(
-            (
-                str(parent)
-                for parent in PurePosixPath(path).parents
-                if parent in projects
-            ),
-            ".",
-        )
-        base_entries[path] = base_entries[path] | {"project": project}
-    return graph(base_entries, base_sources, base_parsed)[0]
+        base_entries[path] = base_entries[path] | {
+            "project": owning_project(path, projects)
+        }
+    return resolve_edges(base_entries, base_parsed, base_sources)[0]
 
 
 def fallout_changes(root, base):
@@ -183,22 +164,32 @@ def wiring_review(targets, retired, entries, limitations):
     )
 
 
-def fallout_scope(root, state_dir, fences, base, includes):
+def resolve_base_commit(root, base):
+    result = git(
+        root,
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        f"{base}^{{commit}}",
+        allowed=(0, 128),
+    )
+    require(not result.returncode, f"unknown --base commit {base!r}")
+    return result.stdout.decode().strip()
+
+
+def fallout_scope(store, root, state_dir, fences, base, includes):
     paths = normalize_scope(root, includes) if includes else []
     require(
         all(in_paths(path, fences) for path in paths),
         "manual include is outside the requested fence",
     )
-    base = (
-        git(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}")
-        .stdout.decode()
-        .strip()
-    )
+    base = resolve_base_commit(root, base)
     touched, replaced = fallout_changes(root, base)
     live, sources = inventory(root, True, ["."], state_dir, gather=True)
     entries = live["entries"]
     changed, retired = classify_changes(entries, touched, replaced)
-    edges, limitations, parsed = graph(entries, sources)
+    parsed = parse_for_graph(entries, sources, store)
+    edges, limitations, _, _ = resolve_edges(entries, parsed, sources)
     base_edges = base_overlay(root, base, touched, entries, sources, parsed)
     primary, wiring_targets, selection = select_fallout(
         changed, retired, sources, chain(edges, base_edges), fences
@@ -223,57 +214,4 @@ def fallout_scope(root, state_dir, fences, base, includes):
         "requires_wiring_review": wiring_review(
             wiring_targets, retired, entries, limitations
         ),
-    }
-
-
-def change_relation(document):
-    relation = string(document, "change_relation")
-    require(
-        relation in {"regression", "pre_existing", "unclassified"},
-        "unknown change relation",
-    )
-    return {
-        "change_relation": relation,
-        "relation_evidence": string(document, "relation_evidence"),
-    }
-
-
-def slice_status(state, entries, receipts, view, verification_unmet, current):
-    paths = view["paths"]
-    units = [
-        identifier
-        for identifier, unit in state.get("units", {}).items()
-        if any(in_paths(p, paths) for p in unit["files"])
-    ]
-    counts = {
-        stage: sum(stage in receipts[key] for key in units)
-        for stage in ("discovery", "confirmation")
-    }
-    unresolved = [
-        finding["id"]
-        for finding in state["findings"].values()
-        if finding["status"] in DEBT | {"candidate"}
-        and any(in_paths(path, paths) for path in finding["source_hashes"])
-    ]
-    gaps = [
-        gap
-        for gap in state.get("scan", {}).get("gaps", [])
-        if in_paths(gap["path"], paths)
-    ]
-    incomplete = [
-        path
-        for path, entry in entries.items()
-        if entry["disposition"] == "incomplete" and in_paths(path, paths)
-    ]
-    return view | {
-        "verified": bool(
-            current
-            and units
-            and all(count == len(units) for count in counts.values())
-            and not (unresolved or gaps or incomplete or verification_unmet)
-        ),
-        "coverage": {"total": len(units), **counts},
-        "unresolved": unresolved,
-        "parser_gaps": gaps,
-        "incomplete_paths": incomplete,
     }

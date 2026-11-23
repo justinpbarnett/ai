@@ -4,10 +4,12 @@ from functools import partial
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .inventory import digest, read_source, safe_file
-from .state import array, object_value, observe, read_json, require, string
+from .hashing import digest
+from .inventory import read_source, safe_file
+from .ledger import observe
+from .validation import array, object_value, read_json, require, string
 
-FORMATS = ("ruff", "eslint", "stylelint", "sarif")
+SOURCE_NEWLINE = re.compile(r"\r\n|\n|\r")
 EXIT_CODES = {"ruff": {0, 1}, "eslint": {0, 1}, "stylelint": {0, 2}, "sarif": {0, 1}}
 
 
@@ -57,6 +59,19 @@ def ruff_rows(report):
         )
 
 
+ESLINT_UNATTRIBUTED_RULE = "eslint:unattributed"
+
+
+def located_without_rule(message):
+    return message.get("ruleId") is None and type(message.get("line")) is int
+
+
+def diagnostic_rule(obj, tool):
+    if tool == "eslint" and located_without_rule(obj):
+        return ESLINT_UNATTRIBUTED_RULE
+    return string(obj, "ruleId" if tool == "eslint" else "rule")
+
+
 def js_rows(report, tool):
     require(isinstance(report, list), f"{tool} report must be an array")
     for item in report:
@@ -74,7 +89,7 @@ def js_rows(report, tool):
         for raw in array(entry, "messages" if tool == "eslint" else "warnings"):
             obj = object_value(raw, "diagnostic")
             require(not obj.get("fatal"), f"{tool} reported a fatal diagnostic")
-            rule = string(obj, "ruleId" if tool == "eslint" else "rule")
+            rule = diagnostic_rule(obj, tool)
             severity = obj.get("severity")
             require(
                 (tool == "eslint" and type(severity) is int and severity in {1, 2})
@@ -224,6 +239,14 @@ def ingest(store, state, root, tool, report_file, metadata):
         "findings": [observe(state, finding) for finding in findings],
     }
     state.setdefault("diagnostic_runs", {})[tool] = run
+    state["diagnostic_run_index"] = {
+        **{
+            key: kept
+            for key, kept in state.get("diagnostic_run_index", {}).items()
+            if kept["snapshot"] == state["snapshot"]
+        },
+        digest([profile, run["coverage"]]): run,
+    }
     store.save(state, "diagnostics", run)
     return run
 
@@ -253,8 +276,8 @@ def diagnostic_findings(rows, tool, path_for, root, covered, profile):
         path = path_for(file)
         require(path in covered, f"diagnostic path was not declared covered: {path!r}")
         if path not in lines:
-            lines[path] = (
-                read_source(safe_file(root, path)).decode("utf-8-sig").splitlines()
+            lines[path] = SOURCE_NEWLINE.split(
+                read_source(safe_file(root, path)).decode("utf-8-sig")
             )
         index = coordinates_["line"] - 1
         require(index < len(lines[path]), f"diagnostic line is out of range: {path!r}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""How a page is built: a diagram of an idea, so it takes no ground and no tones, only ink."""
 from draw import *
 
 d = Drawing(600, 150, "How the kit builds a page: template, stylesheet, images, and drawings go into build.py, one HTML file comes out, and check.py reads it")
@@ -7,7 +6,6 @@ d = Drawing(600, 150, "How the kit builds a page: template, stylesheet, images, 
 bw, bh = 100.0, 30.0
 x_in, x_build, x_out, x_check = 25.0, 171.0, 323.0, 475.0
 
-# what goes in, stacked on the left
 ins = [("Template", "Your words and slots"), ("Style.css", "Type and color"), ("Images", "Any you name"), ("Drawings", "Scripts that print SVG")]
 for i, (name, sub) in enumerate(ins):
     y = 12 + i * 32

@@ -1,8 +1,20 @@
 from collections import Counter, defaultdict, deque
 
-from .review_units import STAGES, changed_keys, matching_receipts, review_work
-from .runs import slice_status
-from .state import DEBT, SEVERITIES, finding_prerequisites
+from .ledger import (
+    DEBT,
+    SEVERITIES,
+    UNRESOLVED,
+    finding_prerequisites,
+    strict_debt_points,
+)
+from .paths import in_paths
+from .review_units import (
+    changed_keys,
+    matching_receipts,
+    review_work,
+    unit_matches_paths,
+)
+from .rules import STAGES
 from .verification import checks
 
 
@@ -11,7 +23,7 @@ def fulfilled_prerequisites(findings):
     awaiting = {}
     superseded_by = defaultdict(list)
     for key, finding in findings.items():
-        if finding["status"] == "resolved":
+        if finding["status"] in {"resolved", "false_positive"}:
             fulfilled.add(key)
         elif finding["status"] == "superseded":
             replacements = finding_prerequisites(finding)
@@ -92,11 +104,7 @@ def finding_summary(state):
     findings = state["findings"]
     counts = Counter(finding["status"] for finding in findings.values())
     report = {
-        "strict_debt_points": sum(
-            SEVERITIES[finding["severity"]]
-            for finding in findings.values()
-            if finding["status"] in DEBT
-        ),
+        "strict_debt_points": strict_debt_points(findings),
         "candidate_count": counts["candidate"],
         "actionable_count": sum(counts[status] for status in DEBT),
         "blocked_count": counts["blocked"],
@@ -196,6 +204,63 @@ def convergence_passes(report):
     if not total or report["stale_source"] or "unresolved_findings" in report["unmet"]:
         return 0
     return sum(coverage[stage] == total for stage in STAGES)
+
+
+def slice_units(state, paths):
+    return [
+        identifier
+        for identifier, unit in state.get("units", {}).items()
+        if unit_matches_paths(unit, paths)
+    ]
+
+
+def slice_unresolved(state, paths):
+    return [
+        finding["id"]
+        for finding in state["findings"].values()
+        if finding["status"] in UNRESOLVED
+        and any(in_paths(path, paths) for path in finding["source_hashes"])
+    ]
+
+
+def slice_gaps(state, paths):
+    return [
+        gap
+        for gap in state.get("scan", {}).get("gaps", [])
+        if in_paths(gap["path"], paths)
+    ]
+
+
+def slice_incomplete(entries, paths):
+    return [
+        path
+        for path, entry in entries.items()
+        if entry["disposition"] == "incomplete" and in_paths(path, paths)
+    ]
+
+
+def slice_status(state, entries, receipts, view, verification_unmet, current):
+    paths = view["paths"]
+    units = slice_units(state, paths)
+    counts = {
+        stage: sum(stage in receipts[key] for key in units)
+        for stage in ("discovery", "confirmation")
+    }
+    unresolved = slice_unresolved(state, paths)
+    gaps = slice_gaps(state, paths)
+    incomplete = slice_incomplete(entries, paths)
+    return view | {
+        "verified": bool(
+            current
+            and units
+            and all(count == len(units) for count in counts.values())
+            and not (unresolved or gaps or incomplete or verification_unmet)
+        ),
+        "coverage": {"total": len(units), **counts},
+        "unresolved": unresolved,
+        "parser_gaps": gaps,
+        "incomplete_paths": incomplete,
+    }
 
 
 def evaluate(

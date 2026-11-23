@@ -1,11 +1,12 @@
 import json
 import posixpath
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from .inventory import within
-from .parsers import GRAMMARS, PLACEHOLDER
+from .parsers import GRAMMARS
+from .paths import within
 
 JS_EXT = (
     ".ts",
@@ -23,6 +24,8 @@ JS_EXT = (
 )
 ALIAS_CONFIG_FILES = ("tsconfig.json", "jsconfig.json")
 ALIAS_LANGUAGES = {"javascript", "typescript", "tsx", "vue"}
+PLACEHOLDER = re.compile(r"[$*{}<>]")
+PYTHON_KINDS = {"python", "python-member"}
 
 
 @dataclass(frozen=True)
@@ -134,15 +137,19 @@ def javascript_targets(paths, parent, ref, aliases):
     return matches
 
 
+def python_bases(ancestors, project, dots):
+    if dots:
+        return [str(ancestors[dots - 1])]
+    return dict.fromkeys(
+        (project, posixpath.join(project, "src"), ".", "src", str(ancestors[0]))
+    )
+
+
 def python_targets(paths, ancestors, project, ref):
     dots = len(ref) - len(ref.lstrip("."))
     if dots > len(ancestors):
         return []
-    bases = (
-        [str(ancestors[dots - 1])]
-        if dots
-        else dict.fromkeys((project, posixpath.join(project, "src"), ".", "src"))
-    )
+    bases = python_bases(ancestors, project, dots)
     tail = ref[dots:].replace(".", "/")
     matches = []
     for base in bases:
@@ -174,7 +181,7 @@ def reference_targets(paths, ancestors, project, aliases, kind, ref):
     parent = str(ancestors[0])
     if kind == "js":
         return javascript_targets(paths, parent, ref, aliases)
-    if kind == "python":
+    if kind in PYTHON_KINDS:
         return python_targets(paths, ancestors, project, ref)
     if kind == "style":
         return style_targets(paths, parent, ref)
@@ -183,6 +190,17 @@ def reference_targets(paths, ancestors, project, aliases, kind, ref):
     base = "." if ref.startswith("/") else parent
     return local_targets(
         paths, base, ref.lstrip("/"), JS_EXT if kind == "vue-external" else ()
+    )
+
+
+def member_module(ref):
+    prefix = ref[: ref.rfind(".") + 1]
+    return prefix if not prefix.strip(".") else prefix[:-1]
+
+
+def is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
+    return import_kind == "python-member" and bool(
+        python_targets(paths, ancestors, project, member_module(ref))
     )
 
 
@@ -211,6 +229,14 @@ def source_limitations(result, aliases, language):
     return limits
 
 
+def unresolved_problem(paths, ancestors, project, import_kind, ref, targets):
+    if targets:
+        return "ambiguous"
+    if not is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
+        return "unresolved or external"
+    return None
+
+
 def resolve_edges(entries, parsed, sources):
     paths = {
         path
@@ -228,10 +254,11 @@ def resolve_edges(entries, parsed, sources):
         limits = source_limitations(result, aliases, entry["language"])
         if limits:
             limitations[path].update(limits)
-        for kind, ref in result["imports"]:
+        for import_kind, ref in result["imports"]:
+            kind = "python" if import_kind in PYTHON_KINDS else import_kind
             matches = set(
                 reference_targets(
-                    paths, ancestors, entry["project"], aliases, kind, ref
+                    paths, ancestors, entry["project"], aliases, import_kind, ref
                 )
             )
             if kind == "python":
@@ -240,8 +267,11 @@ def resolve_edges(entries, parsed, sources):
             if len(targets) == 1:
                 edges.add((path, targets[0], kind))
             else:
-                problem = "ambiguous" if targets else "unresolved or external"
-                limitations[path].add(f"{problem} {kind} target: {ref}")
+                problem = unresolved_problem(
+                    paths, ancestors, entry["project"], import_kind, ref, targets
+                )
+                if problem:
+                    limitations[path].add(f"{problem} {kind} target: {ref}")
             if kind == "vue-external":
                 gap = vue_external_gap(entries, path, ref, targets)
                 if gap:

@@ -1,9 +1,9 @@
-import { getLatestCompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { checkpointDraft, minimumSavings, preservesCut, selectCut, summarizeCut, tokenCount } from "./checkpoint.js";
 import type { CheckpointRequest, Cut, SummaryResult } from "./checkpoint.js";
 import type { Jev } from "./jev.js";
-import type { Policy, Pressure } from "./policy.js";
+import { autoEnabled } from "./policy.js";
+import type { Policy, Pressure, PressureCycle } from "./policy.js";
 
 export const SELF_COMPACT_TOOL = "self_compact";
 export const MAX_HANDOFF = 2000;
@@ -40,7 +40,6 @@ function modelForTurn(event: TurnEndEvent, ctx: ExtensionContext) {
 	return ctx.modelRegistry.find(event.message.provider, event.message.model);
 }
 
-function autoEnabled(settings: Policy) { return settings.enabled && !settings.problem; }
 function canUseJev(turn: Turn) { return turn.underPressure && turn.mode === "on" && !turn.ctx.hasPendingMessages(); }
 
 function requestForTurn(turn: Turn, job: BackgroundJob): CheckpointRequest | undefined {
@@ -51,11 +50,9 @@ function requestForTurn(turn: Turn, job: BackgroundJob): CheckpointRequest | und
 
 export class BackgroundCompaction {
 	private job?: BackgroundJob;
-	private automaticAttempted = false;
-	private observedCheckpoint?: string;
 	private staged?: { toolCallId: string; handoff: string };
 
-	constructor(private readonly jev: Jev, private readonly onStatusChange: (ctx: ExtensionContext) => void) {}
+	constructor(private readonly jev: Jev, private readonly cycle: PressureCycle, private readonly onStatusChange: (ctx: ExtensionContext) => void) {}
 
 	status() {
 		if (!this.job) return "idle";
@@ -84,8 +81,6 @@ export class BackgroundCompaction {
 
 	reset() {
 		this.discard();
-		this.automaticAttempted = false;
-		this.observedCheckpoint = undefined;
 		this.staged = undefined;
 	}
 
@@ -97,7 +92,7 @@ export class BackgroundCompaction {
 		}
 	}
 
-	advance(event: TurnEndEvent, ctx: ExtensionContext, settings: Policy, band: Pressure, checkpointId: string | undefined) {
+	advance(event: TurnEndEvent, ctx: ExtensionContext, settings: Policy, band: Pressure) {
 		const explicit = this.takeHandoff(event);
 		if (!completed(event, ctx)) {
 			this.jev.clearInput();
@@ -113,7 +108,6 @@ export class BackgroundCompaction {
 			underPressure: auto && (band === "notice" || band === "warning"),
 			nativeCutoff: auto && band === "native cutoff",
 		};
-		this.observePressure(checkpointId, band);
 		const previousFailure = this.reconcile(turn, explicit);
 		const draft = this.publishReady(turn);
 		if (draft && "type" in draft) return { draft };
@@ -127,13 +121,6 @@ export class BackgroundCompaction {
 		this.staged = undefined;
 		if (pending && event.toolResults.some((result) =>
 			result.toolCallId === pending.toolCallId && result.toolName === SELF_COMPACT_TOOL && !result.isError)) return pending.handoff;
-	}
-
-	private observePressure(checkpointId: string | undefined, band: Pressure) {
-		if (checkpointId !== this.observedCheckpoint || band === "normal") {
-			this.automaticAttempted = false;
-			this.observedCheckpoint = checkpointId;
-		}
 	}
 
 	private stillSafe(job: BackgroundJob, { event, ctx, model, settings }: Turn) {
@@ -173,7 +160,7 @@ export class BackgroundCompaction {
 	private schedule(turn: Turn, explicit: string | undefined) {
 		if (this.job) return;
 		if (turn.nativeCutoff) return explicit ? "the native cutoff has been reached" : undefined;
-		if (!explicit && (!turn.underPressure || this.automaticAttempted)) return;
+		if (!explicit && (!turn.underPressure || this.cycle.automaticAlreadyAttempted)) return;
 		const anchor = turn.ctx.sessionManager.getLeafId();
 		const { keepRecentTokens, tokens } = turn.settings;
 		const cut = keepRecentTokens === undefined ? undefined : selectCut(turn.event, turn.ctx, keepRecentTokens, tokens);
@@ -184,7 +171,7 @@ export class BackgroundCompaction {
 	private startSummary({ model, ctx }: Turn, cut: Cut, anchor: string, handoff?: string) {
 		const started: BackgroundJob = { cut, anchor, model, controller: new AbortController(), handoff };
 		this.job = started;
-		this.automaticAttempted = true;
+		this.cycle.recordAutomaticAttempt();
 		void summarizeCut(cut, model, ctx.modelRegistry, started.controller.signal).then((result) => {
 			if (this.job !== started) return;
 			started.result = result;
@@ -197,8 +184,4 @@ export class BackgroundCompaction {
 		if (!pair || !job || job.handoff || (job.jevRequest && !job.jevRequest.aborted) || !canUseJev(turn)) return;
 		this.jev.check(turn.ctx, pair, job.controller.signal, (candidate) => { job.jevRequest = candidate; });
 	}
-}
-
-export function currentCheckpoint(ctx: ExtensionContext) {
-	return getLatestCompactionEntry(ctx.sessionManager.getBranch());
 }

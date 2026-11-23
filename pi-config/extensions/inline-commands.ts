@@ -42,10 +42,11 @@ function skipInlineCode(text: string, start: number): number {
   const runs = /`+/g;
   runs.lastIndex = start;
   const length = runs.exec(text)![0].length;
+  const openingEnd = runs.lastIndex;
   for (let match = runs.exec(text); match; match = runs.exec(text)) {
     if (match[0].length === length) return runs.lastIndex;
   }
-  return text.length;
+  return openingEnd;
 }
 
 function skipQuotedWord(text: string, start: number): number {
@@ -54,7 +55,7 @@ function skipQuotedWord(text: string, start: number): number {
     if (text[index] === "\\") index++;
     else if (text[index] === quote) return index + 1;
   }
-  return text.length;
+  return start + 1;
 }
 
 function skipLiteral(text: string, start: number, boundary: boolean): number | undefined {
@@ -102,11 +103,10 @@ function completionStart(
   if (!token) return undefined;
   const lineStart = beforeCursor.lastIndexOf("\n") + 1;
   if (token.start < lineStart) return undefined;
-  // File and attachment completion inside command arguments still belong to Pi.
-  if (
-    /\s/.test(beforeCursor.slice(token.end)) &&
-    /(?:^|\s)[@/~.]\S*$/.test(beforeCursor.slice(token.end))
-  ) {
+  const afterCommand = beforeCursor.slice(token.end);
+  const completingFileArgument =
+    /\s/.test(afterCommand) && /(?:^|\s)[@/~.]\S*$/.test(afterCommand);
+  if (completingFileArgument) {
     return undefined;
   }
   return token.start - lineStart;
@@ -187,16 +187,18 @@ function wrapSubmit(
   Object.defineProperty(editor, "onSubmit", {
     configurable: true,
     get: () => async (text: string) => {
+      let promoted: string;
       try {
-        const promoted = await promote(text);
-        await submit?.(promoted);
+        promoted = await promote(text);
       } catch (error) {
         editor.setText(text);
         ui.notify(
           `Inline command failed: ${error instanceof Error ? error.message : String(error)}`,
           "error",
         );
+        return;
       }
+      await submit?.(promoted);
     },
     set: (handler: EditorComponent["onSubmit"]) => {
       submit = handler;

@@ -6,14 +6,20 @@ import { isIP } from "node:net";
 import { promisify } from "node:util";
 import ipaddr from "ipaddr.js";
 import { chromium, type Browser } from "playwright";
+import {
+  maxResponseBytes,
+  decodeBody,
+  oversizeError,
+  responseText,
+} from "./body.ts";
 import { loadCredentials } from "./config.ts";
+import type { PageResponse } from "./content.ts";
 import {
   checkScope,
   NonRetryableError,
   normalizeUrl,
-  type PageResponse,
   type UrlPolicy,
-} from "./content.ts";
+} from "./url-policy.ts";
 
 interface RequestContext {
   signal: AbortSignal;
@@ -29,7 +35,6 @@ export type PageTransport = (
   url: string,
   options: TransportOptions,
 ) => Promise<PageResponse>;
-const maxResponseBytes = 10 * 1024 * 1024;
 const userAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36";
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
@@ -60,42 +65,6 @@ export async function closeBrowsers(): Promise<void> {
     [...activeBrowsers].map((browser) => browser.close()),
   );
   activeBrowsers.clear();
-}
-
-export async function responseText(response: Response): Promise<string> {
-  if (Number(response.headers.get("content-length")) > maxResponseBytes) {
-    await response.body?.cancel();
-    throw new NonRetryableError("Response exceeds the 10 MiB download limit.");
-  }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.byteLength;
-      if (length > maxResponseBytes)
-        throw new NonRetryableError(
-          "Response exceeds the 10 MiB download limit.",
-        );
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-  const charset =
-    response.headers
-      .get("content-type")
-      ?.match(/charset=["']?([^;\s"']+)/i)?.[1] || "utf-8";
-  const buffer = Buffer.concat(chunks);
-  try {
-    return new TextDecoder(charset).decode(buffer);
-  } catch {
-    return buffer.toString("utf8");
-  }
 }
 
 async function readResponse(
@@ -155,14 +124,16 @@ interface CurlMetadata {
   content_type: string;
 }
 
+const curlFileSizeExceededExitCode = 63;
+
 export async function curlFetch(
   url: string,
   options: TransportOptions,
 ): Promise<PageResponse> {
   const { signal, timeoutMs } = options;
-  const marker = "\n__PI_WEB_RESPONSE__";
+  const marker = Buffer.from("\n__PI_WEB_RESPONSE__");
   return followRedirects(url, options, async (target) => {
-    let output: string;
+    let output: Buffer;
     try {
       const { stdout } = await executeFile(
         "curl",
@@ -186,7 +157,7 @@ export async function curlFetch(
             `${name}: ${value}`,
           ]),
           "--write-out",
-          `${marker}%{json}`,
+          `${marker.toString()}%{json}`,
           "--url",
           target,
         ],
@@ -194,7 +165,7 @@ export async function curlFetch(
           signal,
           killSignal: "SIGKILL",
           maxBuffer: maxResponseBytes + 8192,
-          encoding: "utf8",
+          encoding: "buffer",
         },
       );
       output = stdout;
@@ -203,23 +174,24 @@ export async function curlFetch(
       if (!(error instanceof Error)) throw error;
       if (
         "code" in error &&
-        error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+        (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ||
+          error.code === curlFileSizeExceededExitCode)
       ) {
-        throw new NonRetryableError(
-          "Response exceeds the 10 MiB download limit.",
-        );
+        throw oversizeError();
       }
       const message = "stderr" in error ? String(error.stderr) : error.message;
       throw new Error(`cURL failed: ${message.trim().slice(-2000)}`);
     }
     const split = output.lastIndexOf(marker);
     if (split < 0) throw new Error("cURL did not return response metadata.");
-    const meta: CurlMetadata = JSON.parse(output.slice(split + marker.length));
+    const meta: CurlMetadata = JSON.parse(
+      output.subarray(split + marker.length).toString("utf8"),
+    );
     return {
       status: meta.http_code,
       url: normalizeUrl(meta.url_effective),
       contentType: meta.content_type || "",
-      body: output.slice(0, split),
+      body: decodeBody(output.subarray(0, split), meta.content_type || ""),
       redirectUrl: redirectStatuses.has(meta.http_code)
         ? meta.redirect_url
         : undefined,

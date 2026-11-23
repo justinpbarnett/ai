@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
-import { genericActivity, plain, toolActivity, type Invocation, type ToolActivity } from "./evidence.js";
+import { genericActivity, toolActivity, type Invocation, type ToolActivity } from "./evidence.js";
+import { plain } from "./screening.js";
 
 type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
 type Context = Parameters<RenderCall>[2];

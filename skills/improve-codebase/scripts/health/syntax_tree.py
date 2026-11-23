@@ -2,9 +2,17 @@ import re
 from bisect import bisect_right
 from dataclasses import dataclass
 
-from .comments import record_comment, record_docstring
-from .inventory import content_hash
+from .hashing import content_hash
 
+TOKEN_HASH, TOKEN_START, TOKEN_END = range(3)
+TOKEN_HASH_WIDTH = 24
+ROLLING_HASH_WIDTH = 16
+GENERIC_STREAM = "generic-lines"
+DECLARATION = re.compile(
+    r"declaration|definition|export_statement|signature|enum|property|field"
+    r"|method|constructor"
+)
+CODE_OWNERS = {"function_definition", "class_definition"}
 CALLABLES = {
     "python": {"function_definition", "lambda"},
     "csharp": {
@@ -185,7 +193,11 @@ def python_imports(data, node):
     names = node.children_by_field_name("name")
     if not module:
         return [
-            literal(data, name.child_by_field_name("name") or name) for name in names
+            (
+                "python",
+                literal(data, name.child_by_field_name("name") or name),
+            )
+            for name in names
         ]
     module_name = literal(data, module)
     member_names = []
@@ -194,9 +206,14 @@ def python_imports(data, node):
             member = literal(data, name.child_by_field_name("name") or name)
             if member and member != "*":
                 member_names.append(
-                    module_name + ("" if module_name.endswith(".") else ".") + member
+                    (
+                        "python-member",
+                        module_name
+                        + ("" if module_name.endswith(".") else ".")
+                        + member,
+                    )
                 )
-    return [module_name, *member_names]
+    return [("python", module_name), *member_names]
 
 
 def call_name(data, node):
@@ -214,13 +231,23 @@ def call_name(data, node):
     return literal(data, name) or node.type
 
 
-def parameter_count(params):
+def is_bound_receiver(surface, params, child):
+    return (
+        surface.language == "python"
+        and child.type == "identifier"
+        and child.id == params.named_children[0].id
+        and text(surface.data, child) in {b"self", b"cls"}
+    )
+
+
+def parameter_count(surface, params):
     if params is None:
         return 0
     if not params.type.endswith(("parameters", "list")):
         return 1
     return sum(
         child.type not in {"comment", "positional_separator", "keyword_separator"}
+        and not is_bound_receiver(surface, params, child)
         for child in params.named_children
     )
 
@@ -240,7 +267,7 @@ def declaration_metric(surface, node, ancestry):
         "parameter_evidence": content_hash(text(surface.data, params))
         if params
         else None,
-        "parameters": parameter_count(params),
+        "parameters": parameter_count(surface, params),
         "nesting": 0,
         "complexity": 1,
     }
@@ -269,6 +296,10 @@ def html_resource(tag, attrs):
         return local_web_path(attrs.get("href"))
 
 
+def is_small_subtree(node, descendants):
+    return descendants >= 25 and node.end_byte - node.start_byte <= 4096
+
+
 def collect_html(surface, node, depth, result):
     tag_node = opening_tag(node)
     if tag_node is None or not tag_node.named_child_count:
@@ -290,8 +321,7 @@ def collect_html(surface, node, depth, result):
         "evidence": content_hash(text(data, tag_node)),
     }
     result["metrics"].append(metric)
-    # Larger trees are already covered by the token stream.
-    if descendants >= 25 and node.end_byte - node.start_byte <= 4096:
+    if is_small_subtree(node, descendants):
         result["groups"].append(
             ["html-subtree", content_hash(text(data, node)), metric, descendants]
         )
@@ -359,7 +389,9 @@ def collect_import(surface, node, result):
     language, kind = surface.language, node.type
     if language == "python" and kind in {"import_statement", "import_from_statement"}:
         result["imports"].extend(
-            ["python", ref] for ref in python_imports(surface.data, node) if ref
+            [import_kind, ref]
+            for import_kind, ref in python_imports(surface.data, node)
+            if ref
         )
     elif language in {"typescript", "tsx", "javascript"}:
         collect_js_import(surface, node, result)
@@ -381,18 +413,90 @@ def collect_markup(surface, node, depth, result):
     return depth
 
 
-def tokenize_terminal(surface, node, tokens):
+def token_row(data, start, end):
+    return [content_hash(data)[:TOKEN_HASH_WIDTH], start, end]
+
+
+def tokenize_leaf_or_opaque(surface, node, tokens):
     if node.child_count and node.type not in OPAQUE_TOKENS:
         return False
     if node.end_byte > node.start_byte:
         tokens.append(
-            [
-                content_hash(text(surface.data, node))[:24],
+            token_row(
+                text(surface.data, node),
                 node.start_byte + surface.offset,
                 node.end_byte + surface.offset,
-            ]
+            )
         )
     return True
+
+
+def record_syntax_error(surface, node, result, errors):
+    if errors < 5 and (node.is_error or node.is_missing):
+        result["gaps"].append(
+            {
+                "kind": "syntax-error",
+                "surface": surface.label,
+                **surface.location(node),
+            }
+        )
+        return errors + 1
+    return errors
+
+
+def collect_declaration(surface, node, ancestry, enclosing, depth, result):
+    ancestry = (*ancestry, call_name(surface.data, node))
+    metric = declaration_metric(surface, node, ancestry)
+    result["metrics"].append(metric)
+    if metric["kind"] == "callable":
+        return ancestry, metric, 0
+    return ancestry, enclosing, depth
+
+
+def record_comment(surface, node, result):
+    sibling = node.next_named_sibling
+    while sibling is not None and "comment" in sibling.type:
+        sibling = sibling.next_named_sibling
+    result["comments"].append(
+        {
+            "start": node.start_byte + surface.offset,
+            "end": node.end_byte + surface.offset,
+            "language": surface.language,
+            "docstring": False,
+            "declaration": sibling is not None
+            and bool(DECLARATION.search(sibling.type)),
+        }
+    )
+
+
+def first_statement(parent):
+    return next(
+        (child for child in parent.named_children if "comment" not in child.type),
+        None,
+    )
+
+
+def record_docstring(surface, node, result):
+    parent = node.parent
+    owner = parent.parent if parent is not None and parent.type == "block" else None
+    if not (
+        parent is not None
+        and (
+            parent.type == "module" or (owner is not None and owner.type in CODE_OWNERS)
+        )
+    ):
+        return
+    if first_statement(parent) != node:
+        return
+    result["comments"].append(
+        {
+            "start": node.start_byte + surface.offset,
+            "end": node.end_byte + surface.offset,
+            "language": surface.language,
+            "docstring": True,
+            "declaration": False,
+        }
+    )
 
 
 def collect_tree(surface, root, result):
@@ -411,25 +515,19 @@ def collect_tree(surface, root, result):
         if "comment" in kind:
             record_comment(surface, node, result)
             continue
-        if language == "python" and kind in {"expression_statement", "string"}:
+        if language == "python" and kind == "string":
             record_docstring(surface, node, result)
-        if errors < 5 and (node.is_error or node.is_missing):
-            result["gaps"].append(
-                {"kind": "syntax-error", "surface": label, **surface.location(node)}
-            )
-            errors += 1
+        errors = record_syntax_error(surface, node, result, errors)
         if kind in callables or kind in CLASSES:
-            ancestry = (*ancestry, call_name(surface.data, node))
-            metric = declaration_metric(surface, node, ancestry)
-            result["metrics"].append(metric)
-            if metric["kind"] == "callable":
-                enclosing, depth = metric, 0
+            ancestry, enclosing, depth = collect_declaration(
+                surface, node, ancestry, enclosing, depth, result
+            )
         else:
             depth = count_branch(node, branches, enclosing, depth)
         markup_depth = collect_markup(surface, node, markup_depth, result)
         collect_import(surface, node, result)
-        if tokenize_terminal(surface, node, tokens):
-            continue  # Preserve complete literal values, including interpolations.
+        if tokenize_leaf_or_opaque(surface, node, tokens):
+            continue
         stack.extend(
             (child, ancestry, enclosing, depth, markup_depth)
             for child in reversed(node.children)

@@ -1,20 +1,27 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { crawl, dispose, scrapeBatch, status } from "./core.ts";
+import {
+  crawl,
+  dispose,
+  MAX_SCRAPE_URLS,
+  maxTierNumber,
+  scrapeBatch,
+  status,
+} from "./core.ts";
 import {
   formatResults,
   resultMetadata,
   saveDocument,
   type WebResult,
 } from "./results.ts";
-import { search } from "./search.ts";
+import { search, searchStatus } from "./search.ts";
 
 const tierOptions = {
   startTier: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: 4,
+      maximum: maxTierNumber,
       description:
         "Starting tier, default 1. Use 3 for known JavaScript apps, 4 to explicitly use Bright Data.",
     }),
@@ -22,7 +29,7 @@ const tierOptions = {
   maxTier: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: 4,
+      maximum: maxTierNumber,
       description:
         "Highest permitted tier, default 4. Set 3 to prohibit paid/external scraping.",
     }),
@@ -194,7 +201,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       urls: Type.Array(Type.String({ description: "Absolute HTTP(S) URL" }), {
         minItems: 1,
-        maxItems: 10,
+        maxItems: MAX_SCRAPE_URLS,
       }),
       ...tierOptions,
     }),
@@ -273,7 +280,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Show search/scraper readiness and private credential setup instructions",
     async handler(_args, _ctx) {
-      const readiness = await status();
+      const readiness = { ...(await searchStatus()), ...(await status()) };
       pi.sendMessage({
         customType: "web-scraper-status",
         display: true,

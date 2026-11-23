@@ -61,12 +61,12 @@ import shutil, sys, tempfile
 from pathlib import Path
 sys.dont_write_bytecode = True          # keep the kit folder clean
 sys.path.insert(0, "KIT")
-import check
+import browser
 
 page, shots = Path("NAME.html").resolve(), Path("DIR")
 shots.mkdir(parents=True, exist_ok=True)
 work = Path(tempfile.mkdtemp())         # the browser's own scratch folder
-b = check.Browser(check.find_browser(), work)
+b = browser.Browser(browser.find_browser(), work)
 try:
     b.open(page.as_uri(), 1280, 900, False)
     # do one thing, wait a moment, then read back what the page shows

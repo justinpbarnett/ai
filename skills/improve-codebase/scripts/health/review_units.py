@@ -2,11 +2,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from .dependency_graph import project_context
-from .inventory import digest, is_project_guide
-from .runs import WIRING_LANGUAGES, in_paths
+from .hashing import digest
+from .inventory import WIRING_LANGUAGES, is_project_guide
+from .paths import in_paths
+from .rules import AXES, STAGES
 
-AXES = ("smells", "architecture", "contracts")
-STAGES = ("discovery", "confirmation")
 REVIEW_VERSION = 3
 
 

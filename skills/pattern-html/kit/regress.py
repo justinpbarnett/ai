@@ -24,14 +24,13 @@ sys.dont_write_bytecode = True      # importing the kit must not leave a __pycac
 KIT = Path(__file__).resolve().parent
 sys.path.insert(0, str(KIT))
 import build    # noqa: E402
-import check    # noqa: E402
+from browser import BROWSERS, WIDTHS, BrowserError, browser_session, cuts, find_browser  # noqa: E402
 
 SRC = Path.home() / "dev" / "design" / "refs" / "rugged" / "src"
 READY = "document.fonts.ready.then(function () { return JSON.stringify(document.documentElement.scrollHeight); })"
 
 
 def own_sheet(src):
-    """The approved stylesheet with the fonts it was approved in (the kit's cover more characters)."""
     def font(m):
         path = src / "fonts" / m.group(1)
         if not path.is_file():
@@ -41,7 +40,6 @@ def own_sheet(src):
 
 
 def page(src, sheet):
-    """The approved template as one file, with sheet in place of its stylesheet."""
     text = (src / "board.tmpl.html").read_text(encoding="utf-8")
     text, n = re.subn(r"\{\{css:style\.css\}\}", lambda m: sheet, text)
     if n != 1:
@@ -51,11 +49,10 @@ def page(src, sheet):
 
 
 def slices(browser, url, work, tag):
-    """Every slice of the page at both widths: [(width, top, height, PNG bytes)]."""
     out = []
-    for width, height, tall, phone in check.WIDTHS:
+    for width, height, tall, phone in WIDTHS:
         browser.open(url, width, height, phone)
-        for y, h in check.cuts(browser.ask(READY), tall):
+        for y, h in cuts(browser.ask(READY), tall):
             shot = work / f"{tag}.png"
             browser.shoot(shot, y, width, h)
             out.append((width, y, h, shot.read_bytes()))
@@ -73,7 +70,7 @@ def stylesheet_matches(src):
 
 
 def page_heights(shots):
-    return {width: max(y + h for sw, y, h, _ in shots if sw == width) for width, *_ in check.WIDTHS}
+    return {width: max(y + h for sw, y, h, _ in shots if sw == width) for width, *_ in WIDTHS}
 
 
 def report_pixel_differences(differences, total, keep):
@@ -97,12 +94,12 @@ def slices_match(approved, kit, keep):
     if differences:
         report_pixel_differences(differences, len(approved), keep)
         return False
-    widths = " and ".join(str(width) for width, *_ in check.WIDTHS)
+    widths = " and ".join(str(width) for width, *_ in WIDTHS)
     print(f"SAME       {len(approved)} of {len(approved)} slices, at {widths} wide")
     return True
 
 
-def main(argv):
+def run(argv):
     keep = None
     if len(argv) >= 2 and argv[-2] == "--keep":
         keep, argv = Path(argv[-1]), argv[:-2]
@@ -115,11 +112,11 @@ def main(argv):
         raise SystemExit(2)
     source_matches = stylesheet_matches(src)
 
-    exe = check.find_browser()
+    exe = find_browser(BROWSERS)
     if not exe:
         print("regress: no browser found, so nothing was drawn. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
         raise SystemExit(2)
-    with check.browser_session(exe, "pattern-regress-") as (browser, work):
+    with browser_session(exe, "pattern-regress-") as (browser, work):
         shots = {}
         for tag, sheet in (("approved", own_sheet(src)), ("kit", "{{kit:style.css}}")):
             (work / f"{tag}.html").write_text(page(src, sheet), encoding="utf-8")
@@ -129,6 +126,19 @@ def main(argv):
     passed = source_matches and render_matches
     print("PASS" if passed else "FAIL")
     raise SystemExit(0 if passed else 1)
+
+
+def main(argv):
+    try:
+        run(argv)
+    except BrowserError as failure:
+        print(f"regress: {failure}", file=sys.stderr)
+        raise SystemExit(2)
+    except SystemExit as stop:
+        if isinstance(stop.code, str):
+            print(stop.code, file=sys.stderr)
+            raise SystemExit(2)
+        raise
 
 
 if __name__ == "__main__":

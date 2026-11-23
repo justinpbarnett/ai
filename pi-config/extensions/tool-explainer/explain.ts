@@ -1,39 +1,20 @@
 import type { ClassifierQuestion } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { plain, type Evidence } from "./evidence.js";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, OPENROUTER_WRITER_MODEL, isOpenRouterConfigured, trustedJevAnswer } from "../shared/openrouter.js";
+import { ExplanationError } from "./errors.js";
+import type { Evidence } from "./evidence.js";
+import { plain } from "./screening.js";
 
-const PROVIDER = "openrouter";
-export const JEV = "typesafe/jev-1.14";
-export const WRITER = "google/gemini-2.5-flash-lite";
 const CONFIDENCE = 0.8;
-const DEADLINE_MS = 15_000;
 
 type Registry = ExtensionContext["modelRegistry"];
 export type Explanation = { overview: string; items: Map<number, string> };
 
-export class ExplanationError extends Error {}
-
 function requireJev(registry: Registry) {
-	if (!registry.getProviderAuthStatus(PROVIDER).configured) {
-		throw new ExplanationError("OpenRouter sign-in needed. Use /login or OPENROUTER_API_KEY.");
-	}
-	const model = registry.findOfType("classifier", PROVIDER, JEV);
+	if (!isOpenRouterConfigured(registry)) throw new ExplanationError(OPENROUTER_SIGN_IN_MESSAGE);
+	const model = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
 	if (!model) throw new ExplanationError("OpenRouter JEV model unavailable.");
 	return model;
-}
-
-export async function withinDeadline<T>(parent: AbortSignal, run: (signal: AbortSignal) => Promise<T>, timeoutMs = DEADLINE_MS): Promise<T> {
-	const signal = AbortSignal.any([parent, AbortSignal.timeout(timeoutMs)]);
-	signal.throwIfAborted();
-	let onAbort: () => void = () => {};
-	try {
-		return await Promise.race([new Promise<never>((_resolve, reject) => {
-			onAbort = () => reject(new ExplanationError("Explanation timed out."));
-			signal.addEventListener("abort", onAbort, { once: true });
-		}), run(signal)]);
-	} finally {
-		signal.removeEventListener("abort", onAbort);
-	}
 }
 
 const outcome: ClassifierQuestion = {
@@ -103,7 +84,7 @@ function parseExplanation(text: string, evidence: Evidence[]): Explanation {
 
 export async function explain(registry: Registry, calls: Evidence[], signal: AbortSignal): Promise<Explanation> {
 	const jev = requireJev(registry);
-	const writer = registry.find(PROVIDER, WRITER);
+	const writer = registry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL);
 	if (writer?.api !== "openai-completions") throw new ExplanationError("OpenRouter writing model unavailable.");
 	const questions = Object.fromEntries(calls.map(({ id }) => [`call${id}`, {
 		...outcome, instructions: `For call ${id}: ${outcome.instructions}`,
@@ -112,7 +93,7 @@ export async function explain(registry: Registry, calls: Evidence[], signal: Abo
 	signal.throwIfAborted();
 	if (labels.stopReason !== "stop") throw new ExplanationError("OpenRouter JEV unavailable.");
 	const valid = calls.flatMap(({ id }) => {
-		const label = labels.answers[`call${id}`];
+		const label = trustedJevAnswer(labels, `call${id}`);
 		return label?.type === "choice" && Object.hasOwn(outcome.criteria, label.choice) ? [{ id, label }] : [];
 	});
 	if (!valid.length) throw new ExplanationError("OpenRouter JEV did not return any classifications.");

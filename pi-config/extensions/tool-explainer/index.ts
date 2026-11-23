@@ -1,67 +1,24 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { getAgentDir, sessionEntryToContextMessages, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
-import { manualRows, plain, purposeCall, purposeExcerpt, recentCalls, safeLabel, type Invocation } from "./evidence.js";
-import { ExplanationError } from "./explain.js";
+import { sessionEntryToContextMessages, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured } from "../shared/openrouter.js";
+import { manualRows, purposeCall, recentCalls, type Invocation } from "./evidence.js";
+import { ExplanationError } from "./errors.js";
 import { InlineToolOutput, shownNatively } from "./inline.js";
+import { plain, purposeExcerpt, safeLabel } from "./screening.js";
+import { DEFAULT_COUNT, MAX_COUNT, config, defaults, parseCount } from "./settings.js";
 import { THINKING_ENTRY, ThinkingSummaries, thinkingRuns, type SavedThought } from "./thinking.js";
-import { collectExplanation, explanationText, preview, showView } from "./view.js";
-import { operationHints, DEFAULT_OPENROUTER_MODEL, writeSummary, writeThinkingSummary, type Writer, type WritingRequest } from "./writer.js";
+import { collectExplanation, confirmPreview, explanationText, preview, showView } from "./view.js";
+import { hostedWriterBlocked, operationHints, writeSummary, writeThinkingSummary, type Writer, type WritingRequest } from "./writer.js";
 
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
-const DEFAULT_COUNT = 3;
 const MAX_HISTORY = 12;
 const MAX_THOUGHT_TAIL = 600;
 const MAX_LOCAL_EVIDENCE_BYTES = 6 * 1024;
-const USAGE = "/explain-tools [1–10 | on | off | status | recent]";
+const USAGE = `/explain-tools [1–${MAX_COUNT} | on | off | status | recent]`;
 const NOTE_MARK = "●";
 const BLOCK_START = /^(?:\s|#|>|\||<|```|~~~|[*+-]\s|[*_-]{3}|\d+[.)]\s)/u;
 const PROGRESS_NOTES = "Keep the user posted with short notes in plain text while you work. Before your first tool call, say in one sentence what you will do first. After that, write one or two sentences when you find something that matters, change direction, or start a new step: say what you found, naming the file, command or fact, and what you will do next. Skip notes between routine calls.";
-
-function parseCount(value: unknown): number | undefined {
-	if (typeof value === "number") return Number.isInteger(value) && value >= 1 && value <= 10 ? value : undefined;
-	if (typeof value === "string" && /^(?:[1-9]|10)$/.test(value)) return Number(value);
-}
-
-type Settings = { count: number; auto: boolean; writer: Writer; warning?: string };
-const defaults: Settings = { count: DEFAULT_COUNT, auto: true, writer: { kind: "ollama", model: DEFAULT_OLLAMA_MODEL } };
-
-function validModel(value: unknown): value is string {
-	return typeof value === "string" && value.length <= 150 && /^(?:[\w.-]+\/)?[\w.-]+(?::[\w.-]+)?$/.test(value);
-}
-
-function configuredWriter(kind: unknown, ollamaModel?: string, openrouterModel?: string): Writer {
-	if (kind === undefined || kind === "ollama") return { kind: "ollama", model: ollamaModel ?? DEFAULT_OLLAMA_MODEL };
-	if (kind === "openrouter") return { kind, model: openrouterModel ?? DEFAULT_OPENROUTER_MODEL };
-	if (kind === "off") return { kind };
-	throw new Error("Invalid writer");
-}
-
-function parseSettings(value: unknown): Settings {
-	if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("Invalid settings");
-	const { count, auto, writer, ollamaModel, openrouterModel } = value as Record<string, unknown>;
-	if (count !== undefined && (typeof count !== "number" || !parseCount(count))) throw new Error("Invalid count");
-	if (auto !== undefined && typeof auto !== "boolean") throw new Error("Invalid auto");
-	if (ollamaModel !== undefined && !isLocalOllamaModel(ollamaModel)) throw new Error("Invalid Ollama model");
-	if (openrouterModel !== undefined && !validModel(openrouterModel)) throw new Error("Invalid OpenRouter model");
-	return { count: count ?? DEFAULT_COUNT, auto: auto ?? true, writer: configuredWriter(writer, ollamaModel, openrouterModel) };
-}
-
-function config(): Settings {
-	try {
-		return parseSettings(JSON.parse(readFileSync(join(getAgentDir(), "tool-explainer.json"), "utf8")));
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults;
-		return { ...defaults, auto: false, writer: { kind: "off" }, warning: "Invalid tool-explainer.json. Check auto (boolean), count (1–10), writer (ollama, openrouter, or off), and model IDs. Automatic explanations are disabled." };
-	}
-}
-
-function offline(): boolean {
-	return /^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "");
-}
 
 type MessageContent = string | ReadonlyArray<{ type: string; text?: string }>;
 type Summary = { label: string; route: string };
@@ -81,7 +38,7 @@ function thoughtTail(message: AssistantMessage | undefined): string | undefined 
 
 function state() {
 	return {
-		controller: new AbortController(), tool: new AbortController(), history: [] as Summary[],
+		controller: new AbortController(), tool: new AbortController(),
 		manual: false, persistenceWarningShown: false, request: undefined as string | undefined,
 		assistant: undefined as AssistantMessage | undefined,
 	};
@@ -94,7 +51,12 @@ function writingRequest(call: Invocation, cwd: string, background: Background, w
 	if (writer.kind === "ollama") {
 		const payload = { ...background, calls: [evidence] };
 		if (Buffer.byteLength(JSON.stringify(payload), "utf8") <= MAX_LOCAL_EVIDENCE_BYTES) return { ...writer, evidence: payload };
-	} else if (writer.kind === "openrouter" && !offline()) return { ...writer, hints: [operationHints(evidence)] };
+	} else if (writer.kind === "openrouter" && !hostedWriterBlocked(writer)) return { ...writer, hints: [operationHints(evidence)] };
+}
+
+function skippedRoute(writer: Writer): string {
+	if (writer.kind === "off") return "writer off";
+	return hostedWriterBlocked(writer) ? "no summary: writer disabled offline" : "no summary: insufficient evidence";
 }
 
 function shownMessages(ctx: ExtensionContext) {
@@ -108,25 +70,25 @@ async function showManualExplanation(ctx: ExtensionContext, rows: ReturnType<typ
 		await showView(ctx, heading, explanationText(rows), signal);
 		return;
 	}
-	if (!ctx.modelRegistry.getProviderAuthStatus("openrouter").configured) {
-		await showView(ctx, heading, explanationText(rows, undefined, "OpenRouter sign-in needed. Use /login or OPENROUTER_API_KEY."), signal);
+	if (!isOpenRouterConfigured(ctx.modelRegistry)) {
+		await showView(ctx, heading, explanationText(rows, undefined, OPENROUTER_SIGN_IN_MESSAGE), signal);
 		return;
 	}
 	const leaf = ctx.sessionManager.getLeafId();
 	const current = () => !signal.aborted && leaf === ctx.sessionManager.getLeafId();
-	if (!await showView(ctx, "Preview tool excerpts", preview(evidence, rows.length - evidence.length), signal, true) || !current()) return;
+	if (!await confirmPreview(ctx, "Preview tool excerpts", preview(evidence, rows.length - evidence.length), signal) || !current()) return;
 	const outcome = await collectExplanation(ctx, evidence, signal);
 	if (outcome && current()) await showView(ctx, heading, explanationText(rows, outcome.result, outcome.error), signal);
 }
 
-async function showRecentHistory(ctx: ExtensionContext, session: ReturnType<typeof state>) {
-	if (!session.history.length) {
+async function showRecentHistory(ctx: ExtensionContext, session: ReturnType<typeof state>, history: Summary[]) {
+	if (!history.length) {
 		ctx.ui.notify("No call summaries since Pi started or reloaded.");
 		return;
 	}
 	session.manual = true;
 	try {
-		const text = session.history.map(({ label, route }) => `${label} · ${route}`).join("\n\n");
+		const text = history.map(({ label, route }) => `${label} · ${route}`).join("\n\n");
 		await showView(ctx, "Recent tool summaries", text, session.controller.signal);
 	} finally { session.manual = false; }
 }
@@ -134,11 +96,12 @@ async function showRecentHistory(ctx: ExtensionContext, session: ReturnType<type
 function writerStatus(writer: Writer, trusted: boolean): string {
 	if (!trusted) return "untrusted project";
 	if (writer.kind === "off") return "off";
-	return `${writer.kind}/${writer.model}${writer.kind === "openrouter" && offline() ? " (disabled offline)" : ""}`;
+	return `${writer.kind}/${writer.model}${hostedWriterBlocked(writer) ? " (disabled offline)" : ""}`;
 }
 
 class ToolExplainer {
 	private active = state();
+	private readonly history: Summary[] = [];
 	private settings = defaults;
 	private auto = true;
 	private attached?: ExtensionContext;
@@ -165,7 +128,7 @@ class ToolExplainer {
 	}
 
 	private registerPresentation() {
-		this.pi.registerFlag(COUNT_FLAG, { type: "string", description: "Tool calls per manual explanation (1–10)" });
+		this.pi.registerFlag(COUNT_FLAG, { type: "string", description: `Tool calls per manual explanation (1–${MAX_COUNT})` });
 		this.pi.registerFlag(NO_AUTO_FLAG, { type: "boolean", description: "Start with automatic tool and thinking summaries off" });
 		this.pi.registerToolRenderer((name, next) => this.renderInline ? this.inline.wrap(name, next()) : next());
 		this.pi.registerMarkdownTransformer((markdown, context) => {
@@ -221,7 +184,7 @@ class ToolExplainer {
 	}
 
 	private remember(label: string, route: string) {
-		const { history } = this.active;
+		const { history } = this;
 		history.unshift({ label, route });
 		if (history.length > MAX_HISTORY) history.pop();
 	}
@@ -235,7 +198,7 @@ class ToolExplainer {
 		const { writer } = this.settings;
 		const request = writer.kind === "off" ? undefined : writingRequest(call, ctx.cwd, background, writer);
 		if (!request) {
-			this.remember(this.inline.label(id) ?? call.toolName, writer.kind === "off" ? "writer off" : "no summary: insufficient evidence");
+			this.remember(this.inline.label(id) ?? call.toolName, skippedRoute(writer));
 			return;
 		}
 		this.inline.pending(id);
@@ -262,9 +225,10 @@ class ToolExplainer {
 			this.auto = loaded.auto && !this.pi.getFlag(NO_AUTO_FLAG);
 			this.restore(ctx);
 			if (loaded.warning) ctx.ui.notify(loaded.warning, "warning");
-			if (this.count() === undefined) ctx.ui.notify(`--${COUNT_FLAG} must be 1 to 10. Manual explanations use ${DEFAULT_COUNT}.`, "warning");
+			if (this.count() === undefined) ctx.ui.notify(`--${COUNT_FLAG} must be 1 to ${MAX_COUNT}. Manual explanations use ${DEFAULT_COUNT}.`, "warning");
 		});
 		this.pi.on("session_shutdown", () => {
+			this.history.length = 0;
 			this.reset();
 			this.attached = undefined;
 		});
@@ -348,7 +312,7 @@ class ToolExplainer {
 		}
 		const session = this.active;
 		const { signal } = session.controller;
-		if (input === "recent") return showRecentHistory(ctx, session);
+		if (input === "recent") return showRecentHistory(ctx, session, this.history);
 		if (!ctx.isProjectTrusted()) { ctx.ui.notify("Tool explanations require a trusted Pi session.", "warning"); return; }
 		const requested = input ? parseCount(input) : this.count() ?? DEFAULT_COUNT;
 		if (!requested) { ctx.ui.notify(`Use ${USAGE}.`, "warning"); return; }

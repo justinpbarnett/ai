@@ -1,8 +1,8 @@
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { currentCheckpoint, MAX_HANDOFF, SELF_COMPACT_TOOL } from "./background.js";
+import { MAX_HANDOFF, SELF_COMPACT_TOOL } from "./background.js";
 import type { BackgroundCompaction } from "./background.js";
-import { CHECKPOINT_TYPE } from "./checkpoint.js";
+import { checkpointOrigin } from "./checkpoint.js";
 import { JEV_EXCERPT_LIMIT } from "./jev.js";
 import type { Jev } from "./jev.js";
 import { pressure, readPolicy } from "./policy.js";
@@ -10,14 +10,13 @@ import { pressure, readPolicy } from "./policy.js";
 const USAGE = "/self-compact [status | now [focus] | jev on|off]";
 
 function lastSource(ctx: ExtensionContext) {
-	const last = currentCheckpoint(ctx);
-	if (!last) return "none";
-	const details = last.details as { [CHECKPOINT_TYPE]?: { source?: string } } | undefined;
-	switch (details?.[CHECKPOINT_TYPE]?.source) {
+	switch (checkpointOrigin(ctx)) {
 		case "tool": return SELF_COMPACT_TOOL;
 		case "jev": return "JEV";
 		case "background": return "background pressure";
-		default: return last.fromHook ? "other extension" : "native Pi";
+		case "other extension": return "other extension";
+		case "native Pi": return "native Pi";
+		case "none": return "none";
 	}
 }
 
@@ -30,8 +29,7 @@ function formatTokens(tokens: number | null | undefined, window: number | undefi
 function showStatus(ctx: ExtensionContext, pi: ExtensionAPI, background: BackgroundCompaction, jev: Jev) {
 	const settings = readPolicy(pi, ctx);
 	const band = pressure(settings);
-	const mode = jev.mode(ctx);
-	const jevLabel = jev.label(mode, !settings.enabled || Boolean(settings.problem));
+	const jevLabel = jev.describe(ctx, settings);
 	const tokens = (value: number | null | undefined) => formatTokens(value, settings.window);
 	const paused = settings.problem ? ` | Extension automation paused: ${settings.problem}` : "";
 	ctx.ui.notify([
@@ -39,7 +37,7 @@ function showStatus(ctx: ExtensionContext, pi: ExtensionAPI, background: Backgro
 		`Notice: ${tokens(settings.notice)} | Warning: ${tokens(settings.warning)} | Native cutoff: ${tokens(settings.hard)}`,
 		`Native auto-compaction: ${settings.enabled ? "on" : "off"}${paused}`,
 		`Background: ${background.status()} | Last checkpoint: ${lastSource(ctx)} | JEV: ${jevLabel}`,
-		...(mode === "on" ? [`JEV can send up to ${JEV_EXCERPT_LIMIT} characters from each of two new prompts to OpenRouter under context pressure. Use /self-compact jev off to disable.`] : []),
+		...(jev.mode(ctx) === "on" ? [`JEV can send up to ${JEV_EXCERPT_LIMIT} characters from each of two new prompts to OpenRouter under context pressure. Use /self-compact jev off to disable.`] : []),
 	].join("\n"), "info");
 }
 

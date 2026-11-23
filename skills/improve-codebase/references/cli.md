@@ -82,6 +82,7 @@ An unrelated out-of-scope edit does not expire scoped evidence.
 A new or changed relationship, governing file, or required project partition input can still require a scan.
 A changed supporting file declared in a review receipt invalidates that receipt even if the scoped snapshot stays the same.
 `scan --full` bypasses the parser cache and preserves the ledger.
+The detector cache keeps only rows for the current parser profiles, core only and full.
 Only use `scan --checkpoint` once per completed investigation or fix cycle, not for repeated status checks.
 Do not edit the database directly; on a stale revision reload `status` and reconcile the change.
 If state is corrupt or incompatible, stop, preserve it for recovery, and ask before archiving it or starting over.
@@ -133,8 +134,9 @@ Use `finding update --input FILE` with `revision`, `snapshot`, finding `id`, des
 For multiple finding events, pass `{ "revision": N, "snapshot": "…", "updates": [ … ] }` with one event per finding ID and no per-event revision or snapshot.
 A batch advances the revision once or rolls back entirely; refresh `status --summary` before reconciling any stale batch.
 A candidate promoted to `open` requires `severity` (`critical`, `high`, `medium`, `low`), `confidence` (`high`, `medium`, `low`), `evidence`, `impact`, `transformation`, `contracts` (nonempty array of strings), and `verification` (planned checks or flows).
-An `open` update may set `dependencies` to other confirmed finding IDs.
+An `open` update may set `dependencies` to other confirmed finding IDs; a dependent is ready once each dependency is `resolved` or `false_positive` (needs no work) or `superseded` with fulfilled replacements.
 `false_positive` and `blocked` require concrete `evidence`; `accepted_risk` requires the actual `human_authorization` and remains debt.
+An `open` finding moves to `false_positive` when review refutes it or its remaining observation holds only keep cases; the evidence names them, and a changed observation returns it to `candidate`.
 `superseded` requires confirmed or verified `replacements` for the same concrete issue; cite the overlap and keep independent findings separate.
 
 Mark `pending_verification` with `evidence` before editing, then rescan with the same detector profile and run relevant checks and current source/caller review.

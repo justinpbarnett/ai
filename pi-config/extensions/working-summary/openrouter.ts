@@ -1,11 +1,9 @@
-import type { ClassifierAnswer, ClassifierQuestion } from "@earendil-works/pi-ai";
+import type { ClassifierQuestion, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { JEV_CLASSIFIER_MODEL, OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
 import type { Slot } from "./labels.js";
 import { labelSchema, LABEL_INSTRUCTIONS, parseLabels, type Evidence, type SummaryResult } from "./writer.js";
 
-const PROVIDER = "openrouter";
-const JEV = "typesafe/jev-1.14";
-const WRITER = "google/gemini-2.5-flash-lite";
 const MIN_CONFIDENCE = 0.8;
 const MISSION_CHECK_TIMEOUT_MS = 2_200;
 const MISSION_SWITCH_PROBABILITY = 0.9;
@@ -53,34 +51,26 @@ type Registry = ExtensionContext["modelRegistry"];
 
 function openRouterModels(registry: Registry) {
 	return {
-		jev: registry.findOfType("classifier", PROVIDER, JEV),
-		writer: registry.find(PROVIDER, WRITER),
+		jev: registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL),
+		writer: registry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL),
 	};
 }
 
-export function jevBlocker(ctx: ExtensionContext): string | undefined {
-	if (!ctx.isProjectTrusted()) return "untrusted project";
-	if (/^(?:1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")) return "Pi is offline";
-	if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER).configured) return "OpenRouter sign-in needed";
-	if (!ctx.modelRegistry.findOfType("classifier", PROVIDER, JEV)) return "OpenRouter JEV model unavailable";
-}
-
 export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
-	return jevBlocker(ctx) ?? (ctx.modelRegistry.find(PROVIDER, WRITER)?.api === "openai-completions"
+	return jevBlocker(ctx) ?? (ctx.modelRegistry.find(OPENROUTER_PROVIDER, OPENROUTER_WRITER_MODEL)?.api === "openai-completions"
 		? undefined : "OpenRouter summary writer unavailable");
 }
 
 export async function classifyMissionWithJev(registry: Registry, evidence: MissionEvidence, signal: AbortSignal): Promise<"switch" | "keep" | undefined> {
-	const jev = registry.findOfType("classifier", PROVIDER, JEV);
+	const jev = registry.findOfType("classifier", OPENROUTER_PROVIDER, JEV_CLASSIFIER_MODEL);
 	if (!jev) return;
 	try {
 		const deadline = AbortSignal.any([signal, AbortSignal.timeout(MISSION_CHECK_TIMEOUT_MS)]);
 		const result = await registry.classify(jev, { state: evidence, questions: { mission: missionQuestion } }, { signal: deadline, maxRetries: 0 });
 		signal.throwIfAborted();
 		if (deadline.aborted) return;
-		const answer = result.answers.mission;
-		if (result.stopReason === "stop" && answer?.type === "bool" && Number.isFinite(answer.probability) &&
-			answer.probability >= 0 && answer.probability <= 1) {
+		const answer = trustedJevAnswer(result, "mission");
+		if (answer?.type === "bool") {
 			return answer.probability >= MISSION_SWITCH_PROBABILITY ? "switch" : "keep";
 		}
 	} catch {
@@ -88,9 +78,9 @@ export async function classifyMissionWithJev(registry: Registry, evidence: Missi
 	}
 }
 
-function trustedChoice(answer: ClassifierAnswer | undefined, question: typeof intentQuestion | typeof topicQuestion) {
-	if (answer?.type === "choice" && Number.isFinite(answer.confidence) &&
-		answer.confidence >= MIN_CONFIDENCE && answer.confidence <= 1 && Object.hasOwn(question.criteria, answer.choice)) {
+function trustedChoice(result: ClassifierResult, key: string, question: typeof intentQuestion | typeof topicQuestion) {
+	const answer = trustedJevAnswer(result, key);
+	if (answer?.type === "choice" && answer.confidence >= MIN_CONFIDENCE && Object.hasOwn(question.criteria, answer.choice)) {
 		return answer.choice;
 	}
 }
@@ -107,11 +97,11 @@ export async function summarizeWithOpenRouter(registry: Registry, requested: Slo
 	signal.throwIfAborted();
 	if (classified.stopReason !== "stop") return { labels: {}, failure: "JEV request failed" };
 
-	const topic = trustedChoice(classified.answers.topic, topicQuestion);
+	const topic = trustedChoice(classified, "topic", topicQuestion);
 	const fields = requested.filter((slot) => slot === "prompt" || !evidence.previousTopic || topic === "refresh");
 	if (!fields.length) return { labels: {} };
 
-	const intent = trustedChoice(classified.answers.intent, intentQuestion);
+	const intent = trustedChoice(classified, "intent", intentQuestion);
 	const response = await registry.complete(writer, {
 		systemPrompt: writerInstructions,
 		messages: [{ role: "user", timestamp: Date.now(), content: JSON.stringify({ ...evidence, fields, intent, topic }) }],

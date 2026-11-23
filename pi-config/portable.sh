@@ -12,7 +12,7 @@ for_each_portable_path() {
     "$action" "$rel" file
   done
 
-  for rel in skills extensions/jev-router extensions/self-compact extensions/shared \
+  for rel in skills extensions/jev-router extensions/progressive-web extensions/self-compact extensions/shared \
     extensions/tool-explainer extensions/working-summary; do
     "$action" "$rel" dir
   done

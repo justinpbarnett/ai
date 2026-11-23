@@ -1,20 +1,9 @@
 #!/usr/bin/env python3
-"""
-AI Harness Installer — data-driven from harnesses.toml
-
-This is the single source of truth for installing/uninstalling skills and
-per-harness config files across all supported AI coding tools.
-
-Usage:
-    ./install.py [harness|all]...
-    ./install.py --uninstall [harness|all]...
-
-The old install.sh / uninstall.sh are thin wrappers for convenience.
-"""
-
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 import tomllib
 from datetime import datetime
@@ -28,7 +17,6 @@ CONFIG_FILE = REPO_DIR / "harnesses.toml"
 
 
 def expand_path(p: str) -> Path:
-    """Expand ~ and make absolute."""
     return Path(p).expanduser().resolve()
 
 
@@ -41,7 +29,6 @@ def load_config() -> dict[str, Any]:
 
 
 def get_harness_names(config: dict[str, Any]) -> list[str]:
-    # Top-level tables that are not sections like "comment" keys
     return [k for k in config if isinstance(config[k], dict) and "target" in config[k]]
 
 
@@ -53,13 +40,16 @@ def backup_path(target: Path) -> Path:
             return backup
 
 
+def is_managed_link(source: Path, target: Path) -> bool:
+    return target.is_symlink() and target.resolve() == source.resolve()
+
+
 def link_file(source: Path, target: Path, *, dry_run: bool = False) -> None:
-    """Create a symlink from source to target, with backup if needed."""
     if not source.exists():
         print(f"    SKIP {target.name} (source missing: {source})")
         return
 
-    if target.is_symlink() and target.resolve() == source.resolve():
+    if is_managed_link(source, target):
         print(f"    KEEP {target.name}")
         return
 
@@ -74,11 +64,6 @@ def link_file(source: Path, target: Path, *, dry_run: bool = False) -> None:
         target.symlink_to(source)
 
     print(f"    LINK {target.name} -> {source}")
-
-
-def is_managed_link(source: Path, target: Path) -> bool:
-    # Match the link we install, even when its source is missing or is itself a symlink.
-    return target.is_symlink() and target.readlink() == source
 
 
 def remove_managed_link(source: Path, target: Path, *, dry_run: bool) -> bool:
@@ -119,6 +104,10 @@ def seed_local_config(seed: Path, legacy_source: Path, target: Path, *, dry_run:
     print(f"    {action} {target.name} from {source}")
 
 
+def is_skill_dir(path: Path) -> bool:
+    return path.is_dir() and (path / "SKILL.md").is_file()
+
+
 def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
     if not source_dir.is_dir():
         print(f"    SKIP {target_dir.name} (source dir missing)")
@@ -129,11 +118,11 @@ def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
     if target_dir.is_dir():
         for child in sorted(target_dir.iterdir()):
             source = source_dir / child.name
-            if not source.exists() and remove_managed_link(source, child, dry_run=dry_run):
+            if not is_skill_dir(source) and remove_managed_link(source, child, dry_run=dry_run):
                 print(f"    REMOVE stale {child.name}")
 
     for source in sorted(source_dir.iterdir()):
-        if source.is_dir() or source.is_file():
+        if is_skill_dir(source):
             link_file(source, target_dir / source.name, dry_run=dry_run)
 
 
@@ -155,11 +144,32 @@ def unlink_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> Non
         print(f"    RMDIR {target_dir.name}")
 
 
+def run_script(script_name: str, args: list[str], target_dir: Path, target_env: str, *, dry_run: bool) -> None:
+    command = [str(REPO_DIR / script_name), *args]
+    if dry_run:
+        print(f"    WOULD RUN {' '.join(command)} ({target_env}={target_dir})")
+        return
+    sys.stdout.flush()
+    subprocess.run(command, check=True, env={**os.environ, target_env: str(target_dir)})
+
+
+def run_scripted_installer(config: dict[str, Any], target_dir: Path, *, uninstall: bool, dry_run: bool) -> None:
+    target_env = config["target_env"]
+    if uninstall:
+        run_script(config["uninstaller"], ["--dry-run"] if dry_run else [], target_dir, target_env, dry_run=False)
+    else:
+        run_script(config["installer"], ["--mode", "symlink"], target_dir, target_env, dry_run=dry_run)
+
+
 def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry_run: bool) -> None:
     target_dir = expand_path(config["target"])
     action = "Uninstalling" if uninstall else "Installing"
     print(f"\n{action} {name}...")
     print(f"  Target: {target_dir}")
+
+    if "installer" in config:
+        run_scripted_installer(config, target_dir, uninstall=uninstall, dry_run=dry_run)
+        return
 
     for target_name, source_path in config.get("symlinks", {}).items():
         source = REPO_DIR / source_path

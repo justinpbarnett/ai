@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""Write coverage.json: the characters each face in this folder can draw.
-
-    coverage.py
-
-Run it after rebuilding a font. It needs woff2_decompress and ttx (fontTools) on the PATH.
-JetBrains Mono's entry is what all four of its files share, since a missing bold or italic
-glyph falls back to another face just as a missing regular one does.
-"""
+# Run after rebuilding a font; needs woff2_decompress and ttx (fontTools) on the PATH.
+# JetBrains Mono's entry is what all four of its files share: a glyph missing from any weight falls back.
 import re
 import shutil
 import subprocess
@@ -21,7 +15,6 @@ FACES = {
 
 
 def points(name, work):
-    """The code points one font file maps to a glyph."""
     shutil.copy(HERE / f"{name}.woff2", work / f"{name}.woff2")
     subprocess.run(["woff2_decompress", str(work / f"{name}.woff2")], check=True)
     subprocess.run(["ttx", "-q", "-t", "cmap", "-o", str(work / f"{name}.ttx"), str(work / f"{name}.ttf")], check=True)

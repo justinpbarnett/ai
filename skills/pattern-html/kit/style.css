@@ -135,7 +135,6 @@ body { overflow-wrap: break-word; }
 :where(img, video, canvas) { max-width: 100%; height: auto; }
 [hidden] { display: none !important; }
 
-/* text */
 h4 { font-family: var(--mark); font-weight: 400; text-transform: uppercase; font-size: 16px; letter-spacing: .12em; line-height: 1.3; margin: 22px 0 8px; }
 .wrap > h3 { margin-top: 34px; }
 .wrap > h2 + h3 { margin-top: 0; }
@@ -146,7 +145,6 @@ abbr[title] { text-decoration: underline dotted var(--muted); text-underline-off
 a:hover { text-decoration-color: var(--ink); }
 hr { border: 0; border-top: 1px solid var(--rule); margin: 38px 0; }
 
-/* lists: a list with no class is a light one, ul.plain is the ruled one, ol.steps is the numbered one */
 :where(ul, ol):not([class]) { margin: 0 0 14px; padding-left: 26px; max-width: 76ch; }
 ul:not([class]) { list-style: square; }
 :where(ul, ol):not([class]) > li { margin: 0 0 6px; padding-left: 4px; }
@@ -156,7 +154,6 @@ ol.steps > li { counter-increment: n; position: relative; padding: 9px 0 9px 38p
 ol.steps > li:first-child { border-top: 1px solid var(--rule); }
 ol.steps > li::before { content: counter(n); position: absolute; left: 0; top: 10px; width: 22px; height: 22px; border: 1px solid var(--ink); font: 400 14px/21px var(--mark); text-align: center; }
 
-/* code, keys, quotes */
 code, kbd, samp { font-family: var(--read); font-size: .94em; }
 :not(pre) > code { border: 1px solid var(--rule); padding: 0 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 pre { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--rule); overflow-x: auto; font: 400 13.5px/1.6 var(--read); tab-size: 2; }
@@ -166,7 +163,6 @@ blockquote { margin: 14px 0; padding: 1px 0 1px 14px; border-left: 2px solid var
 blockquote p:last-child { margin-bottom: 0; }
 blockquote cite { display: block; margin-top: 6px; color: var(--muted); font-style: normal; font-size: 13.5px; }
 
-/* fold away detail */
 details { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 0 0 14px; max-width: 80ch; }
 details:has(+ details) { margin-bottom: -1px; }
 summary { font-family: var(--mark); text-transform: uppercase; letter-spacing: .12em; font-size: 15px; padding: 10px 0; cursor: pointer; list-style: none; }
@@ -175,7 +171,6 @@ summary::before { content: "+"; display: inline-block; width: 22px; }
 details[open] > summary::before { content: "\2212"; }
 details > :last-child:not(summary) { margin-bottom: 14px; }
 
-/* tables and wide things */
 caption { caption-side: top; text-align: left; font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 13.5px; color: var(--muted); padding: 0 0 8px; }
 td.num, th.num { text-align: right; }
 .wide { overflow-x: auto; }
@@ -187,17 +182,14 @@ dl.w { grid-template-columns: 120px 1fr; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px 28px; margin: 30px 0 38px; }
 .grid > figure { margin: 0; }
 
-/* states: the only colored words on a page, and each one shows its word */
 .state { display: inline-block; font-family: var(--mark); font-weight: 400; text-transform: uppercase; font-size: 12.5px; letter-spacing: .16em; line-height: 18px; padding: 1px 7px 0; border: 1px solid currentColor; white-space: nowrap; vertical-align: 1px; }
 .state.ok { color: var(--ok); }
 .state.fault { color: var(--fault); }
 .state.caution { background: var(--caution); border-color: var(--caution); color: var(--ground); }
 .readout { font: 700 40px/1.1 var(--read); margin: 0 0 6px; max-width: none; }
 .readout small { font-size: 15px; font-weight: 400; margin-left: 8px; }
-/* a result that no longer matches the inputs on show waits, muted, for the next run */
 .readout.stale { color: var(--muted); }
 
-/* controls: at rest like .tag, under the pointer or pressed like .tag.take, disabled like .tag.skip */
 button, .btn, input, select, textarea { font: inherit; color: inherit; border-radius: 0; margin: 0; }
 button, .btn, input[type="submit"], input[type="button"], input[type="reset"] {
   display: inline-block; font-family: var(--mark); font-weight: 400; text-transform: uppercase; letter-spacing: .14em;
@@ -209,7 +201,6 @@ button[aria-pressed="true"], .btn[aria-pressed="true"], .btn[aria-current] { bac
 /* the Act line: one per page, on the one primary action, and never a filled yellow button */
 button.act, .btn.act { border-top: 2px solid var(--act); padding-top: 8px; }
 button:disabled, .btn[aria-disabled="true"] { border-color: var(--muted); color: var(--muted); background: var(--ground); cursor: default; }
-/* one of several: the frames share their edges, on one row or wrapped onto more */
 .seg { display: inline-flex; flex-wrap: wrap; padding: 0 1px 1px 0; }
 .seg > * { margin: 0 -1px -1px 0; }
 .seg > :focus-visible { position: relative; z-index: 1; }
@@ -233,7 +224,6 @@ input[type="checkbox"]:checked, input[type="radio"]:checked { background-color: 
 /* one of several is a square turned on its corner, so it is never mistaken for a checkbox */
 input[type="radio"] { width: 14px; height: 14px; margin: 0 12px 0 2px; transform: rotate(45deg); }
 input[type="file"]::file-selector-button { font-family: var(--mark); text-transform: uppercase; letter-spacing: .14em; font-size: 13px; line-height: 18px; background: var(--ground); color: var(--ink); border: 1px solid var(--ink); border-radius: 0; padding: 6px 12px 5px; margin-right: 12px; cursor: pointer; }
-/* disabled: lettering goes muted, a field's frame drops to the rule color, and nothing answers the pointer */
 input:disabled, select:disabled, textarea:disabled { color: var(--muted); -webkit-text-fill-color: var(--muted); border-color: var(--rule); opacity: 1; cursor: default; }
 input:is([type="checkbox"], [type="radio"], [type="submit"], [type="button"], [type="reset"]):disabled { border-color: var(--muted); background-color: var(--ground); color: var(--muted); }
 input:is([type="checkbox"], [type="radio"]):disabled:checked { background-color: var(--muted); }

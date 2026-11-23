@@ -3,10 +3,12 @@ import { join } from "node:path";
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
+import { JEV_UPSTREAM, jevBlocker } from "../shared/openrouter.js";
+import { formatSummary } from "./display.js";
 import { installSummaryBorder } from "./editor.js";
-import { earlierExcerpts, formatSummary, parseSummaryLabel, previewPrompt, SLOTS, type Labels, type Slot } from "./labels.js";
+import { earlierExcerpts, parseSummaryLabel, previewPrompt, SLOTS, type Labels, type Slot } from "./labels.js";
 import { summarizeWithOllama } from "./ollama.js";
-import { classifyMissionWithJev, jevBlocker, openRouterBlocker, summarizeWithOpenRouter } from "./openrouter.js";
+import { classifyMissionWithJev, openRouterBlocker, summarizeWithOpenRouter } from "./openrouter.js";
 import { SummaryRefresh } from "./refresh.js";
 
 const SETTINGS_FILE = "working-summary.json";
@@ -17,7 +19,7 @@ const COMMAND = "working-summary";
 const MISSION_ENTRY = `${COMMAND}.mission`;
 const COMMAND_ARGS = ["status", ...SWITCHES.flatMap((name) => [`${name} on`, `${name} off`])];
 const REMOTE_NOTICE = "Remote summaries on. On the next eligible prompt, OpenRouter and its model providers may receive up to four 384-character prompt excerpts. Use /working-summary remote off to stop.";
-const JEV_NOTICE = "JEV mission checks on. OpenRouter and TypeSafe can receive the mission title and up to two 384-character prompt excerpts. This does not change the label writer. Use /working-summary jev off to stop.";
+const JEV_NOTICE = `JEV mission checks on. OpenRouter and ${JEV_UPSTREAM} can receive the mission title and up to two 384-character prompt excerpts. This does not change the label writer. Use /working-summary jev off to stop.`;
 
 type Settings = typeof DEFAULTS;
 type Setting = (typeof SWITCHES)[number];
@@ -112,7 +114,7 @@ class WorkingSummary {
 			if (this.fallback.session && this.openingExcerpt) break;
 		}
 		const local = this.writer() === "ollama";
-		const saved = local ? savedMission(branch) : undefined;
+		const saved = this.writer() ? savedMission(branch) : undefined;
 		if (saved) {
 			this.generated.session = saved.title;
 			const source = prompts.findLast((message) => message.timestamp === saved.requestAt);
@@ -168,7 +170,14 @@ class WorkingSummary {
 					? { latest: latest.text, earlier: earlierExcerpts(branchPrompts(ctx.sessionManager.getBranch()).map((message) => message.content), latest.text), previousTopic: this.generated.session }
 					: { latest: latest.text };
 				return summarizeWithOpenRouter(ctx.modelRegistry, fields, evidence, signal);
-			}, publish);
+			}, (labels) => {
+				if (labels.session && labels.session !== this.generated.session) {
+					this.missionExcerpt = latest;
+					this.pendingMission = { title: labels.session, requestAt: latest.timestamp };
+					if (ctx.isIdle()) this.persistMission();
+				}
+				publish(labels);
+			});
 		}
 	}
 
@@ -265,7 +274,7 @@ class WorkingSummary {
 		const writer = this.writer();
 		if (previousWriter !== writer) {
 			this.refresh.reset();
-			if (writer === "ollama") return this.restore(ctx);
+			if (writer) return this.restore(ctx);
 			this.generated = {};
 			this.missionExcerpt = undefined;
 			this.pendingMission = undefined;

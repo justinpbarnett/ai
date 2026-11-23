@@ -15,8 +15,16 @@ interface Credentials {
   zone?: string;
 }
 
+function expandTilde(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  return path;
+}
+
 const stateDirectory = join(
-  process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+  expandTilde(
+    process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+  ),
   "web-scraper",
 );
 export const credentialsPath = join(stateDirectory, "credentials.json");

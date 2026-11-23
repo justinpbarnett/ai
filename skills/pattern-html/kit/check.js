@@ -1,14 +1,12 @@
-// Runs inside the page under test. check.py fills the tables and requested width,
-// evaluates this file in the page, and gets back a promise of the findings as JSON.
 (function (requestedWidth) {
-  var TOKENS = /*TOKENS*/{};        // "#0B0C0E": "ground", and so on, read from style.css
-  var COVERAGE = /*COVERAGE*/{};    // family: [[first, last], ...], the code points each face can draw
+  var TOKENS = /*TOKENS*/{};
+  var COVERAGE = /*COVERAGE*/{};
   var FACES = ["Routed Gothic", "JetBrains Mono"];
   var DESIGNATION = /^(MIL-STD|MIL-HDBK|MIL-DTL|MIL-PRF|MIL-P|USB-IF|ISO|IEC|ANSI|SAE|AMS-STD|IEEE|ASTM|UL|EN|DIN|JIS|NEMA)\b/;
   var QUIET = "pre, code, kbd, samp, .nb, svg, script, style, textarea";
   var SKIP = { SCRIPT: 1, STYLE: 1, TEMPLATE: 1, NOSCRIPT: 1, TITLE: 1, META: 1, LINK: 1, BASE: 1, BR: 1, WBR: 1 };
   var XHTML = "http://www.w3.org/1999/xhtml";
-  var SLOT = /\{\{[^{}]+\}\}/;      // a slot another tool was meant to fill, still showing
+  var SLOT = /\{\{[^{}]+\}\}/;
 
   var out = { fail: [], warn: [], note: [], info: {} };
   function put(level, kind, msg) { out[level].push([kind, msg]); }
@@ -33,7 +31,6 @@
     return "#" + c.slice(0, 3).map(function (n) { return ("0" + Math.round(n).toString(16)).slice(-2); }).join("").toUpperCase();
   }
 
-  // a color in use: it must be a token, and yellow and the status colors keep to their own places
   function tint(el, prop, value) {
     var c = rgba(value);
     if (!c || c[3] === 0) return;
@@ -149,7 +146,6 @@
     });
   }
 
-  // a file carries everything inside itself; a page that an app serves may take what its own app serves
   function checkResources() {
     var served = /^https?:$/.test(location.protocol), outside = [];
     function own(u) {

@@ -34,7 +34,7 @@ Duplicate matching uses bounded rolling anchors over significant tokens with lit
 The default rolling window samples anchors of 50 tokens, guaranteeing a shared anchor within a 61-token exact sequence; shorter repeated blocks can remain for semantic discovery.
 Grouped occurrences are candidates, not evidence that their responsibilities should be merged.
 
-Comments are classified as directive or legal (kept, never removable) or as docstring, doc, marker, banner, commented-code or note (removable candidates, grouped per file under `comments`, with a `lines` count when one group spans several lines).
+Comments are classified as directive or legal (kept, never removable) or as doc (doc comments and docstrings), marker, banner, commented-code or note (removable candidates, grouped per file under `comments`, with a `lines` count when one group spans several lines).
 Adjacent line comments merge into one group, and a group that mixes prose and code is split into runs.
 A comment that looks like code is judged by parsing it, so short prose can still be misclassified; the reviewer decides.
 Test files get one `tests` candidate per file with case counts and flags for no assertion, interaction heavy, snapshot and skipped cases.

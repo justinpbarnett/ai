@@ -1,11 +1,29 @@
+import hashlib
+import os
+import stat
 from pathlib import Path
 
-from .inventory import content_hash, digest, read_source, safe_file
-from .state import array, now, object_value, require, string
+from .hashing import digest
+from .inventory import safe_file
+from .ledger import now
+from .validation import array, object_value, require, string
 
 VERIFICATION_KINDS = {"baseline", "check", "flow", "final_diff"}
 SATISFACTORY_RESULTS = {"passed", "not_applicable"}
 VERIFICATION_VERSION = 1
+ARTIFACT_CHUNK_BYTES = 1024 * 1024
+
+
+def artifact_hash(state_dir, relative):
+    fd = os.open(
+        safe_file(state_dir, relative), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    )
+    with os.fdopen(fd, "rb") as stream:
+        require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "not a regular file")
+        hasher = hashlib.sha256()
+        while chunk := stream.read(ARTIFACT_CHUNK_BYTES):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def record_manifest(state, document):
@@ -61,6 +79,33 @@ def restore_legacy_baseline(state):
             and record["snapshot"] == state["baseline_snapshot"]
         ):
             preserve_baseline(state, record)
+
+
+def is_legacy_baseline_scan_on_inventory(event, state, live):
+    return (
+        event["kind"] == "scan"
+        and event["snapshot"] == state["baseline_snapshot"]
+        and event.get("inventory_fingerprint") == live["fingerprint"]
+        and "scope_inputs" not in event
+    )
+
+
+def reconcile_baseline(state, store, live, scope_inputs):
+    baseline = state.get("baseline_snapshot")
+    if baseline and not state.get("scope_inputs"):
+        restore_legacy_baseline(state)
+    if state.get("baseline_snapshot") and not state.get("baseline_inputs"):
+        if any(
+            is_legacy_baseline_scan_on_inventory(event, state, live)
+            for event in store.history()
+        ):
+            state["baseline_inputs"] = scope_inputs
+    if (
+        state.get("baseline_inputs")
+        and state["baseline_inputs"] == state.get("scope_inputs")
+        and state.get("inventory", {}).get("fingerprint") == live["fingerprint"]
+    ):
+        state["baseline_inputs"] = scope_inputs
 
 
 def verification_result(state, document):
@@ -131,10 +176,14 @@ def verified_artifacts(document, state_dir):
     for value in document.get("artifacts", []):
         item = object_value(value, "artifact")
         path = string(item, "path")
-        hashed = content_hash(read_source(safe_file(state_dir, path)))
+        hashed = artifact_hash(state_dir, path)
         require(hashed == string(item, "sha256"), "artifact hash does not match")
         artifacts.append({"path": path, "sha256": hashed})
     return artifacts
+
+
+def batch_identity(event):
+    return None if event.get("kind") == "manifest" else string(event, "id")
 
 
 def record_verification(state, document, root, state_dir):
@@ -170,6 +219,12 @@ def record_verification(state, document, root, state_dir):
     return record
 
 
+def requirement_changed(item, record):
+    return item["kind"] != "baseline" and record.get("requirements_hash") != digest(
+        item
+    )
+
+
 def checks(state, state_dir):
     manifest = state.get("manifest")
     if not manifest:
@@ -192,7 +247,7 @@ def checks(state, state_dir):
         if (
             not current
             or record.get("result") not in SATISFACTORY_RESULTS
-            or record.get("requirements_hash") != digest(item)
+            or requirement_changed(item, record)
         ):
             reasons.append(
                 f"{item['kind']} {key}: missing, stale, failed, or unavailable evidence"
@@ -201,8 +256,7 @@ def checks(state, state_dir):
         try:
             require(
                 all(
-                    content_hash(read_source(safe_file(state_dir, a["path"])))
-                    == a["sha256"]
+                    artifact_hash(state_dir, a["path"]) == a["sha256"]
                     for a in record["artifacts"]
                 ),
                 "artifact changed",

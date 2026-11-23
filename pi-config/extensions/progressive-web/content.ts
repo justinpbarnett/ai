@@ -2,6 +2,7 @@ import { isProbablyReaderable, Readability } from "@mozilla/readability";
 import { JSDOM, VirtualConsole } from "jsdom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { NonRetryableError, normalizeUrl } from "./url-policy.ts";
 
 export interface PageResponse {
   status: number;
@@ -18,9 +19,6 @@ export interface PageContent {
   excerpt: string;
 }
 
-export type UrlPolicy = (url: string) => boolean;
-export class NonRetryableError extends Error {}
-
 const markdown = new TurndownService({
   headingStyle: "atx",
   codeBlockStyle: "fenced",
@@ -30,32 +28,6 @@ markdown.use(gfm);
 markdown.remove((node) =>
   /^(script|style|noscript|iframe|svg|canvas)$/i.test(node.nodeName),
 );
-
-export function normalizeUrl(value: string, base?: string): string {
-  const url = new URL(value, base);
-  if (url.href.length > 8192)
-    throw new NonRetryableError("URL exceeds the 8192-character limit.");
-  if (!["http:", "https:"].includes(url.protocol))
-    throw new NonRetryableError("Only HTTP and HTTPS URLs are supported.");
-  if (url.username || url.password)
-    throw new NonRetryableError(
-      "URLs containing credentials are not supported.",
-    );
-  url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^utm_/i.test(key) || ["fbclid", "gclid"].includes(key))
-      url.searchParams.delete(key);
-  }
-  return url.href;
-}
-
-export function checkScope(url: string, allowedUrl?: UrlPolicy): void {
-  if (allowedUrl && !allowedUrl(url)) {
-    throw new NonRetryableError(
-      "Redirect left the permitted crawl scope or is disallowed by robots.txt.",
-    );
-  }
-}
 
 function checkDocument(document: Document): void {
   const title = document.title.trim();
@@ -86,19 +58,24 @@ function checkDocument(document: Document): void {
   }
 }
 
+function pageForbidsFollowing(document: Document): boolean {
+  return [
+    ...document.querySelectorAll<HTMLMetaElement>('meta[name="robots" i]'),
+  ].some((meta) =>
+    meta.content
+      .toLowerCase()
+      .split(/[\s,]+/)
+      .some((token) => token === "nofollow" || token === "none"),
+  );
+}
+
 function collectLinks(document: Document, url: string): string[] {
-  if (
-    /nofollow/i.test(
-      document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.content ||
-        "",
-    )
-  )
-    return [];
+  if (pageForbidsFollowing(document)) return [];
   const links = new Set<string>();
   for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
     "a[href]",
   )) {
-    if (anchor.rel.split(/\s+/).includes("nofollow")) continue;
+    if (anchor.rel.toLowerCase().split(/\s+/).includes("nofollow")) continue;
     try {
       links.add(normalizeUrl(anchor.href, url));
     } catch {}
@@ -125,8 +102,14 @@ function resolveContentUrls(root: HTMLElement, url: string): void {
   }
 }
 
-export function extractPage(response: PageResponse): PageContent {
-  const { body, url, status, contentType } = response;
+function removeSideForms(document: Document): void {
+  const bodyLength = document.body.textContent.length;
+  for (const form of document.querySelectorAll("form")) {
+    if (form.textContent.length < bodyLength * 0.8) form.remove();
+  }
+}
+
+function rejectUnusableResponse({ body, status }: PageResponse): string {
   if ([401, 404, 410, 451].includes(status)) {
     throw new NonRetryableError(
       `HTTP ${status}: content is missing, restricted, or requires authentication.`,
@@ -136,22 +119,37 @@ export function extractPage(response: PageResponse): PageContent {
   const trimmed = body.trim();
   if (!trimmed)
     throw new Error("Empty response; the page may require JavaScript.");
-  if (
-    !/html/i.test(contentType) &&
-    !/^\s*(?:<!doctype html|<html|<head|<body)/i.test(body)
-  ) {
-    if (!/text\/|json|xml|javascript|markdown|csv/i.test(contentType)) {
-      throw new NonRetryableError(
-        `Unsupported content type: ${contentType || "unknown"}. This tool extracts web pages, not binary files.`,
-      );
-    }
-    return {
-      title: url,
-      markdown: trimmed,
-      links: [],
-      excerpt: trimmed.slice(0, 300),
-    };
+  return trimmed;
+}
+
+function isHtmlResponse({ body, contentType }: PageResponse): boolean {
+  return (
+    /html/i.test(contentType) ||
+    /^\s*(?:<!doctype html|<html|<head|<body)/i.test(body)
+  );
+}
+
+function extractPlainTextPage(
+  { url, contentType }: PageResponse,
+  trimmed: string,
+): PageContent {
+  if (!/text\/|json|xml|javascript|markdown|csv/i.test(contentType)) {
+    throw new NonRetryableError(
+      `Unsupported content type: ${contentType || "unknown"}. This tool extracts web pages, not binary files.`,
+    );
   }
+  return {
+    title: url,
+    markdown: trimmed,
+    links: [],
+    excerpt: trimmed.slice(0, 300),
+  };
+}
+
+export function extractPage(response: PageResponse): PageContent {
+  const { body, url } = response;
+  const trimmed = rejectUnusableResponse(response);
+  if (!isHtmlResponse(response)) return extractPlainTextPage(response, trimmed);
 
   const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
   try {
@@ -167,9 +165,10 @@ export function extractPage(response: PageResponse): PageContent {
       .slice(0, 1024);
     const links = collectLinks(document, url);
     for (const node of document.querySelectorAll(
-      "nav,footer,header,aside,form,script,style,noscript,[hidden],[aria-hidden='true']",
+      "nav,footer,header,aside,script,style,noscript,[hidden],[aria-hidden='true']",
     ))
       node.remove();
+    removeSideForms(document);
     const main = document.querySelector<HTMLElement>(
       "main,[role='main'],article",
     );

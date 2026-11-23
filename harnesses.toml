@@ -9,11 +9,15 @@
 # plus one global guidelines file for Claude Code (harness/claude/CLAUDE.md).
 # No rules, hooks, agents, plugins, or MCP servers.
 #
+# Manual step, not installed here: Claude Code writes its plugin cache to
+# ~/.claude/plugins. To keep that cache out of ~/.claude, link it yourself with
+#   ln -s ~/dev/ai/plugins ~/.claude/plugins
+# The repo ignores plugins/ (see .gitignore) because it holds machine state.
+#
 # skills_mode:
 #   "directory" (default) → symlink the whole skills/ folder into the target
 #   "children"            → create individual symlinks for each skill (codex, droid, etc.)
 # Children mode leaves a symlinked target skills directory and its contents untouched.
-# skills_name: override the directory name skills appear under (e.g. "skills-cursor" for Cursor)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Claude Code
@@ -21,7 +25,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 [claude]
 target = "~/.claude"
-config_format = "json"
 
 [claude.symlinks]
 skills = "skills"
@@ -34,7 +37,6 @@ skills = "skills"
 # ─────────────────────────────────────────────────────────────────────────────
 [forge]
 target = "~/forge"
-config_format = "toml"
 
 [forge.symlinks]
 skills = "skills"
@@ -46,7 +48,6 @@ skills = "skills"
 # ─────────────────────────────────────────────────────────────────────────────
 [opencode]
 target = "~/.config/opencode"
-config_format = "jsonc"
 
 [opencode.symlinks]
 skills = "skills"
@@ -59,7 +60,6 @@ skills = "skills"
 [codex]
 target = "~/.codex"
 skills_mode = "children"
-config_format = "toml"
 
 [codex.symlinks]
 skills = "skills"
@@ -78,7 +78,6 @@ legacy_link = "harness/codex/config.toml"
 [droid]
 target = "~/.factory"
 skills_mode = "children"
-config_format = "json"
 
 [droid.symlinks]
 skills = "skills"
@@ -89,12 +88,9 @@ skills = "skills"
 # ─────────────────────────────────────────────────────────────────────────────
 [pi]
 target = "~/.pi/agent"
-config_format = "json"
-
-[pi.symlinks]
-skills = "skills"
-"settings.json" = "pi-config/settings.json"
-"keybindings.json" = "pi-config/keybindings.json"
+installer = "pi-config/install.sh"
+uninstaller = "pi-config/uninstall.sh"
+target_env = "PI_CODING_AGENT_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cursor
@@ -103,8 +99,6 @@ skills = "skills"
 # ─────────────────────────────────────────────────────────────────────────────
 [cursor]
 target = "~/.cursor"
-skills_name = "skills-cursor"
-config_format = "json"
 
 [cursor.symlinks]
 # NOTE: intentionally NOT symlinking skills here. Cursor's CLI auto-syncs its
@@ -121,7 +115,6 @@ config_format = "json"
 # ─────────────────────────────────────────────────────────────────────────────
 [grok]
 target = "~/.grok"
-config_format = "toml"
 
 [grok.symlinks]
 skills = "skills"

@@ -1,8 +1,20 @@
 import argparse
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from .diagnostics import FORMATS
-from .review_units import AXES, STAGES
+from .rules import AXES, FORMATS, MAX_PACKET_UNITS, STAGES
+
+
+@dataclass(frozen=True)
+class CommandHandlers:
+    doctor: Callable
+    scan: Callable
+    report: Callable
+    complete: Callable
+    run: Callable
+    prepare: Callable
+    evidence: Callable
 
 
 def options(parser):
@@ -29,16 +41,41 @@ def options(parser):
     )
 
 
-def register_scan_commands(sub):
-    for cmd, description in {
-        "doctor": "inspect capabilities and optional tool locations",
-        "scan": "refresh inventory, use valid detector history, and queue new candidates",
-        "status": "show debt, coverage, fresh evidence, and unmet gates",
-        "next": "show the next safe phase and dependency-ready findings",
-        "report": "show the inventory, findings, and history",
-        "complete": "return 0 only if clean completion is currently evidenced",
-    }.items():
+def bind(parser, handler, writes):
+    parser.set_defaults(handler=handler, writes=writes)
+
+
+def register_scan_commands(sub, handlers):
+    for cmd, description, handler in (
+        (
+            "doctor",
+            "inspect capabilities and optional tool locations",
+            handlers.doctor,
+        ),
+        (
+            "scan",
+            "refresh inventory, use valid detector history, and queue new candidates",
+            handlers.scan,
+        ),
+        (
+            "status",
+            "show debt, coverage, fresh evidence, and unmet gates",
+            handlers.report,
+        ),
+        (
+            "next",
+            "show the next safe phase and dependency-ready findings",
+            handlers.report,
+        ),
+        ("report", "show the inventory, findings, and history", handlers.report),
+        (
+            "complete",
+            "return 0 only if clean completion is currently evidenced",
+            handlers.complete,
+        ),
+    ):
         command = sub.add_parser(cmd, help=description)
+        bind(command, handler, cmd == "scan")
         options(command)
         if cmd in {"doctor", "scan"}:
             command.add_argument(
@@ -68,13 +105,14 @@ def register_scan_commands(sub):
             )
 
 
-def register_run_commands(sub):
+def register_run_commands(sub, handlers):
     runs = sub.add_parser(
         "run", help="save or list resumable worktree runs and slices"
     ).add_subparsers(dest="action", required=True)
     start = runs.add_parser(
         "start", help="name a scope and optionally derive it from a Git diff"
     )
+    bind(start, handlers.run, True)
     options(start)
     start.add_argument("name")
     start.add_argument("--base", help="Git base commit for fallout mode")
@@ -85,6 +123,7 @@ def register_run_commands(sub):
         help="additional affected path for fallout mode",
     )
     view = runs.add_parser("slice", help="name a view of a parent run's backlog")
+    bind(view, handlers.run, True)
     options(view)
     view.add_argument("name")
     view.add_argument(
@@ -93,16 +132,19 @@ def register_run_commands(sub):
         required=True,
         help="path inside the parent scope; repeat as needed",
     )
-    options(runs.add_parser("list", help="list the runs in this state directory"))
+    listing = runs.add_parser("list", help="list the runs in this state directory")
+    bind(listing, handlers.run, False)
+    options(listing)
 
 
-def register_review_commands(sub):
+def register_review_commands(sub, handlers):
     review = sub.add_parser(
         "review", help="prepare score-blind packets or import review receipts"
     ).add_subparsers(dest="action", required=True)
     packet = review.add_parser(
         "prepare", help="create one bounded packet from the current scan"
     )
+    bind(packet, handlers.prepare, True)
     options(packet)
     packet.add_argument("--axis", choices=AXES)
     packet.add_argument("--pass", dest="stage", choices=STAGES)
@@ -130,7 +172,10 @@ def register_review_commands(sub):
         help="skip an already delegated unit ID; repeat as needed",
     )
     packet.add_argument(
-        "--limit", type=int, default=12, help="maximum assigned units (1–50)"
+        "--limit",
+        type=int,
+        default=12,
+        help=f"maximum assigned units (1–{MAX_PACKET_UNITS})",
     )
     packet.add_argument(
         "--full",
@@ -140,13 +185,14 @@ def register_review_commands(sub):
     receipt = review.add_parser(
         "import", help="record review coverage and findings atomically"
     )
+    bind(receipt, handlers.evidence, True)
     options(receipt)
     receipt.add_argument(
         "--input", type=Path, required=True, help="JSON response to a prepared packet"
     )
 
 
-def register_evidence_commands(sub):
+def register_evidence_commands(sub, handlers):
     for name, action, description in (
         ("finding", "update", "triage or transition a finding with evidence"),
         (
@@ -160,6 +206,7 @@ def register_evidence_commands(sub):
             .add_subparsers(dest="action", required=True)
             .add_parser(action)
         )
+        bind(command, handlers.evidence, True)
         options(command)
         command.add_argument(
             "--input",
@@ -170,6 +217,7 @@ def register_evidence_commands(sub):
     importer = sub.add_parser(
         "import-diagnostics", help="import a local machine-readable diagnostic report"
     )
+    bind(importer, handlers.evidence, True)
     options(importer)
     importer.add_argument("--tool", choices=FORMATS, required=True)
     importer.add_argument(
@@ -183,13 +231,13 @@ def register_evidence_commands(sub):
     )
 
 
-def arguments(argv):
+def arguments(argv, handlers):
     parser = argparse.ArgumentParser(
         description="Investigate, track, and verify codebase improvements without rewriting source."
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    register_scan_commands(sub)
-    register_run_commands(sub)
-    register_review_commands(sub)
-    register_evidence_commands(sub)
+    register_scan_commands(sub, handlers)
+    register_run_commands(sub, handlers)
+    register_review_commands(sub, handlers)
+    register_evidence_commands(sub, handlers)
     return parser.parse_args(argv)

@@ -1,18 +1,22 @@
+import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .detectors import scan_sources
-from .inventory import commit_history, content_hash, digest, hotspots, inventory
+from .detectors import ParseOptions, parse_snapshot, scan_sources
+from .hashing import content_hash, digest
+from .history import commit_history, hotspots
+from .inventory import inventory
+from .ledger import detect_moves, observe
 from .parsers import capabilities
 from .review_units import REVIEW_VERSION, units_for
-from .state import detect_moves, observe, require
-from .verification import restore_legacy_baseline
+from .rules import HISTORY_RULES
+from .validation import require
+from .verification import reconcile_baseline
 
 SKILL = Path(__file__).resolve().parents[2]
 REF = SKILL / "references" / "smell-guide.md"
 SCOPE_EVIDENCE_VERSION = 1
-HISTORY_RULES = frozenset({"change-coupling"})
 
 
 @dataclass(frozen=True)
@@ -32,38 +36,69 @@ class ScanScope:
         )
 
 
-def analyzer_profiles(thresholds, caps):
-    parser = digest(
+PARSER_ENTRIES = ("parsers", "syntax_tree", "comments", "case_inventory")
+DETECTOR_ENTRIES = ("detectors", "thresholds", "dependency_graph", "layout", "history")
+
+
+def current_parser_profile(caps):
+    return digest(
         [
             caps,
             sys.version_info[:3],
-            *(
-                module_hash(name)
-                for name in (
-                    "inventory",
-                    "parsers",
-                    "syntax_tree",
-                    "comments",
-                    "case_inventory",
-                )
-            ),
+            *(module_hash(name) for name in sorted(import_closure(PARSER_ENTRIES))),
         ]
     )
+
+
+def analyzer_profiles(thresholds, caps):
+    parser = current_parser_profile(caps)
+    detector_modules = import_closure(DETECTOR_ENTRIES) - import_closure(PARSER_ENTRIES)
     detector = digest(
         [
             parser,
             thresholds,
-            *(
-                module_hash(name)
-                for name in ("detectors", "dependency_graph", "layout")
-            ),
+            *(module_hash(name) for name in sorted(detector_modules)),
         ]
     )
     return parser, detector
 
 
+def import_closure(entries):
+    seen = set()
+    pending = list(entries)
+    while pending:
+        name = pending.pop()
+        if name not in seen:
+            seen.add(name)
+            pending.extend(relative_imports(name))
+    return seen
+
+
+def relative_imports(name):
+    tree = ast.parse(module_path(name).read_bytes())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 1:
+            if node.module:
+                imported.add(node.module)
+            else:
+                imported.update(alias.name for alias in node.names)
+    return imported
+
+
+def module_path(name):
+    return Path(__file__).with_name(f"{name}.py")
+
+
 def module_hash(name):
-    return content_hash(Path(__file__).with_name(f"{name}.py").read_bytes())
+    return content_hash(module_path(name).read_bytes())
+
+
+def parse_for_graph(entries, sources, store):
+    options = ParseOptions(
+        current_parser_profile(capabilities(False)), False, store.cached, False
+    )
+    return parse_snapshot(entries, sources, options)[0]
 
 
 def rubric_version():
@@ -88,9 +123,7 @@ def scope_evidence(live, analyzed, profile, rubric):
     for unit in units.values():
         context.update(unit["context"])
         relationships.update(unit["relationships"])
-    scope_inputs = digest(
-        [live["scope_fingerprint"], context, [], sorted(relationships)]
-    )
+    scope_inputs = digest([live["scope_fingerprint"], context, sorted(relationships)])
     snapshot = digest(
         [
             SCOPE_EVIDENCE_VERSION,
@@ -107,28 +140,6 @@ def scope_evidence(live, analyzed, profile, rubric):
         ]
     )
     return scope_inputs, snapshot, units
-
-
-def reconcile_baseline(state, store, live, scope_inputs):
-    baseline = state.get("baseline_snapshot")
-    if baseline and not state.get("scope_inputs"):
-        restore_legacy_baseline(state)
-    if state.get("baseline_snapshot") and not state.get("baseline_inputs"):
-        # A legacy scan can establish the baseline only on its exact original inventory.
-        if any(
-            event["kind"] == "scan"
-            and event["snapshot"] == state["baseline_snapshot"]
-            and event.get("inventory_fingerprint") == live["fingerprint"]
-            and "scope_inputs" not in event
-            for event in store.history()
-        ):
-            state["baseline_inputs"] = scope_inputs
-    if (
-        state.get("baseline_inputs")
-        and state["baseline_inputs"] == state.get("scope_inputs")
-        and state.get("inventory", {}).get("fingerprint") == live["fingerprint"]
-    ):
-        state["baseline_inputs"] = scope_inputs
 
 
 def remember_previous_units(state):
@@ -167,14 +178,11 @@ def scan(args, store, state, scope):
         live,
         files,
         scope.thresholds,
-        parser_profile,
-        args.core_only,
-        store.cached,
-        args.full,
+        ParseOptions(parser_profile, args.core_only, store.cached, args.full),
         scope.history(),
     )
     scope_inputs, snapshot, units = scope_evidence(live, analyzed, profile, rubric)
-    analyzed["hotspots"] = hotspots(scope.root, scope.is_git, analyzed["detector_work"])
+    analyzed["hotspots"] = hotspots(scope.root, scope.is_git, analyzed["metrics"])
     latest, _ = scope.collect()
     require(
         live["fingerprint"] == latest["fingerprint"],
@@ -188,6 +196,11 @@ def scan(args, store, state, scope):
     if snapshot != previous_snapshot:
         remember_previous_units(state)
     reconcile_baseline(state, store, live, scope_inputs)
+    candidates = analyzed.pop("candidates")
+    if not args.full:
+        refine_work_reasons(
+            analyzed["detector_work"], prior_entries, live["entries"], changed_parser
+        )
     state.update(
         root=str(scope.root),
         scope=scope.scopes,
@@ -207,17 +220,19 @@ def scan(args, store, state, scope):
         scan_revision=state["revision"] + 1,
         scan_repeated_snapshot=previous_snapshot == snapshot,
     )
-    for observation in analyzed.pop("candidates"):
+    for observation in candidates:
         observe(state, observation | {"detector_profile": profile})
-    if not args.full:
-        refine_work_reasons(
-            analyzed["detector_work"], prior_entries, live["entries"], changed_parser
-        )
     if args.checkpoint:
         checkpoint_progress(state)
     with store.transaction():
         store.assert_revision(state["revision"])
         store.cache(fresh)
+        store.delete_detector_cache_outside_profiles(
+            {
+                current_parser_profile(capabilities(False)),
+                current_parser_profile(capabilities(True)),
+            }
+        )
         store.save(
             state,
             "scan",
@@ -248,10 +263,7 @@ def scan_is_current(store, state, current, files, thresholds, read_history):
         current,
         files,
         thresholds,
-        parser_profile,
-        core_only,
-        store.cached,
-        False,
+        ParseOptions(parser_profile, core_only, store.cached, False),
         read_history(),
     )
     _, snapshot, _ = scope_evidence(current, analyzed, profile, rubric)

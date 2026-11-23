@@ -11,13 +11,13 @@ A **drawing** is a Python script that builds one `Drawing` with `kit/draw.py` an
 
 A thing is drawn in black parts with a lighter edge and lettered in white capitals. An idea or a chart is ink lines on the page, with no wall and no tones.
 
-The docstrings in `kit/draw.py` are the reference for every method. This file holds what they leave out.
+The methods of `kit/draw.py` carry no docstrings. Section 1 sets out which arguments are in sheet units and which are in view units, and the specimen scripts show each method in use.
 
 ## 1. Lay out the sheet
 
 Copy the nearest specimen script beside the template and start from `Drawing(600, HEIGHT, LABEL)`. A sheet 600 units wide fills the page at about 1.9 px per unit. `LABEL` says what the drawing shows, for a reader who cannot see it.
 
-Draw a thing in millimetres. `d.view(x0, y0, k)` gives a second space at another scale, for a detail drawn larger than life. Line weights, lettering, tags, and ticks are in sheet units and never scale with a view, so every drawing on a page carries the same line and the same letter.
+Draw a thing in millimetres. `d.view(x0, y0, k)` gives a second space at another scale, for a detail drawn larger than life. Positions, sizes, and lengths given to a method are in the units of the space it is called on: millimetres for a thing, plain units for an idea, and on a view they are scaled by `k`. Line weights, lettering sizes, tags, and ticks are in sheet units and do not scale with a view, so every drawing on a page carries the same line and the same letter. The one exception is `mark()`, whose `cap` is a capital height in the thing's units and does scale with a view.
 
 Lettering sizes, in sheet units:
 
@@ -29,6 +29,16 @@ Lettering sizes, in sheet units:
 | 5.2 | a tag's number | `tag()` |
 | 4.6 in the reading face | a chart's figure | `num()` |
 | by cap height, in the thing's units | lettering on the thing itself | `mark()` |
+
+Arguments, and the units they take:
+
+| Arguments | Unit |
+|-----------|------|
+| every position and length of a shape or lettering: `x`, `y`, `w`, `h`, `r`, `c`, the points of `poly()`, `run()` and `cut()`, the ends of `line()`, `datum()`, `arrow()`, `dim_h()` and `dim_v()`, the part that `leader()` and `tag()` point at | the space's units, scaled by a view |
+| `sw`, a line's weight; `size` of `text()` and `num()` | sheet units |
+| `cap` of `mark()` | the space's units, scaled by a view |
+| `size` of `screw()` | 3 or 4, the thread in millimetres |
+| `lx`, `ly` of `leader()`; `x`, `y` of `tag()`; the `x`, `y` of `caption()`; `base` of `ground()` | sheet units: where the lettering or the ground sits |
 
 Lettering never wraps, so count it before placing it. Capitals run about 0.72 of their size per character: 3.9 units at 5.4 and 3.0 at 4.2. A block 100 wide holds about 25 characters of name or 33 of detail. A figure set with `num()` runs 0.6 of its size per character.
 

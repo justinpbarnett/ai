@@ -6,7 +6,8 @@ __pycache__/
 # Everything Claude Code writes here is per-machine state. The enumerated list
 # that used to sit below went stale as new files appeared (.last_inuse_sweep),
 # which is how machine state nearly reached a public repo — so ignore the
-# directory itself.
+# directory itself. The installer does not link it: ~/.claude/plugins is a
+# manual symlink to this folder (see the harnesses.toml header).
 plugins/
 
 # Local skill-sync state (written per-machine by the sync tool)
@@ -20,7 +21,7 @@ skills/synced/
 # Synced skills Claude Code retires land here until cleanup; same license as above.
 skills/.trash/
 
-# Stray lockfile from npm runs; this repo has no package.json
+# Stray lockfiles from npm runs. progressive-web is the only package, and its own .gitignore keeps its lockfile tracked.
 package-lock.json
 
 # Skills other tools install on this machine and link in here.

@@ -1,6 +1,7 @@
 import {
   CustomEditor,
   type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type {
   AutocompleteItem,
@@ -10,49 +11,75 @@ import type {
 
 type CommandToken = { name: string; start: number; end: number };
 
-type InlineEditor = EditorComponent & {
-  getLines?(): string[];
-  getCursor?(): { line: number; col: number };
-  isShowingAutocomplete?(): boolean;
-  requestAutocomplete?(options: { force: boolean }): void;
-};
+interface AutocompleteEditor extends EditorComponent {
+  getLines(): string[];
+  getCursor(): { line: number; col: number };
+  isShowingAutocomplete(): boolean;
+  requestAutocomplete(options: { force: boolean }): void;
+}
+
+function skipFence(text: string, start: number): number | undefined {
+  const marker = text[start];
+  if (marker !== "`" && marker !== "~") return;
+  let lineStart = start;
+  while (start - lineStart < 4 && text[lineStart - 1] === " ") lineStart--;
+  if (start - lineStart === 4 || (lineStart > 0 && text[lineStart - 1] !== "\n")) return;
+  let markerEnd = start;
+  while (text[markerEnd] === marker) markerEnd++;
+  const length = markerEnd - start;
+  if (length < 3) return;
+  const openingEnd = text.indexOf("\n", markerEnd);
+  const info = text.slice(markerEnd, openingEnd === -1 ? text.length : openingEnd);
+  if (marker === "`" && info.includes("`")) return;
+  if (openingEnd === -1) return text.length;
+  const closing = new RegExp(`^ {0,3}${marker}{${length},}[ \\t]*\\r?$`, "gm");
+  closing.lastIndex = openingEnd + 1;
+  const match = closing.exec(text);
+  return match ? closing.lastIndex : text.length;
+}
+
+function skipInlineCode(text: string, start: number): number {
+  const runs = /`+/g;
+  runs.lastIndex = start;
+  const length = runs.exec(text)![0].length;
+  for (let match = runs.exec(text); match; match = runs.exec(text)) {
+    if (match[0].length === length) return runs.lastIndex;
+  }
+  return text.length;
+}
+
+function skipQuotedWord(text: string, start: number): number {
+  const quote = text[start];
+  for (let index = start + 1; index < text.length; index++) {
+    if (text[index] === "\\") index++;
+    else if (text[index] === quote) return index + 1;
+  }
+  return text.length;
+}
+
+function skipLiteral(text: string, start: number, boundary: boolean): number | undefined {
+  const char = text[start];
+  if (char === "\\") return start + 2;
+  const fenceEnd = skipFence(text, start);
+  if (fenceEnd !== undefined) return fenceEnd;
+  if (char === "`") return skipInlineCode(text, start);
+  if (boundary && (char === '"' || char === "'")) return skipQuotedWord(text, start);
+}
 
 function commandTokens(text: string): CommandToken[] {
   const tokens: CommandToken[] = [];
+  const commandName = /[^\s/\\]*/uy;
   for (let index = 0; index < text.length; index++) {
-    const char = text[index];
-    if (char === "\\") {
-      index++;
-      continue;
-    }
-
     const boundary = index === 0 || /\s/.test(text[index - 1]!);
-    const fence =
-      char === "~" &&
-      /^[ \t]*$/.test(text.slice(text.lastIndexOf("\n", index - 1) + 1, index));
-    if (char === "`" || (fence && text.slice(index).startsWith("~~~"))) {
-      let end = index + 1;
-      while (text[end] === char) end++;
-      const marker = text.slice(index, end);
-      const closing = text.indexOf(marker, end);
-      if (closing === -1) break;
-      index = closing + marker.length - 1;
+    const literalEnd = skipLiteral(text, index, boundary);
+    if (literalEnd !== undefined) {
+      index = literalEnd - 1;
       continue;
     }
-
-    if ((char === '"' || char === "'") && boundary) {
-      let closing = index + 1;
-      for (; closing < text.length; closing++) {
-        if (text[closing] === "\\") closing++;
-        else if (text[closing] === char) break;
-      }
-      index = closing;
-      continue;
-    }
-
-    if (char !== "/" || !boundary) continue;
-    const name = text.slice(index + 1).match(/^[^\s/\\]*/u)?.[0] ?? "";
-    const end = index + name.length + 1;
+    if (text[index] !== "/" || !boundary) continue;
+    commandName.lastIndex = index + 1;
+    const name = commandName.exec(text)![0];
+    const end = commandName.lastIndex;
     if (end < text.length && !/\s/.test(text[end]!)) continue;
     tokens.push({ name, start: index, end });
     index = end - 1;
@@ -151,6 +178,59 @@ function inlineAutocomplete(
   };
 }
 
+function wrapSubmit(
+  editor: EditorComponent,
+  promote: (text: string) => Promise<string>,
+  ui: ExtensionContext["ui"],
+): void {
+  let submit = editor.onSubmit;
+  Object.defineProperty(editor, "onSubmit", {
+    configurable: true,
+    get: () => async (text: string) => {
+      try {
+        const promoted = await promote(text);
+        await submit?.(promoted);
+      } catch (error) {
+        editor.setText(text);
+        ui.notify(
+          `Inline command failed: ${error instanceof Error ? error.message : String(error)}`,
+          "error",
+        );
+      }
+    },
+    set: (handler: EditorComponent["onSubmit"]) => {
+      submit = handler;
+    },
+  });
+}
+
+function supportsAutocomplete(editor: EditorComponent): editor is AutocompleteEditor {
+  const candidate = editor as Partial<AutocompleteEditor>;
+  return Boolean(
+    candidate.requestAutocomplete && candidate.getLines &&
+    candidate.getCursor && candidate.isShowingAutocomplete,
+  );
+}
+
+function enableInlineMenu(editor: AutocompleteEditor): void {
+  // Pi excludes '/' from custom natural triggers; this adapter only requests its existing menu.
+  const handleInput = editor.handleInput.bind(editor);
+  editor.handleInput = (data) => {
+    const before = editor.getText();
+    const wasShowingAutocomplete = editor.isShowingAutocomplete();
+    handleInput(data);
+    if (
+      wasShowingAutocomplete ||
+      editor.getText() === before ||
+      editor.isShowingAutocomplete()
+    ) return;
+    const { line, col } = editor.getCursor();
+    if (completionStart(editor.getLines(), line, col) !== undefined) {
+      editor.requestAutocomplete({ force: false });
+    }
+  };
+}
+
 export default function (pi: ExtensionAPI) {
   let autocomplete: AutocompleteProvider | undefined;
 
@@ -210,53 +290,10 @@ export default function (pi: ExtensionAPI) {
       const editor = (previous?.(tui, theme, keybindings) ??
         new CustomEditor(tui, theme, keybindings, {
           embedWorkingStatus: true,
-        })) as unknown as InlineEditor;
-      let submit = editor.onSubmit;
-      Object.defineProperty(editor, "onSubmit", {
-        configurable: true,
-        get: () => async (text: string) => {
-          try {
-            const promoted = await promoteCommand(text, true);
-            await submit?.(promoted);
-          } catch (error) {
-            editor.setText(text);
-            ctx.ui.notify(
-              `Inline command failed: ${error instanceof Error ? error.message : String(error)}`,
-              "error",
-            );
-          }
-        },
-        set: (handler: EditorComponent["onSubmit"]) => {
-          submit = handler;
-        },
-      });
-
-      // Pi 1.5 excludes '/' from custom natural triggers; this adapter only requests its existing menu.
-      if (
-        editor.requestAutocomplete &&
-        editor.getLines &&
-        editor.getCursor &&
-        editor.isShowingAutocomplete
-      ) {
-        const handleInput = editor.handleInput.bind(editor);
-        editor.handleInput = (data) => {
-          const before = editor.getText();
-          const wasShowingAutocomplete = editor.isShowingAutocomplete!();
-          handleInput(data);
-          if (
-            wasShowingAutocomplete ||
-            editor.getText() === before ||
-            editor.isShowingAutocomplete!()
-          )
-            return;
-          const cursor = editor.getCursor!();
-          if (
-            completionStart(editor.getLines!(), cursor.line, cursor.col) !==
-            undefined
-          ) {
-            editor.requestAutocomplete!({ force: false });
-          }
-        };
+        }));
+      wrapSubmit(editor, (text) => promoteCommand(text, true), ctx.ui);
+      if (supportsAutocomplete(editor)) {
+        enableInlineMenu(editor);
       } else {
         ctx.ui.notify(
           "This editor does not support automatic inline slash menus; use Tab for completion.",

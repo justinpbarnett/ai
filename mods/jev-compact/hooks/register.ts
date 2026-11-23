@@ -13,9 +13,12 @@ const SWITCHES = 'Does the new message start a different task from the recent wo
 const PAUSES = "Did the assistant's last reply finish the work the user asked for, with nothing left running and no question waiting on the user, so this is a good point to pause?"
 const PAUSE_SUMMARY = 'The work just reached a good stopping point. Keep what was done and decided, the files touched, and anything the user may follow up on. Drop the working detail.'
 
+type TopicSwitch = { text: string; verdict: string; tokens: number; turnId?: string }
+
 let compacting = false
 let compactedSinceAnswer = false
 let submitted = 0
+let topicSwitch: TopicSwitch | undefined
 
 function clip(text: string, chars: number): string {
   const t = text.trim()
@@ -35,9 +38,9 @@ function recent(messages: readonly SessionMessage[]): string {
   return lines.join('\n\n')
 }
 
-function nextTaskSummary(text: string): string {
-  return 'The conversation is moving on to a new task. Summarize the finished work briefly: what was done and decided, '
-    + 'the files changed, and anything left open. Keep in full only what bears on the next task, which begins: '
+function topicSwitchSummary(text: string): string {
+  return 'The conversation switched to a new task. Summarize the earlier work briefly: what was done and decided, '
+    + 'the files changed, and anything left open. Preserve the work and decisions for the current task, which began: '
     + clip(text, NEXT_TASK_CHARS)
 }
 
@@ -55,11 +58,16 @@ async function contextTokens($: EngineInterface): Promise<number> {
   return (await $.session.usage()).context.tokens ?? 0
 }
 
-async function compact($: EngineInterface, tokens: number, why: string, instructions: string): Promise<void> {
+function canCompact(submission: number): boolean {
+  return !compacting && !compactedSinceAnswer && submitted === submission
+}
+
+async function compact($: EngineInterface, submission: number, tokens: number, why: string, instructions: string): Promise<void> {
+  if (!canCompact(submission)) return
   compacting = true
   try {
     const done = await $.session.compact({ instructions })
-    if (done.skip !== undefined) return
+    if (done.skip !== undefined || submitted !== submission) return
     compactedSinceAnswer = true
     $.ui.toast(`jev-compact: compacted ${Math.round(tokens / 1000)}k tokens ${why}`)
   } catch (err) {
@@ -69,52 +77,82 @@ async function compact($: EngineInterface, tokens: number, why: string, instruct
   }
 }
 
-async function compactIfSwitch($: EngineInterface, text: string): Promise<void> {
-  if (compacting || compactedSinceAnswer) return
+async function classifySwitch($: EngineInterface, submission: number, text: string): Promise<TopicSwitch | undefined> {
+  if (!canCompact(submission)) return
   const tokens = await contextTokens($)
   if (tokens < SWITCH_FLOOR_TOKENS) return
   const work = recent(await $.session.messages())
-  if (!work) return
-  const sure = await jevSure($, SWITCHES, `Recent work in this session:\n${work}\n\nNew message:\n${clip(text, MESSAGE_CHARS)}`)
-  if (sure) await compact($, tokens, `before a new task (${sure})`, nextTaskSummary(text))
+  if (!work || !canCompact(submission)) return
+  const verdict = await jevSure($, SWITCHES, `Recent work in this session:\n${work}\n\nNew message:\n${clip(text, MESSAGE_CHARS)}`)
+  if (verdict) return { text, verdict, tokens }
 }
 
-async function compactIfPause($: EngineInterface, mark: number): Promise<void> {
-  if (compacting || compactedSinceAnswer || submitted !== mark) return
+async function compactIfPause($: EngineInterface, submission: number): Promise<void> {
+  if (!canCompact(submission)) return
   const tokens = await contextTokens($)
   if (tokens < PAUSE_FLOOR_TOKENS) return
   const work = recent(await $.session.messages())
-  if (!work) return
+  if (!work || !canCompact(submission)) return
   const sure = await jevSure($, PAUSES, `Recent work in this session:\n${work}`)
-  if (sure && submitted === mark) await compact($, tokens, `at a good stopping point (${sure})`, PAUSE_SUMMARY)
+  if (sure) await compact($, submission, tokens, `at a good stopping point (${sure})`, PAUSE_SUMMARY)
 }
 
 export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
-    submitted += 1
+    const submission = ++submitted
+    topicSwitch = undefined
+    let decision: TopicSwitch | undefined
     if (e.command === undefined && e.isMeta === undefined && e.turnId === undefined && PEOPLE.has(e.origin.kind)) {
-      await compactIfSwitch($, e.text).catch(err => $.ui.log(`jev-compact: ${err}`, { to: 'debug' }))
+      decision = await classifySwitch($, submission, e.text).catch(err => {
+        $.ui.log(`jev-compact: ${err}`, { to: 'debug' })
+        return undefined
+      })
+    }
+    const done = await next(e)
+    if (decision && done.text === e.text && canCompact(submission)) topicSwitch = decision
+    return done
+  })
+
+  on('turn.start', ($, e, next) => {
+    if (e.agentId === undefined && topicSwitch && topicSwitch.turnId === undefined) {
+      if (e.text === topicSwitch.text) topicSwitch = { ...topicSwitch, turnId: e.turnId }
+      else topicSwitch = undefined
     }
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
+    const submission = submitted
     const done = await next(e)
-    if (e.agentId === undefined && e.reason === 'answer') {
-      compactedSinceAnswer = false
-      if (e.answer.trim()) {
-        const mark = submitted
-        $.clock.after(PAUSE_DELAY_MS, () => {
-          compactIfPause($, mark).catch(err => $.ui.log(`jev-compact: ${err}`, { to: 'debug' }))
-        })
-      }
+    if (e.agentId !== undefined || submitted !== submission) return done
+    const decision = topicSwitch?.turnId === e.turnId ? topicSwitch : undefined
+    if (decision) topicSwitch = undefined
+    if (e.reason !== 'answer') return done
+    compactedSinceAnswer = false
+    if (decision) {
+      // Claude refuses compaction while a prompt.submit hook is holding the turn.
+      $.clock.after(0, () => compact($, submission, decision.tokens, `after a topic switch (${decision.verdict})`, topicSwitchSummary(decision.text)))
+    } else if (!topicSwitch && e.answer.trim()) {
+      $.clock.after(PAUSE_DELAY_MS, () => {
+        compactIfPause($, submission).catch(err => $.ui.log(`jev-compact: ${err}`, { to: 'debug' }))
+      })
     }
     return done
   })
 
   on('session.compact', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute' && done.skip === undefined) compactedSinceAnswer = true
+    if (e.agentId === undefined && e.trigger !== 'precompute' && done.skip === undefined) {
+      compactedSinceAnswer = true
+      topicSwitch = undefined
+    }
     return done
+  })
+
+  on('session.end', ($, e, next) => {
+    submitted += 1
+    topicSwitch = undefined
+    compactedSinceAnswer = false
+    return next(e)
   })
 }

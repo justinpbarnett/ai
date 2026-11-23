@@ -24,7 +24,7 @@ sys.dont_write_bytecode = True      # importing the kit must not leave a __pycac
 KIT = Path(__file__).resolve().parent
 sys.path.insert(0, str(KIT))
 import build    # noqa: E402
-from browser import BROWSERS, WIDTHS, BrowserError, browser_session, cuts, find_browser  # noqa: E402
+from browser import BROWSERS, WIDTHS, browser_session, cuts, find_browser, run_reporting  # noqa: E402
 
 SRC = Path.home() / "dev" / "design" / "refs" / "rugged" / "src"
 READY = "document.fonts.ready.then(function () { return JSON.stringify(document.documentElement.scrollHeight); })"
@@ -99,7 +99,7 @@ def slices_match(approved, kit, keep):
     return True
 
 
-def run(argv):
+def main(argv):
     keep = None
     if len(argv) >= 2 and argv[-2] == "--keep":
         keep, argv = Path(argv[-1]), argv[:-2]
@@ -131,18 +131,5 @@ def run(argv):
     raise SystemExit(0 if passed else 1)
 
 
-def main(argv):
-    try:
-        run(argv)
-    except BrowserError as failure:
-        print(f"regress: {failure}", file=sys.stderr)
-        raise SystemExit(2)
-    except SystemExit as stop:
-        if isinstance(stop.code, str):
-            print(stop.code, file=sys.stderr)
-            raise SystemExit(2)
-        raise
-
-
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    run_reporting(main, sys.argv[1:], "regress")

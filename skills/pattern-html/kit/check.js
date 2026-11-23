@@ -21,9 +21,24 @@
     return s;
   }
 
+  var PROBE = document.createElement("canvas");
+  PROBE.width = PROBE.height = 1;
+  var PAINT = PROBE.getContext("2d", { willReadFrequently: true });
+  function painted(v) {
+    PAINT.fillStyle = "#010203";
+    PAINT.fillStyle = v;
+    var sentinel = PAINT.fillStyle;
+    PAINT.fillStyle = "#040506";
+    PAINT.fillStyle = v;
+    if (PAINT.fillStyle !== sentinel) return null;
+    PAINT.clearRect(0, 0, 1, 1);
+    PAINT.fillRect(0, 0, 1, 1);
+    var d = PAINT.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  }
   function rgba(v) {
     var m = /rgba?\(([^)]+)\)/.exec(v || "");
-    if (!m) return null;
+    if (!m) return !v || v === "transparent" ? null : painted(v);
     var p = m[1].split(/[,\s\/]+/).filter(Boolean).map(parseFloat);
     return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
   }

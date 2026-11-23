@@ -14,6 +14,14 @@ def artifact_hash(state_dir, relative):
     return file_digest(safe_file(state_dir, relative))
 
 
+def baseline_window_closed(state):
+    return bool(
+        state.get("baseline_snapshot")
+        and state.get("snapshot") != state["baseline_snapshot"]
+        and state.get("baseline_inputs") != state.get("scope_inputs")
+    )
+
+
 def record_manifest(state, document):
     requirements = {}
     for value in array(document, "requirements"):
@@ -45,6 +53,13 @@ def record_manifest(state, document):
             ),
             "cannot change a requirement's kind",
         )
+        if baseline_window_closed(state):
+            for identifier, item in requirements.items():
+                require(
+                    item["kind"] != "baseline"
+                    or identifier in state["manifest"]["requirements"],
+                    f"cannot add baseline {identifier!r}: baselines record behavior before changes; declare it as a check instead",
+                )
     state["manifest"] = {
         "requirements": requirements,
         "rules": digest(state["inventory"]["rules"]),

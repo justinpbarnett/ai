@@ -5,6 +5,7 @@ import os
 import select
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections import namedtuple
@@ -196,3 +197,16 @@ def cuts(height, tall):
     if len(tops) > 1 and height - tops[-1] < tall // 4:
         tops.pop()
     return [(y, (tops[i + 1] if i + 1 < len(tops) else height) - y) for i, y in enumerate(tops)]
+
+
+def run_reporting(body, argv, program):
+    try:
+        body(argv)
+    except BrowserError as failure:
+        print(f"{program}: {failure}", file=sys.stderr)
+        raise SystemExit(2)
+    except SystemExit as stop:
+        if isinstance(stop.code, str):
+            print(stop.code, file=sys.stderr)
+            raise SystemExit(2)
+        raise

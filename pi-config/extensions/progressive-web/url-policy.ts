@@ -12,11 +12,19 @@ export function normalizeUrl(value: string, base?: string): string {
       "URLs containing credentials are not supported.",
     );
   url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^utm_/i.test(key) || ["fbclid", "gclid"].includes(key))
-      url.searchParams.delete(key);
-  }
+  const segments = url.search.slice(1).split("&");
+  const kept = segments.filter((segment) => !isTrackingParameter(segment));
+  if (kept.length < segments.length) url.search = kept.join("&");
   return url.href;
+}
+
+function isTrackingParameter(segment: string): boolean {
+  const rawKey = segment.split("=", 1)[0].replace(/\+/g, " ");
+  let key = rawKey;
+  try {
+    key = decodeURIComponent(rawKey);
+  } catch {}
+  return /^utm_/i.test(key) || ["fbclid", "gclid"].includes(key);
 }
 
 export function checkScope(url: string, allowedUrl?: UrlPolicy): void {

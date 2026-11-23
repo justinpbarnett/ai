@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from browser import BROWSERS, SETTLE_S, WIDTHS, BrowserError, browser_session, cuts, find_browser  # noqa: E402
+from browser import BROWSERS, SETTLE_S, WIDTHS, browser_session, cuts, find_browser, run_reporting  # noqa: E402
 from build import PLACE, DocumentShell  # noqa: E402
 from tokens import tokens as page_tokens  # noqa: E402
 
@@ -117,6 +117,15 @@ def report_run(results, names):
     return worst
 
 
+def without_browser(served, file_findings):
+    if served:
+        print("check: no browser found, so nothing was checked. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
+        raise SystemExit(2)
+    worst = report([file_findings])
+    print("NOTE  no browser found, so only the file was read. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
+    raise SystemExit(worst or 2)
+
+
 def main(argv):
     out = None
     if len(argv) == 3 and argv[1] == "--shots":
@@ -144,12 +153,7 @@ def main(argv):
 
     exe = find_browser(BROWSERS)
     if not exe:
-        if served:
-            print("check: no browser found, so nothing was checked. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
-            raise SystemExit(2)
-        worst = report([file_findings])
-        print("NOTE  no browser found, so only the file was read. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
-        raise SystemExit(worst or 2)
+        without_browser(served, file_findings)
 
     with browser_session(exe, "pattern-check-") as (browser, work):
         js, results, names = script(), [], []
@@ -166,18 +170,5 @@ def main(argv):
     raise SystemExit(worst)
 
 
-def run(argv):
-    try:
-        main(argv)
-    except BrowserError as failure:
-        print(f"check: {failure}", file=sys.stderr)
-        raise SystemExit(2)
-    except SystemExit as stop:
-        if isinstance(stop.code, str):
-            print(stop.code, file=sys.stderr)
-            raise SystemExit(2)
-        raise
-
-
 if __name__ == "__main__":
-    run(sys.argv[1:])
+    run_reporting(main, sys.argv[1:], "check")

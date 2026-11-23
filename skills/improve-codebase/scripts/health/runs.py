@@ -202,8 +202,8 @@ def fallout_scope(store, root, state_dir, fences, base, includes):
         "manual include is outside the requested fence",
     )
     base = resolve_base_commit(root, base)
-    touched, replaced = fallout_changes(root, base)
     live, sources = inventory(root, True, ["."], state_dir, gather=True)
+    touched, replaced = fallout_changes(root, base)
     entries = live["entries"]
     changed, retired = classify_changes(entries, touched, replaced)
     parsed = parse_for_graph(entries, sources, store)

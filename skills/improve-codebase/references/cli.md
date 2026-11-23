@@ -90,6 +90,7 @@ If state is corrupt or incompatible, stop, preserve it for recovery, and ask bef
 ## Reviews
 
 `review prepare --axis smells|architecture|contracts --pass discovery|confirmation --format json` emits one bounded `packet` with `id`, `snapshot`, `sweep_id`, `axis`, `pass`, `governing_paths`, and `units`.
+`remaining` counts units still due on the packet's axis, so call prepare again until `packet` is null.
 Omit the pass or axis to select pending work.
 Use `--path` to target files or directories, `--unit` for exact IDs on the same axis and pass, `--partition` to focus a project, or `--exclude-unit` to skip assignments already delegated.
 `--full` makes previously covered units eligible for the selected pass.

@@ -27,11 +27,14 @@ DEFAULTS = {
     "selector_ids": 1,
     "duplicate_tokens": 50,
     "duplicate_lines": 8,
+}
+LEDGER_NEUTRAL_DEFAULTS = {
     "comments": 1,
     "folder_files": 30,
     "coupling_revisions": 5,
     "coupling_degree": 50,
 }
+DEFAULTS |= LEDGER_NEUTRAL_DEFAULTS
 MINIMUMS = {"duplicate_tokens": 50, "duplicate_lines": 8}
 MAXIMUMS = {"coupling_degree": 100}
 
@@ -73,6 +76,14 @@ def settings(document):
                 f"{name} requires an integer between {minimum} and {maximum}"
             )
     return DEFAULTS | document
+
+
+def ledger_thresholds(thresholds):
+    return {
+        name: value
+        for name, value in thresholds.items()
+        if LEDGER_NEUTRAL_DEFAULTS.get(name) != value
+    }
 
 
 def window_starts(tokens, length):

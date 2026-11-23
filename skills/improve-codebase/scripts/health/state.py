@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .detectors import ledger_thresholds
 from .inventory import STATE_DIR, digest, git
 
 SCHEMA_VERSION = 1
@@ -207,7 +208,7 @@ class Store:
             raise
 
     def select(self, scopes, thresholds, base=None):
-        profile = [scopes, thresholds]
+        profile = [scopes, ledger_thresholds(thresholds)]
         self.key = digest([*profile, base] if base else profile)
 
     def runs(self):

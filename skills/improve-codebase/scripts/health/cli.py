@@ -298,7 +298,9 @@ def execute(args, envelope):
         view = run.get("slice")
         base = run.get("fallout", {}).get("base")
         if run:
-            scope = replace(scope, scopes=run["scope"], thresholds=run["thresholds"])
+            scope = replace(
+                scope, scopes=run["scope"], thresholds=settings(run["thresholds"])
+            )
             store.select(scope.scopes, scope.thresholds, base)
             envelope.update(
                 run=args.run, scope=scope.scopes, fallout=run.get("fallout")

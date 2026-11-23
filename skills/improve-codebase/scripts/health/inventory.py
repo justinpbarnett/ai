@@ -387,13 +387,13 @@ def inventory_entry(root, name, reason, selected):
         path = safe_file(root, name)
         if inside_nested_checkout(root, path):
             return skipped_entry("nested Git boundary", selected), None, None
+        if reason == LOCKFILE_REASON:
+            return skipped_entry(reason, selected), None, stream_hash(path)
         data = read_source(path)
     except FileNotFoundError:
         return skipped_entry("tracked path absent in worktree", selected), None, None
     except (OSError, ValueError, RuntimeError) as exc:
         detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-        if reason == LOCKFILE_REASON and detail == OVERSIZED_REASON:
-            return skipped_entry(reason, selected), None, stream_hash(path)
         return (
             skipped_entry(
                 detail,
@@ -404,11 +404,7 @@ def inventory_entry(root, name, reason, selected):
             None,
         )
     hashed = content_hash(data)
-    entry = (
-        skipped_entry(reason, selected)
-        if reason
-        else classify_content(name, data, hashed, selected)
-    )
+    entry = classify_content(name, data, hashed, selected)
     return entry, data, hashed if config else None
 
 

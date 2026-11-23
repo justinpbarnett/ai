@@ -22,6 +22,7 @@ Ranges and hashes still use the original source; verify the actual fonts with th
 Check whether the project's compiler or runtime accepts the input before treating a parser failure as a product defect.
 If the project accepts it, keep the source unchanged and report the scanner limitation unless there is a separate, verified reason to change the source.
 Unresolved references are reported as limitations, not guessed edges; unresolved Vue external blocks are capability gaps.
+Standard library, `node:` and unaliased package imports are reported as `external` limitations and do not make a file need wiring review; Python packages outside the standard library stay unresolved, since the resolver cannot tell them from a missing local module.
 In a supported `tsconfig.json` or `jsconfig.json`, `paths` targets are relative to the config directory unless it sets `baseUrl`.
 An unmatched bare specifier is only tried directly under an explicit `baseUrl`.
 

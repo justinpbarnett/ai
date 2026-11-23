@@ -1,6 +1,7 @@
 from collections import defaultdict
 from pathlib import Path
 
+from .dependency_graph import blocks_wiring
 from .hashing import digest
 from .inventory import WIRING_LANGUAGES, is_project_guide
 from .paths import in_paths, within
@@ -123,7 +124,9 @@ class ReviewUnits:
     def register_sources(self, source, uncertain_files):
         for path in sorted(source):
             entry = self.entries[path]
-            if entry["language"] in WIRING_LANGUAGES or self.limits.get(path):
+            if entry["language"] in WIRING_LANGUAGES or blocks_wiring(
+                self.limits.get(path, ())
+            ):
                 uncertain_files[entry["project"]].add(path)
             for axis in AXES:
                 self.register(axis, [path], self.adjacent[path])

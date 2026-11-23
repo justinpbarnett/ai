@@ -1,6 +1,7 @@
 import json
 import posixpath
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -25,6 +26,7 @@ ALIAS_CONFIG_FILES = ("tsconfig.json", "jsconfig.json")
 ALIAS_LANGUAGES = {"javascript", "typescript", "tsx", "vue"}
 PLACEHOLDER = re.compile(r"[$*{}<>]")
 PYTHON_KINDS = {"python", "python-member"}
+EXTERNAL_PROBLEM = "external"
 
 
 @dataclass(frozen=True)
@@ -224,12 +226,32 @@ def source_limitations(result, aliases, language):
     return limits
 
 
-def unresolved_problem(paths, ancestors, project, import_kind, ref, targets):
+def is_external_import(aliases, import_kind, ref):
+    if import_kind in PYTHON_KINDS:
+        return ref.split(".")[0] in sys.stdlib_module_names
+    if import_kind != "js" or ref.startswith((".", "/")) or PLACEHOLDER.search(ref):
+        return False
+    if ref.startswith("node:") or aliases is None:
+        return True
+    return (
+        not aliases.limitation
+        and not aliases.has_base_url
+        and not any(alias_replacements(aliases, ref))
+    )
+
+
+def unresolved_problem(paths, ancestors, project, aliases, import_kind, ref, targets):
     if targets:
         return "ambiguous"
-    if not is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
-        return "unresolved or external"
-    return None
+    if is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
+        return None
+    if is_external_import(aliases, import_kind, ref):
+        return EXTERNAL_PROBLEM
+    return "unresolved or external"
+
+
+def blocks_wiring(limits):
+    return any(not limit.startswith(f"{EXTERNAL_PROBLEM} ") for limit in limits)
 
 
 def resolve_edges(entries, parsed, sources):
@@ -263,7 +285,13 @@ def resolve_edges(entries, parsed, sources):
                 edges.add((path, targets[0], kind))
             else:
                 problem = unresolved_problem(
-                    paths, ancestors, entry["project"], import_kind, ref, targets
+                    paths,
+                    ancestors,
+                    entry["project"],
+                    aliases,
+                    import_kind,
+                    ref,
+                    targets,
                 )
                 if problem:
                     limitations[path].add(f"{problem} {kind} target: {ref}")

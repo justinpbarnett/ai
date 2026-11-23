@@ -18,7 +18,7 @@ const READ_ONLY_VIEW: DialogMode = {
 
 const SEND_PREVIEW: DialogMode = {
 	hint: "S send · Esc cancel · ↑↓ scroll",
-	decide: (data, keys) => keys.matches(data, "tui.select.cancel") ? false : matchesKey(data, "s") ? true : undefined,
+	decide: (data, keys) => keys.matches(data, "tui.select.cancel") ? false : matchesKey(data, "s") || matchesKey(data, "shift+s") ? true : undefined,
 	blocked: { kind: "permission", message: "Share tool excerpts with OpenRouter?" },
 };
 

@@ -101,6 +101,10 @@ export const crawlLimits = {
   maxDepth: { minimum: 0, maximum: 5, fallback: 2 },
   delayMs: { minimum: 250, maximum: 30000, fallback: 1000 },
 };
+const MAX_CACHED_PAGE_BYTES = 2 * 1024 * 1024;
+const MAX_CACHE_ENTRIES = 64;
+const MAX_CACHE_TOTAL_BYTES = 32 * 1024 * 1024;
+const CACHE_TTL_MS = 15 * 60 * 1000;
 const cache = new Map<
   string,
   { result: PageSuccess; bytes: number; expires: number }
@@ -158,11 +162,14 @@ function cachedPage(key: string): PageSuccess | undefined {
 function cachePage(key: string, result: PageSuccess): void {
   removeCachedPage(key);
   const bytes = Buffer.byteLength(JSON.stringify(result));
-  if (bytes >= 2 * 1024 * 1024) return;
-  while (cache.size >= 64 || cacheBytes + bytes > 32 * 1024 * 1024) {
+  if (bytes >= MAX_CACHED_PAGE_BYTES) return;
+  while (
+    cache.size >= MAX_CACHE_ENTRIES ||
+    cacheBytes + bytes > MAX_CACHE_TOTAL_BYTES
+  ) {
     removeCachedPage(cache.keys().next().value!);
   }
-  cache.set(key, { result, bytes, expires: Date.now() + 15 * 60 * 1000 });
+  cache.set(key, { result, bytes, expires: Date.now() + CACHE_TTL_MS });
   cacheBytes += bytes;
 }
 

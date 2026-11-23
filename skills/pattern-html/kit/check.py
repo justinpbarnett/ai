@@ -57,7 +57,9 @@ def report(results):
         kinds = {}
         for (width, *_), result in zip(WIDTHS, results):
             for kind, msg in result[level]:
-                kinds.setdefault(kind, {}).setdefault(msg, []).append(width)
+                seen_at = kinds.setdefault(kind, {}).setdefault(msg, [])
+                if width not in seen_at:
+                    seen_at.append(width)
         for kind, msgs in kinds.items():
             worst = max(worst, level == "fail")
             print(f"{level.upper():5} {kind} ({len(msgs)})")

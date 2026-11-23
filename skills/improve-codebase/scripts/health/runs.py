@@ -3,7 +3,7 @@ import re
 from itertools import chain
 from pathlib import PurePosixPath
 
-from .dependency_graph import resolve_edges
+from .dependency_graph import blocks_wiring, resolve_edges
 from .history import git
 from .inventory import (
     MAX_SOURCE_BYTES,
@@ -178,7 +178,7 @@ def wiring_review(targets, retired, entries, limitations):
         for path in targets
         if path in retired
         or entries[path].get("language") in WIRING_LANGUAGES
-        or path in limitations
+        or blocks_wiring(limitations.get(path, ()))
     )
 
 

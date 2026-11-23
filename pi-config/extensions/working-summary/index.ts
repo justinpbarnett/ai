@@ -185,13 +185,17 @@ class WorkingSummary {
 				return summarizeWithOpenRouter(ctx.modelRegistry, fields, evidence, signal);
 			}, (labels) => {
 				if (labels.session && labels.session !== this.generated.session) {
-					this.missionExcerpt = latest;
-					this.pendingMission = { title: labels.session, requestAt: latest.timestamp };
-					if (ctx.isIdle()) this.persistMission();
+					this.recordMission(ctx, labels.session, latest);
 				}
 				publish(labels);
 			});
 		}
+	}
+
+	private recordMission(ctx: ExtensionContext, title: string, source: PromptExcerpt) {
+		this.missionExcerpt = source;
+		this.pendingMission = { title, requestAt: source.timestamp };
+		if (ctx.isIdle()) this.persistMission();
 	}
 
 	private queueLocal(ctx: ExtensionContext, latest: PromptExcerpt | undefined, checkMission: boolean, publish: (labels: Labels) => void) {
@@ -218,9 +222,7 @@ class WorkingSummary {
 			return summarizeWithOllama(ollamaModel, fields, { openingRequest: opening?.text, latest: includePrompt || mission ? latest?.text : undefined, mission }, signal);
 		}, (labels) => {
 			if (labels.session && source) {
-				this.missionExcerpt = source;
-				this.pendingMission = { title: labels.session, requestAt: source.timestamp };
-				if (ctx.isIdle()) this.persistMission();
+				this.recordMission(ctx, labels.session, source);
 			}
 			publish(labels);
 		});

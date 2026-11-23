@@ -16,6 +16,7 @@ import {
   browserInstalled,
   curlInstalled,
   closeBrowsers,
+  crawlerAgentName,
   curlFetch,
   httpFetch,
   type PageTransport,
@@ -254,7 +255,10 @@ function scrapeLimits(options: ScrapeOptions) {
     scrapeTimeoutLimits.maximum,
     "timeoutMs",
   );
-  if (options.waitForSelector && maxTier < browserTier)
+  if (
+    options.waitForSelector &&
+    (startTier > browserTier || maxTier < browserTier)
+  )
     throw new Error(`waitForSelector requires browser tier ${browserTier}.`);
   return { startTier, maxTier, timeoutMs };
 }
@@ -407,7 +411,7 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
     throw new Error("The starting URL must be inside pathPrefix.");
   const policy = await crawlPolicy(origin, signal);
   const crawlDelay =
-    policy.getCrawlDelay("PiWebScraper") ?? policy.getCrawlDelay("*");
+    policy.getCrawlDelay(crawlerAgentName) ?? policy.getCrawlDelay("*");
   if (crawlDelay !== undefined && Number.isFinite(crawlDelay))
     delayMs = Math.max(delayMs, crawlDelay * 1000);
   if (delayMs > crawlLimits.delayMs.maximum)
@@ -415,7 +419,7 @@ async function prepareCrawl(options: CrawlOptions, signal?: AbortSignal) {
       "robots.txt requests a crawl delay over 30 seconds. Use individual page fetches instead.",
     );
   const allowedByRobots = (value: string) =>
-    policy.isAllowed(value, "PiWebScraper") !== false;
+    policy.isAllowed(value, crawlerAgentName) !== false;
   const allowedUrl = (value: string) =>
     inScope(value) && allowedByRobots(value);
   return {

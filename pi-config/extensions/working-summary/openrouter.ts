@@ -1,6 +1,6 @@
 import type { ClassifierQuestion, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { findJev, jevBlocker, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
+import { completionText, findJev, jevBlocker, jsonSchemaPayload, trustedJevAnswer, trustedJevChoice, usableWriter } from "../shared/openrouter.js";
 import type { Slot } from "./labels.js";
 import { labelSchema, LABEL_INSTRUCTIONS, parseLabels, type Evidence, type SummaryResult } from "./writer.js";
 
@@ -71,10 +71,7 @@ export async function classifyMissionWithJev(registry: Registry, evidence: Missi
 }
 
 function trustedChoice(result: ClassifierResult, key: string, question: typeof intentQuestion | typeof topicQuestion) {
-	const answer = trustedJevAnswer(result, key);
-	if (answer?.type === "choice" && answer.confidence >= MIN_CONFIDENCE && Object.hasOwn(question.criteria, answer.choice)) {
-		return answer.choice;
-	}
+	return trustedJevChoice(result, key, question.criteria, MIN_CONFIDENCE)?.choice;
 }
 
 export async function summarizeWithOpenRouter(registry: Registry, requested: Slot[], evidence: Evidence, signal: AbortSignal): Promise<SummaryResult> {
@@ -103,19 +100,9 @@ export async function summarizeWithOpenRouter(registry: Registry, requested: Slo
 		maxTokens: 128,
 		maxRetries: 0,
 		cacheRetention: "none",
-		onPayload: (payload) => ({
-			...(payload as Record<string, unknown>),
-			response_format: {
-				type: "json_schema",
-				json_schema: {
-					name: "working_summary",
-					strict: true,
-					schema: labelSchema(fields),
-				},
-			},
-		}),
+		onPayload: jsonSchemaPayload("working_summary", labelSchema(fields)),
 	});
 	signal.throwIfAborted();
 	if (response.stopReason !== "stop") return { labels: {}, failure: "writing request failed" };
-	return parseLabels(response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""), fields);
+	return parseLabels(completionText(response), fields);
 }

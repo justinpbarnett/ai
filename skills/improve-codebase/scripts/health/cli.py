@@ -18,7 +18,7 @@ from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
 from .state import Store, corrupt_database_message, is_corrupt_database
-from .state_dir import discover_root, safe_state_dir
+from .state_dir import STATE_DATABASE, discover_root, safe_state_dir
 from .thresholds import settings
 from .validation import read_json, require
 
@@ -170,11 +170,11 @@ def command_workspace(args, envelope):
         git_worktree=is_git,
         scope=scopes,
         state_dir=str(state_dir),
-        state_path=str(state_dir / "state.sqlite3"),
+        state_path=str(state_dir / STATE_DATABASE),
     )
     if args.writes and not initialize:
         require(
-            (state_dir / "state.sqlite3").is_file(),
+            (state_dir / STATE_DATABASE).is_file(),
             "no named run ledger in this worktree"
             if args.run
             else "scan before recording evidence",
@@ -190,7 +190,7 @@ def doctor_command(args, scope, envelope):
 @contextmanager
 def open_store(args, scope):
     store = Store(
-        scope.state_dir / "state.sqlite3",
+        scope.state_dir / STATE_DATABASE,
         scope.root,
         scope.scopes,
         scope.thresholds,

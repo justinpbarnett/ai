@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
 import { purposeCall, type Invocation, type PurposeCall } from "./evidence.js";
-import { OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured, isPiOffline } from "../shared/openrouter.js";
+import { OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, completionText, isOpenRouterConfigured, isPiOffline } from "../shared/openrouter.js";
 import { withinDeadline } from "./deadline.js";
 import { ExplanationError } from "./errors.js";
 import { clip, plain, usableSummary } from "./screening.js";
@@ -27,6 +27,8 @@ const cues = [
 export function operationHints({ operation, command }: PurposeCall): string[] {
 	return [operation, ...cues.filter(([pattern]) => command && pattern.test(command)).map(([, label]) => label)];
 }
+
+export const writesThinking = (writer: Writer): writer is Extract<Writer, { kind: "ollama" }> => writer.kind === "ollama";
 
 export const hostedWriterBlocked = (writer: Writer) => writer.kind === "openrouter" && isPiOffline();
 
@@ -101,7 +103,7 @@ async function writeRemotely(registry: ExtensionContext["modelRegistry"], id: st
 		messages: [{ role: "user", content: JSON.stringify({ operationHints: hints }), timestamp: Date.now() }],
 	}, { signal, temperature: 0, maxTokens: MAX_TOKENS, cacheRetention: "none" }).result();
 	if (result.stopReason !== "stop") throw new ExplanationError("OpenRouter did not finish the summary.");
-	return result.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
+	return completionText(result);
 }
 
 export type Background = { request?: string; note?: string; reasoning?: string };

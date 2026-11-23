@@ -9,7 +9,7 @@ import { textExcerpt } from "./screening.js";
 import { DEFAULT_COUNT, MAX_COUNT, config, defaults, parseCount } from "./settings.js";
 import { THINKING_ENTRY, ThinkingSummaries, thoughtTail, type SavedThought } from "./thinking.js";
 import { collectExplanation, confirmPreview, explanationText, preview, showView } from "./view.js";
-import { hostedWriterBlocked, writeSummary, writeThinkingSummary, writingRequest, type Writer } from "./writer.js";
+import { hostedWriterBlocked, writeSummary, writeThinkingSummary, writesThinking, writingRequest, type Writer } from "./writer.js";
 
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
@@ -103,7 +103,7 @@ class ToolExplainer {
 		enabled: () => this.attached !== undefined && this.autoEnabled(this.attached),
 		expanded: () => this.presentation.thinkingExpanded ?? this.attached?.ui.getToolsExpanded() ?? false,
 		refresh: () => this.refreshThinking(),
-		write: (text, signal) => this.settings.writer.kind === "ollama" ? writeThinkingSummary(this.settings.writer.model, text, signal) : undefined,
+		write: (text, signal) => writesThinking(this.settings.writer) ? writeThinkingSummary(this.settings.writer.model, text, signal) : undefined,
 		save: (record) => this.persist(record),
 	});
 
@@ -275,7 +275,7 @@ class ToolExplainer {
 	private registerCommand() {
 		this.pi.registerCommand("explain-tools", {
 			description: "Explain recent tool output, turn automatic summaries on or off, or list recent tool summaries",
-			getArgumentCompletions: (prefix) => ["1", "2", "3", "on", "off", "status", "recent"]
+			getArgumentCompletions: (prefix) => [...Array.from({ length: MAX_COUNT }, (_, index) => String(index + 1)), "on", "off", "status", "recent"]
 				.filter((value) => prefix && value.startsWith(prefix) && value !== prefix).map((value) => ({ value, label: value })),
 			handler: (args, ctx) => this.handleCommand(args, ctx),
 		});
@@ -287,7 +287,7 @@ class ToolExplainer {
 		if (input === "status") {
 			const { writer } = this.settings;
 			const route = writerStatus(writer, ctx.isProjectTrusted());
-			ctx.ui.notify(`Automatic summaries: ${this.autoEnabled(ctx) ? "on" : "off"} · manual count: ${this.count() ?? "invalid"} · writer: ${route}${writer.kind === "ollama" ? "" : " · thinking: headers only"}`);
+			ctx.ui.notify(`Automatic summaries: ${this.autoEnabled(ctx) ? "on" : "off"} · manual count: ${this.count() ?? "invalid"} · writer: ${route}${writesThinking(writer) ? "" : " · thinking: headers only"}`);
 			return;
 		}
 		if (input === "on" || input === "off") return this.setAutomatic(ctx, input === "on");

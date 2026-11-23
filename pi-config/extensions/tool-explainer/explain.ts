@@ -1,6 +1,6 @@
 import type { ClassifierQuestion } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { OPENROUTER_SIGN_IN_MESSAGE, findJev, isOpenRouterConfigured, trustedJevAnswer, usableWriter } from "../shared/openrouter.js";
+import { OPENROUTER_SIGN_IN_MESSAGE, completionText, findJev, isOpenRouterConfigured, jsonSchemaPayload, trustedJevChoice, usableWriter } from "../shared/openrouter.js";
 import { ExplanationError } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { plain } from "./screening.js";
@@ -40,25 +40,18 @@ const writerPrompt = [
 	"Return JSON only: {\"overview\":\"one short sentence\",\"items\":[{\"id\":1,\"text\":\"one short sentence\"}]}. Include exactly one item per supplied id.",
 ].join("\n");
 
-const responseFormat = {
-	type: "json_schema",
-	json_schema: {
-		name: "tool_explanation",
-		strict: true,
-		schema: {
-			type: "object",
-			additionalProperties: false,
-			required: ["overview", "items"],
-			properties: {
-				overview: { type: "string" },
-				items: { type: "array", items: {
-					type: "object", additionalProperties: false, required: ["id", "text"],
-					properties: { id: { type: "integer" }, text: { type: "string" } },
-				} },
-			},
-		},
+const explanationSchema = {
+	type: "object",
+	additionalProperties: false,
+	required: ["overview", "items"],
+	properties: {
+		overview: { type: "string" },
+		items: { type: "array", items: {
+			type: "object", additionalProperties: false, required: ["id", "text"],
+			properties: { id: { type: "integer" }, text: { type: "string" } },
+		} },
 	},
-} as const;
+};
 
 function sentence(value: unknown, max: number): string | undefined {
 	if (typeof value !== "string") return;
@@ -93,8 +86,8 @@ export async function explain(registry: Registry, calls: Evidence[], signal: Abo
 	signal.throwIfAborted();
 	if (labels.stopReason !== "stop") throw new ExplanationError("OpenRouter JEV unavailable.");
 	const valid = calls.flatMap(({ id }) => {
-		const label = trustedJevAnswer(labels, `call${id}`);
-		return label?.type === "choice" && Object.hasOwn(outcome.criteria, label.choice) ? [{ id, label }] : [];
+		const label = trustedJevChoice(labels, `call${id}`, outcome.criteria);
+		return label ? [{ id, label }] : [];
 	});
 	if (!valid.length) throw new ExplanationError("OpenRouter JEV did not return any classifications.");
 	const printIds = new Set(calls.filter(({ operation }) => operation === "print").map(({ id }) => id));
@@ -105,10 +98,10 @@ export async function explain(registry: Registry, calls: Evidence[], signal: Abo
 		messages: [{ role: "user", content: `Explain these tool records in the requested JSON format.\n${JSON.stringify({ calls, emphasis })}`, timestamp: Date.now() }],
 	}, {
 		signal, maxTokens: 1_000, cacheRetention: "none",
-		onPayload: (payload) => ({ ...(payload as Record<string, unknown>), response_format: responseFormat }),
+		onPayload: jsonSchemaPayload("tool_explanation", explanationSchema),
 	});
 	if (response.stopReason !== "stop") throw new ExplanationError("OpenRouter writing model unavailable.");
-	return parseExplanation(response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""), calls);
+	return parseExplanation(completionText(response), calls);
 }
 
 export function failureMessage(error: unknown): string {

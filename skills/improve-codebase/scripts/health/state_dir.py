@@ -6,6 +6,8 @@ from .history import git
 from .inventory import STATE_DIR
 from .validation import require
 
+STATE_DATABASE = "state.sqlite3"
+
 
 def check_ignore(root, relative, *git_options):
     return not git(

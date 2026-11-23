@@ -4,21 +4,15 @@ import { join } from "node:path";
 import type { PageCollection, PageResult } from "./core.ts";
 import type { SearchResult } from "./search.ts";
 
-type PageOutput = PageResult | PageCollection;
-export type WebResult = PageOutput | SearchResult;
+export type WebResult = PageCollection | SearchResult;
 const separator = "\n\n---\n\n";
-
-function resultPages(result: PageOutput): PageResult[] {
-  return "pages" in result ? result.pages : [result];
-}
 
 function shorten(text: string, length: number): string {
   return text.length > length ? `${text.slice(0, length - 3)}...` : text;
 }
 
-function resultSummary(result: PageOutput): string {
-  const pages = resultPages(result);
-  const lines = pages.map((page) => {
+function resultSummary(result: PageCollection): string {
+  const lines = result.pages.map((page) => {
     const url = shorten(page.url, 240);
     if (!page.ok)
       return `- FAILED ${url}: ${shorten(page.error.replace(/\s+/g, " "), 350)}`;
@@ -26,15 +20,13 @@ function resultSummary(result: PageOutput): string {
     const timing = page.cached ? "cached" : `${page.durationMs} ms`;
     return `- OK ${url}: tier ${page.tier} (${page.tierName}); ${timing}; attempted ${attempts}`;
   });
-  if (!pages.length) lines.push("No pages were fetched.");
-  if ("pages" in result) {
-    for (const skipped of result.skipped || [])
-      lines.push(`- SKIPPED ${shorten(skipped.url, 240)}: ${skipped.reason}`);
-    if (result.remaining)
-      lines.push(
-        `Crawl limit reached; ${result.remaining} queued URLs were not visited.`,
-      );
-  }
+  if (!result.pages.length) lines.push("No pages were fetched.");
+  for (const skipped of result.skipped || [])
+    lines.push(`- SKIPPED ${shorten(skipped.url, 240)}: ${skipped.reason}`);
+  if (result.remaining)
+    lines.push(
+      `Crawl limit reached; ${result.remaining} queued URLs were not visited.`,
+    );
   return lines.join("\n");
 }
 
@@ -81,7 +73,7 @@ export function formatResults(result: WebResult) {
       ? searchDocument(result)
       : {
           overview: `## Fetch summary\n\n${resultSummary(result)}`,
-          body: resultPages(result).map(pageMarkdown).join(separator),
+          body: result.pages.map(pageMarkdown).join(separator),
         };
   return { overview, body, markdown: overview + separator + body };
 }
@@ -109,18 +101,16 @@ export function resultMetadata(result: WebResult) {
       durationMs: result.durationMs,
     };
   }
-  const collection = "pages" in result ? result : undefined;
   return {
-    pages: resultPages(result).map(pageMetadata),
-    skipped: collection?.skipped,
-    remaining: collection?.remaining,
+    pages: result.pages.map(pageMetadata),
+    skipped: result.skipped,
+    remaining: result.remaining,
   };
 }
 
 export function hasFailures(result: WebResult): boolean {
   return (
-    "ok" in result &&
-    (!result.ok || resultPages(result).some((page) => !page.ok))
+    "ok" in result && (!result.ok || result.pages.some((page) => !page.ok))
   );
 }
 

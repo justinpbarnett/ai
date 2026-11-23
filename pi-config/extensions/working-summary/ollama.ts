@@ -1,6 +1,6 @@
 import { OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
 import type { Slot } from "./labels.js";
-import { parseLabels, type SummaryResult } from "./writer.js";
+import { labelSchema, parseLabels, type SummaryResult } from "./writer.js";
 
 type LocalEvidence = { openingRequest?: string; latest?: string; mission?: { title: string; request?: string } };
 
@@ -50,12 +50,18 @@ const missionWriter = [
 	'Output: {"decision":"keep","prompt":"Commit and push"}',
 ].join("\n");
 
+const missionSchema = {
+	type: "object",
+	properties: { decision: { enum: ["keep", "switch"] }, session: { type: "string" }, prompt: { type: "string" } },
+	required: ["decision"],
+};
+
 export async function summarizeWithOllama(model: string, fields: Slot[], evidence: LocalEvidence, signal: AbortSignal): Promise<SummaryResult> {
 	try {
 		const systemPrompt = evidence.mission ? missionWriter : fields.includes("session") ? sessionWriter : promptWriter;
 		const input = evidence.mission ? { mission: evidence.mission, latest: evidence.latest, includePrompt: fields.includes("prompt") }
 			: { ...evidence, fields };
-		const text = await writeWithOllama({ model, systemPrompt, evidence: input, maxTokens: 128 }, signal);
+		const text = await writeWithOllama({ model, systemPrompt, evidence: input, maxTokens: 128, format: evidence.mission ? missionSchema : labelSchema(fields) }, signal);
 		return parseLabels(text, fields, { requireMissionSwitch: !!evidence.mission });
 	} catch (error) {
 		if (error instanceof OllamaWriterError) return { labels: {}, failure: error.message };

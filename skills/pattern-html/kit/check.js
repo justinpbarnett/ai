@@ -1,7 +1,7 @@
 (function (requestedWidth) {
   var TOKENS = /*TOKENS*/{};
   var COVERAGE = /*COVERAGE*/{};
-  var FACES = ["Routed Gothic", "JetBrains Mono"];
+  var FACES = Object.keys(COVERAGE);
   var DESIGNATION = /^(MIL-STD|MIL-HDBK|MIL-DTL|MIL-PRF|MIL-P|USB-IF|ISO|IEC|ANSI|SAE|AMS-STD|IEEE|ASTM|UL|EN|DIN|JIS|NEMA)\b/;
   var QUIET = "pre, code, kbd, samp, .nb, svg, script, style, textarea";
   var SKIP = { SCRIPT: 1, STYLE: 1, TEMPLATE: 1, NOSCRIPT: 1, TITLE: 1, META: 1, LINK: 1, BASE: 1, BR: 1, WBR: 1 };

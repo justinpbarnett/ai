@@ -3,6 +3,16 @@ import subprocess
 from collections import Counter
 
 
+def subcommand(args):
+    remaining = iter(args)
+    for argument in remaining:
+        if argument == "-c":
+            next(remaining, None)
+        elif not argument.startswith("-"):
+            return argument
+    return args[0]
+
+
 def git(root, *args, allowed=(0,), env=None):
     environment = dict(os.environ if env is None else env)
     for key in (
@@ -21,7 +31,9 @@ def git(root, *args, allowed=(0,), env=None):
         timeout=45,
     )
     if result.returncode not in allowed:
-        raise OSError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}")
+        raise OSError(
+            f"git {subcommand(args)} failed: {os.fsdecode(result.stderr).strip()}"
+        )
     return result
 
 

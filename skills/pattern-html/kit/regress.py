@@ -110,6 +110,9 @@ def run(argv):
     if not (src / "board.tmpl.html").is_file():
         print(f"regress: no approved page at {src}, so the proof cannot run on this machine")
         raise SystemExit(2)
+    if not (src / "style.css").is_file():
+        print(f"regress: no approved stylesheet at {src / 'style.css'}, so the proof cannot run on this machine")
+        raise SystemExit(2)
     source_matches = stylesheet_matches(src)
 
     exe = find_browser(BROWSERS)

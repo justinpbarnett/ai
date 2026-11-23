@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ClassifierResult, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ModelRouteRequest } from "@earendil-works/pi-coding-agent";
-import { findJev, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
+import { findJev, jevBlocker, trustedJevChoice } from "../shared/openrouter.js";
 import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
 
 const PROVIDER = "jev";
@@ -88,8 +88,7 @@ function lastUserText(messages: ModelRouteRequest["messages"]): string | undefin
 }
 
 function choice<Key extends string>(result: ClassifierResult, question: string, criteria: Record<Key, string>): Key | undefined {
-	const answer = trustedJevAnswer(result, question);
-	if (answer?.type === "choice" && Object.hasOwn(criteria, answer.choice)) return answer.choice as Key;
+	return trustedJevChoice<Key>(result, question, criteria)?.choice;
 }
 
 async function classify(ctx: ExtensionContext, text: string, signal?: AbortSignal): Promise<Decision | undefined> {

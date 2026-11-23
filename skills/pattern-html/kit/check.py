@@ -149,7 +149,7 @@ def main(argv):
             raise SystemExit(2)
         worst = report([file_findings])
         print("NOTE  no browser found, so only the file was read. Set PATTERN_BROWSER to a Chromium or Chrome binary.")
-        raise SystemExit(worst)
+        raise SystemExit(worst or 2)
 
     with browser_session(exe, "pattern-check-") as (browser, work):
         js, results, names = script(), [], []

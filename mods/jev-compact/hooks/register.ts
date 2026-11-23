@@ -8,6 +8,7 @@ const MESSAGE_CHARS = 2_000
 const NEXT_TASK_CHARS = 500
 const PAUSE_DELAY_MS = 2_000
 const PEOPLE = new Set(['composer', 'bridge'])
+const CREDENTIAL_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i
 
 const SWITCHES = 'Does the new message start a different task from the recent work, so that the details of the recent work no longer matter for it?'
 const PAUSES = "Did the assistant's last reply finish the work the user asked for, with nothing left running and no question waiting on the user, so this is a good point to pause?"
@@ -45,6 +46,7 @@ function topicSwitchSummary(text: string): string {
 }
 
 async function jevSure($: EngineInterface, question: string, text: string): Promise<string | undefined> {
+  if (CREDENTIAL_LIKE.test(text)) return undefined
   const ran = await $.process.run(['arete', 'ask', question, '--json'], { stdin: text, timeoutMs: 20_000 })
   if (ran.exitCode !== 0) {
     $.ui.log(`jev-compact: arete ask failed: ${(ran.stderr || ran.stdout).trim().slice(0, 200)}`, { to: 'debug' })

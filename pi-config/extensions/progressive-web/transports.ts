@@ -35,6 +35,7 @@ export type PageTransport = (
   url: string,
   options: TransportOptions,
 ) => Promise<PageResponse>;
+export const crawlerAgentName = "PiWebScraper";
 const userAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36";
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
@@ -116,7 +117,7 @@ export async function httpFetch(
       signal: context.signal,
       redirect: "manual",
       headers: {
-        "User-Agent": "PiWebScraper/1.0",
+        "User-Agent": `${crawlerAgentName}/1.0`,
         Accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5",
       },
     });
@@ -212,6 +213,7 @@ export async function browserFetch(
 ): Promise<PageResponse> {
   const { signal, timeoutMs, waitForSelector, allowedUrl } = options;
   signal.throwIfAborted();
+  const started = Date.now();
   const browser = await chromium.launch({
     headless: true,
     timeout: Math.min(timeoutMs, 15000),
@@ -255,7 +257,10 @@ export async function browserFetch(
     if (!response)
       throw new Error("Browser navigation returned no HTTP response.");
     if (waitForSelector)
-      await page.waitForSelector(waitForSelector, { state: "attached" });
+      await page.waitForSelector(waitForSelector, {
+        state: "attached",
+        timeout: Math.max(1, timeoutMs - (Date.now() - started)),
+      });
     else {
       await page
         .waitForLoadState("networkidle", { timeout: Math.min(timeoutMs, 5000) })

@@ -41,9 +41,10 @@ interface WritingRequest {
 	systemPrompt: string;
 	evidence: object;
 	maxTokens: number;
+	format?: object;
 }
 
-export async function writeWithOllama({ model, systemPrompt, evidence, maxTokens }: WritingRequest, signal: AbortSignal): Promise<string> {
+export async function writeWithOllama({ model, systemPrompt, evidence, maxTokens, format }: WritingRequest, signal: AbortSignal): Promise<string> {
 	const modelError = "Ollama writer requires a locally installed, non-cloud model.";
 	if (!isLocalOllamaModel(model)) throw new OllamaWriterError(modelError);
 	const info: ShowReply | null = await post("/api/show", { model }, signal);
@@ -51,7 +52,7 @@ export async function writeWithOllama({ model, systemPrompt, evidence, maxTokens
 		throw new OllamaWriterError(modelError);
 	}
 	const response: ChatReply | null = await post("/api/chat", {
-		model, stream: false, think: false,
+		model, stream: false, think: false, format,
 		messages: [{ role: "system", content: systemPrompt }, { role: "user", content: JSON.stringify(evidence) }],
 		options: { temperature: 0, num_predict: maxTokens, num_ctx: 4096 },
 	}, signal);

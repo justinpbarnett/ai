@@ -1,4 +1,4 @@
-import type { ClassifierResult } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const OPENROUTER_PROVIDER = "openrouter";
@@ -36,3 +36,16 @@ export function trustedJevAnswer(result: ClassifierResult | undefined, key: stri
 	if (answer?.type === "bool" && Number.isFinite(answer.probability) && answer.probability >= 0 && answer.probability <= 1) return answer;
 	if (answer?.type === "choice" && Number.isFinite(answer.confidence) && answer.confidence >= 0 && answer.confidence <= 1) return answer;
 }
+
+export function trustedJevChoice<Key extends string = string>(result: ClassifierResult | undefined, key: string, criteria: object, minConfidence = 0) {
+	const answer = trustedJevAnswer(result, key);
+	if (answer?.type === "choice" && answer.confidence >= minConfidence && Object.hasOwn(criteria, answer.choice)) return { choice: answer.choice as Key, confidence: answer.confidence };
+}
+
+export const completionText = (message: Pick<AssistantMessage, "content">) =>
+	message.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
+
+export const jsonSchemaPayload = (name: string, schema: object) => (payload: unknown) => ({
+	...(payload as Record<string, unknown>),
+	response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+});

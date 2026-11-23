@@ -280,15 +280,13 @@ class Store:
 
     def load_packet(self, packet_id):
         row = self.connection.execute(
-            "SELECT payload FROM packets WHERE id = ? AND scope = ? AND consumed = 0",
+            "SELECT payload FROM packets WHERE id = ? AND scope = ?",
             (packet_id, self.key),
         ).fetchone()
         return None if row is None else unpacked(row[0])
 
     def consume_packet(self, packet_id):
-        self.connection.execute(
-            "DELETE FROM packets WHERE id = ? OR consumed = 1", (packet_id,)
-        )
+        self.connection.execute("DELETE FROM packets WHERE id = ?", (packet_id,))
 
     def save_receipts(self, receipts):
         self.connection.executemany(

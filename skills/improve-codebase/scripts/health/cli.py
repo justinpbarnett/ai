@@ -17,7 +17,7 @@ from .review_units import STAGES
 from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
-from .state import Store
+from .state import Store, corrupt_database_message, is_corrupt_database
 from .state_dir import discover_root, safe_state_dir
 from .thresholds import settings
 from .validation import read_json, require
@@ -384,6 +384,11 @@ def main(argv=None):
         error, code = str(exc), 2
     except (ValueError, RecursionError) as exc:
         error, code = str(exc), 2
+    except sqlite3.DatabaseError as exc:
+        if is_corrupt_database(exc):
+            error, code = corrupt_database_message(exc), 2
+        else:
+            error, code = str(exc), 3
     except (OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
         error, code = str(exc), 3
     except KeyboardInterrupt:

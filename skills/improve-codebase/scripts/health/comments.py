@@ -181,6 +181,19 @@ def classified_runs(data, group, parse_with):
         yield label, first["start"], last["end"]
 
 
+def legal_spans(data, group, parse_with):
+    spans = []
+    for label, start, end in classified_runs(data, group, parse_with):
+        text = data[start:end].decode("utf-8", "replace")
+        if label not in {"marker", "commented-code"} or LEGAL.search(text):
+            label = "legal"
+        if spans and label == "legal" and spans[-1][0] == "legal":
+            spans[-1][2] = end
+        else:
+            spans.append([label, start, end])
+    return spans
+
+
 def finalize_comments(source, data, records, parse_with):
     ordered = sorted(records, key=lambda record: record["start"])
     directive_flags = [
@@ -200,14 +213,10 @@ def finalize_comments(source, data, records, parse_with):
     legal = mark_leading_legal(data, groups, texts, directives)
     rows = []
     for index, group in enumerate(groups):
-        if index in directives or index in legal:
-            spans = [
-                (
-                    "directive" if index in directives else "legal",
-                    group["start"],
-                    group["end"],
-                )
-            ]
+        if index in directives:
+            spans = [("directive", group["start"], group["end"])]
+        elif index in legal:
+            spans = legal_spans(data, group, parse_with)
         else:
             spans = classified_runs(data, group, parse_with)
         for label, start, end in spans:

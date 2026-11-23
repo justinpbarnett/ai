@@ -45,7 +45,7 @@ When a unit test and an integration test protect the same rule, keep the one tha
 Keep:
 
 - Comments a tool reads: shebangs, encodings, lint and type pragmas, compiler and bundler directives. The scanner classes these as `directive` and never counts them.
-- License, copyright, and SPDX headers (class `legal`, never counted) and generated file banners.
+- License, copyright, and SPDX headers (class `legal`, never counted) and generated file banners. A marker or commented code inside or right under such a header still counts.
 - Doc comments that a doc generator, CLI help, doctest, or API schema consumes, on public API only. Check the project config for Sphinx, mkdocs, typedoc, DocFX, `GenerateDocumentationFile`, and frameworks that read docstrings.
 - A reason the code cannot express: a workaround, an ordering or compatibility constraint, a security check that cleanup might remove, a link to the spec or bug behind a constant. The dismissal names the constraint and what breaks without it.
 - TODO markers only where the repository tracks them as work.

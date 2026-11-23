@@ -1,41 +1,25 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { sessionEntryToContextMessages, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requireModels } from "./explain.js";
-import { manualRows, purposeCall, recentCalls, type Invocation } from "./evidence.js";
+import { manualRows, recentCalls, type Invocation } from "./evidence.js";
 import { ExplanationError } from "./errors.js";
 import { InlineToolOutput, shownNatively } from "./inline.js";
 import { TranscriptPresentation } from "./presentation.js";
-import { plain, purposeExcerpt, safeLabel } from "./screening.js";
+import { textExcerpt } from "./screening.js";
 import { DEFAULT_COUNT, MAX_COUNT, config, defaults, parseCount } from "./settings.js";
-import { THINKING_ENTRY, ThinkingSummaries, thinkingRuns, type SavedThought } from "./thinking.js";
+import { THINKING_ENTRY, ThinkingSummaries, thoughtTail, type SavedThought } from "./thinking.js";
 import { collectExplanation, confirmPreview, explanationText, preview, showView } from "./view.js";
-import { hostedWriterBlocked, operationHints, writeSummary, writeThinkingSummary, type Writer, type WritingRequest } from "./writer.js";
+import { hostedWriterBlocked, writeSummary, writeThinkingSummary, writingRequest, type Writer } from "./writer.js";
 
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
 const MAX_HISTORY = 12;
-const MAX_THOUGHT_TAIL = 600;
-const MAX_LOCAL_EVIDENCE_BYTES = 6 * 1024;
 const USAGE = `/explain-tools [1–${MAX_COUNT} | on | off | status | recent]`;
 const NOTE_MARK = "●";
 const BLOCK_START = /^(?:\s|#|>|\||<|```|~~~|[*+-]\s|[*_-]{3}|\d+[.)]\s)/u;
 const PROGRESS_NOTES = "Keep the user posted with short notes in plain text while you work. Before your first tool call, say in one sentence what you will do first. After that, write one or two sentences when you find something that matters, change direction, or start a new step: say what you found, naming the file, command or fact, and what you will do next. Skip notes between routine calls.";
 
-type MessageContent = string | ReadonlyArray<{ type: string; text?: string }>;
 type Summary = { label: string; route: string };
-
-function textExcerpt(content: MessageContent): string | undefined {
-	if (typeof content === "string") return purposeExcerpt(content);
-	if (content.some((block) => block.type === "image")) return;
-	return purposeExcerpt(content.flatMap((block) => block.type === "text" && block.text ? [block.text] : []).join("\n"));
-}
-
-function thoughtTail(message: AssistantMessage | undefined): string | undefined {
-	const run = message && thinkingRuns(message).at(-1)?.text;
-	if (!run || /```|~~~/.test(run)) return;
-	const tail = plain(run).replace(/\s+/gu, " ").trim().slice(-MAX_THOUGHT_TAIL);
-	if (tail && safeLabel(tail)) return tail;
-}
 
 function state() {
 	return {
@@ -43,16 +27,6 @@ function state() {
 		manual: false, persistenceWarningShown: false, request: undefined as string | undefined,
 		assistant: undefined as AssistantMessage | undefined,
 	};
-}
-
-type Background = { request?: string; note?: string; reasoning?: string };
-
-function writingRequest(call: Invocation, cwd: string, background: Background, writer: Writer): WritingRequest | undefined {
-	const evidence = purposeCall(call, cwd);
-	if (writer.kind === "ollama") {
-		const payload = { ...background, calls: [evidence] };
-		if (Buffer.byteLength(JSON.stringify(payload), "utf8") <= MAX_LOCAL_EVIDENCE_BYTES) return { ...writer, evidence: payload };
-	} else if (writer.kind === "openrouter" && !hostedWriterBlocked(writer)) return { ...writer, hints: [operationHints(evidence)] };
 }
 
 function skippedRoute(writer: Writer): string {

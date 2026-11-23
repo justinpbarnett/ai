@@ -216,8 +216,7 @@ def fallout_scope(store, root, state_dir, fences, base, includes):
     scopes = normalize_scope(root, [*primary, *paths]) if primary or paths else []
     require(
         any(
-            in_paths(path, scopes)
-            for path in chain(sources, incomplete_paths(entries))
+            in_paths(path, scopes) for path in chain(sources, incomplete_paths(entries))
         ),
         "fallout did not identify live source; include affected callers explicitly with --include",
     )

@@ -4,7 +4,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CREDENTIAL_LIKE } from "../shared/prompt-privacy.js";
-import { PRIVATE_PATH, clip, plain, purposeExcerpt, safeLabel } from "./screening.js";
+import { clip, plain, purposeExcerpt, safeLabel, sensitive } from "./screening.js";
 import { shellLabel } from "./shell-label.js";
 
 const MAX_BATCH_BYTES = 12 * 1024;
@@ -169,7 +169,7 @@ function shellCommand(call: Invocation): string | undefined {
 	const command = stringArg(call, "command");
 	if (!command || Buffer.byteLength(command, "utf8") > 512) return;
 	const screened = plain(command).trim();
-	if (screened && !CREDENTIAL_LIKE.test(screened) && !PRIVATE_PATH.test(screened)) return screened;
+	if (screened && !sensitive(screened)) return screened;
 }
 
 export type PurposeCall = { operation: Action; tool?: string; command?: string; target?: string; search?: string };
@@ -209,7 +209,7 @@ function screenEvidence(call: Call): ScreenedFields {
 	if (rawFields.reduce((size, field) => size + field.length, 0) > MAX_INSPECT_CHARS) return { note: "Result too large to screen; kept local." };
 	const [path, command, ...body] = rawFields.map(plain);
 	const output = body.join("\n");
-	if ([path, command, output].some((field) => CREDENTIAL_LIKE.test(field) || PRIVATE_PATH.test(field))) {
+	if ([path, command, output].some(sensitive)) {
 		return { note: "Possible credential or protected path; kept local." };
 	}
 	return { path, command, output };

@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
-import type { PurposeCall } from "./evidence.js";
-import { OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, OPENROUTER_WRITER_MODEL, isOpenRouterConfigured, isPiOffline } from "../shared/openrouter.js";
+import { purposeCall, type Invocation, type PurposeCall } from "./evidence.js";
+import { OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, isOpenRouterConfigured, isPiOffline } from "../shared/openrouter.js";
 import { withinDeadline } from "./deadline.js";
 import { ExplanationError } from "./errors.js";
 import { clip, plain, usableSummary } from "./screening.js";
@@ -30,7 +30,17 @@ export function operationHints({ operation, command }: PurposeCall): string[] {
 
 export const hostedWriterBlocked = (writer: Writer) => writer.kind === "openrouter" && isPiOffline();
 
+const MAX_LOCAL_EVIDENCE_BYTES = 6 * 1024;
+
 type PurposeEvidence = { request?: string; note?: string; reasoning?: string; calls: PurposeCall[] };
+
+export function writingRequest(call: Invocation, cwd: string, background: Background, writer: Writer): WritingRequest | undefined {
+	const evidence = purposeCall(call, cwd);
+	if (writer.kind === "ollama") {
+		const payload = { ...background, calls: [evidence] };
+		if (Buffer.byteLength(JSON.stringify(payload), "utf8") <= MAX_LOCAL_EVIDENCE_BYTES) return { ...writer, evidence: payload };
+	} else if (writer.kind === "openrouter" && !hostedWriterBlocked(writer)) return { ...writer, hints: [operationHints(evidence)] };
+}
 
 const localPurposePrompts = (() => {
 	const initial = [
@@ -93,6 +103,8 @@ async function writeRemotely(registry: ExtensionContext["modelRegistry"], id: st
 	if (result.stopReason !== "stop") throw new ExplanationError("OpenRouter did not finish the summary.");
 	return result.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
 }
+
+export type Background = { request?: string; note?: string; reasoning?: string };
 
 export type WritingRequest = { kind: "ollama"; model: string; evidence: PurposeEvidence } | { kind: "openrouter"; model: string; hints: string[][] };
 

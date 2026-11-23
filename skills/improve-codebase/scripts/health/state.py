@@ -11,6 +11,8 @@ from .thresholds import ledger_thresholds
 from .validation import require
 
 SCHEMA_VERSION = 1
+PRESERVE_LEDGER = "preserve the ledger and ask before archiving it"
+CORRUPT_CODES = {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}
 RUNS_TABLE = (
     "CREATE TABLE IF NOT EXISTS runs (name TEXT PRIMARY KEY, payload BLOB NOT NULL)"
 )
@@ -22,6 +24,15 @@ SCHEMA = (
     "CREATE TABLE packets (id TEXT PRIMARY KEY, scope TEXT NOT NULL, consumed INTEGER NOT NULL, payload BLOB NOT NULL)",
     "CREATE TABLE history (id INTEGER PRIMARY KEY, scope TEXT NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL)",
 )
+
+
+def is_corrupt_database(exc):
+    code = getattr(exc, "sqlite_errorcode", None)
+    return code is not None and (code & 0xFF) in CORRUPT_CODES
+
+
+def corrupt_database_message(exc):
+    return f"state database is corrupt ({exc}); {PRESERVE_LEDGER}"
 
 
 def packed(value):
@@ -37,9 +48,7 @@ def unpacked(payload):
     try:
         return json.loads(zlib.decompress(payload))
     except zlib.error as exc:
-        raise ValueError(
-            "state payload is corrupt; preserve the ledger and ask before archiving it"
-        ) from exc
+        raise ValueError(f"state payload is corrupt; {PRESERVE_LEDGER}") from exc
 
 
 class Store:

@@ -20,6 +20,15 @@ export type ThinkingHost = {
 	save(record: SavedThought): void;
 };
 
+const MAX_THOUGHT_TAIL = 600;
+
+export function thoughtTail(message: AssistantMessage | undefined): string | undefined {
+	const run = message && thinkingRuns(message).at(-1)?.text;
+	if (!run || /```|~~~/.test(run)) return;
+	const tail = plain(run).replace(/\s+/gu, " ").trim().slice(-MAX_THOUGHT_TAIL);
+	if (tail && safeLabel(tail)) return tail;
+}
+
 export function thinkingRuns(message: AssistantMessage): ThinkingRun[] {
 	const runs: ThinkingRun[] = [];
 	const { content } = message;

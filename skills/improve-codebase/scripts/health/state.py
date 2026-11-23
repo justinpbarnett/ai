@@ -414,6 +414,23 @@ def evidence_paths(finding):
     )
 
 
+def moved_finding(findings, finding, moves):
+    if not moves:
+        return None
+    destinations = finding["source_hashes"]
+    matches = [
+        item
+        for item in findings.values()
+        if moves.get(item["location"]["path"]) in destinations
+        and item["origin"] == finding["origin"]
+        and item["rule"] == finding["rule"]
+        and item["anchor"] == finding["anchor"]
+        and item.get("identity", "") == finding.get("identity", "")
+        and item["signature"] == finding["signature"]
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def observe(state, finding, *, entries=None):
     findings = state["findings"]
     if entries is None:
@@ -426,20 +443,8 @@ def observe(state, finding, *, entries=None):
     identifier = location_keys.get(location_key, location_key)
     prior = findings.get(identifier)
     if prior is None:
-        moves = state.get("moves", {})
-        old_paths = set(finding["source_hashes"])
-        matches = [
-            item
-            for item in findings.values()
-            if item["origin"] == finding["origin"]
-            and item["rule"] == finding["rule"]
-            and item["anchor"] == finding["anchor"]
-            and item["signature"] == finding["signature"]
-            and item["location"]["path"] in moves
-            and moves[item["location"]["path"]] in old_paths
-        ]
-        if len(matches) == 1:
-            prior = matches[0]
+        prior = moved_finding(findings, finding, state.get("moves"))
+        if prior is not None:
             identifier = prior["id"]
     location_keys[location_key] = identifier
     status = prior["status"] if prior else "candidate"
@@ -505,6 +510,11 @@ def detect_moves(previous, current):
     }
 
 
+def finding_prerequisites(finding):
+    field = "replacements" if finding["status"] == "superseded" else "dependencies"
+    return finding.get(field, [])
+
+
 def validate_dependencies(findings, identifier, dependencies):
     require(
         all(
@@ -514,10 +524,13 @@ def validate_dependencies(findings, identifier, dependencies):
         "unknown or self-referencing finding dependency",
     )
     require(len(dependencies) == len(set(dependencies)), "duplicate dependency")
-    pending, visited = list(dependencies), set()
+
+
+def validate_prerequisite_cycle(findings, proposed):
+    pending, visited = list(finding_prerequisites(proposed)), set()
     while pending:
         other = pending.pop()
-        require(other != identifier, "finding dependency cycle")
+        require(other != proposed["id"], "finding dependency or replacement cycle")
         if other not in visited:
             visited.add(other)
-            pending.extend(findings[other].get("dependencies", []))
+            pending.extend(finding_prerequisites(findings[other]))

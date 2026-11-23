@@ -17,9 +17,13 @@ No grammar downloads or project tool invocations happen while scanning.
 Ranges are 1-based Unicode columns, with exclusive end coordinates.
 Vue ranges use original SFC bytes before translating to line/column; CRLF and preceding non-ASCII text do not shift the reported location.
 Unsupported preprocessors, parser errors, and missing priority grammars remain visible as scanner gaps, separate from findings.
+For unquoted CSS WOFF2 data URLs with `{{font:NAME.woff2}}` payloads, the scanner can retry with same-length base64 bytes and reports the fallback in its limitations.
+Ranges and hashes still use the original source; verify the actual fonts with the project's build.
 Check whether the project's compiler or runtime accepts the input before treating a parser failure as a product defect.
 If the project accepts it, keep the source unchanged and report the scanner limitation unless there is a separate, verified reason to change the source.
 Unresolved references are reported as limitations, not guessed edges; unresolved Vue external blocks are capability gaps.
+In a supported `tsconfig.json` or `jsconfig.json`, `paths` targets are relative to the config directory unless it sets `baseUrl`.
+An unmatched bare specifier is only tried directly under an explicit `baseUrl`.
 
 ## Signals and refresh
 

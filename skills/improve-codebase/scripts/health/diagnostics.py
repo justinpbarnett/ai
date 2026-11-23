@@ -1,4 +1,6 @@
 import re
+from collections import Counter
+from functools import partial
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -34,11 +36,16 @@ def ruff_rows(report):
     require(isinstance(report, list), "Ruff report must be an array")
     for item in report:
         obj = object_value(item, "Ruff diagnostic")
+        code = string(obj, "code")
+        require(
+            code not in {"invalid-syntax", "E999", "E902"},
+            f"Ruff could not check a declared file ({code})",
+        )
         location = object_value(obj.get("location"), "Ruff location")
         end = object_value(obj.get("end_location", {}), "Ruff end_location")
         yield (
             string(obj, "filename"),
-            string(obj, "code"),
+            code,
             string(obj, "message"),
             "unspecified",
             coordinates(
@@ -194,60 +201,15 @@ def ingest(store, state, root, tool, report_file, metadata):
         "declare concrete source paths checked by the tool",
     )
     entries = state["inventory"]["entries"]
-    covered = {relative_path(p, cwd, root, entries) for p in coverage}
+    path_for = partial(relative_path, cwd=cwd, root=root, entries=entries)
+    covered = {path_for(path) for path in coverage}
     report = read_json(report_file)
-    if tool == "ruff":
-        rows = list(ruff_rows(report))
-    elif tool == "sarif":
-        rows = list(sarif_rows(report))
-    else:
-        rows = list(js_rows(report, tool))
-        reported = {
-            relative_path(
-                entry["filePath" if tool == "eslint" else "source"], cwd, root, entries
-            )
-            for entry in report
-        }
-        require(
-            reported == covered,
-            "reported files do not match declared diagnostic coverage",
-        )
+    rows = rows_for_report(report, tool, path_for, covered)
     require(exit_status == 0 or rows, "nonzero tool exit has no diagnostics")
     profile = digest(
         [tool, tool_version, invocation, str(cwd), state["inventory"]["rules"]]
     )
-    lines, findings = {}, []
-    tracked_anchors = set()
-    for file, rule, message, severity, coordinates_ in rows:
-        path = relative_path(file, cwd, root, entries)
-        require(path in covered, f"diagnostic path was not declared covered: {path!r}")
-        if path not in lines:
-            lines[path] = (
-                read_source(safe_file(root, path)).decode("utf-8-sig").splitlines()
-            )
-        index = coordinates_["line"] - 1
-        require(index < len(lines[path]), f"diagnostic line is out of range: {path!r}")
-        anchor = digest([lines[path][index].strip(), re.sub(r"\s+", " ", message)])[:24]
-        group = (path, rule, anchor)
-        duplicate_no = 1
-        while (*group, duplicate_no) in tracked_anchors:
-            duplicate_no += 1
-        tracked_anchors.add((*group, duplicate_no))
-        findings.append(
-            {
-                "origin": "diagnostic",
-                "tool": tool,
-                "rule": f"{tool}:{rule}",
-                "anchor": anchor,
-                "identity": duplicate_no,
-                "location": {"path": path, **coordinates_},
-                "related": [],
-                "signature": digest([rule, anchor, severity]),
-                "observation": {"message": message, "tool_severity": severity},
-                "diagnostic_profile": profile,
-            }
-        )
-    ids = [observe(state, finding) for finding in findings]
+    findings = list(diagnostic_findings(rows, tool, path_for, root, covered, profile))
     run = {
         "tool": tool,
         "command": invocation,
@@ -259,8 +221,55 @@ def ingest(store, state, root, tool, report_file, metadata):
         "profile": profile,
         "revision": state["revision"] + 1,
         "report_digest": digest(report),
-        "findings": ids,
+        "findings": [observe(state, finding) for finding in findings],
     }
     state.setdefault("diagnostic_runs", {})[tool] = run
     store.save(state, "diagnostics", run)
     return run
+
+
+def rows_for_report(report, tool, path_for, covered):
+    if tool == "ruff":
+        rows = list(ruff_rows(report))
+    elif tool == "sarif":
+        rows = list(sarif_rows(report))
+    else:
+        rows = list(js_rows(report, tool))
+        reported = {
+            path_for(entry["filePath" if tool == "eslint" else "source"])
+            for entry in report
+        }
+        require(
+            reported == covered,
+            "reported files do not match declared diagnostic coverage",
+        )
+    return rows
+
+
+def diagnostic_findings(rows, tool, path_for, root, covered, profile):
+    lines = {}
+    occurrences = Counter()
+    for file, rule, message, severity, coordinates_ in rows:
+        path = path_for(file)
+        require(path in covered, f"diagnostic path was not declared covered: {path!r}")
+        if path not in lines:
+            lines[path] = (
+                read_source(safe_file(root, path)).decode("utf-8-sig").splitlines()
+            )
+        index = coordinates_["line"] - 1
+        require(index < len(lines[path]), f"diagnostic line is out of range: {path!r}")
+        anchor = digest([lines[path][index].strip(), re.sub(r"\s+", " ", message)])[:24]
+        group = (path, rule, anchor)
+        occurrences[group] += 1
+        yield {
+            "origin": "diagnostic",
+            "tool": tool,
+            "rule": f"{tool}:{rule}",
+            "anchor": anchor,
+            "identity": occurrences[group],
+            "location": {"path": path, **coordinates_},
+            "related": [],
+            "signature": digest([rule, anchor, severity]),
+            "observation": {"message": message, "tool_severity": severity},
+            "diagnostic_profile": profile,
+        }

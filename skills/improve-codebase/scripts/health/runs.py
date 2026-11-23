@@ -1,8 +1,9 @@
 import os
 import re
+from itertools import chain
 from pathlib import PurePosixPath
 
-from .detectors import resolve_edges
+from .dependency_graph import resolve_edges
 from .inventory import (
     GENERATED,
     MAX_SOURCE_BYTES,
@@ -113,6 +114,75 @@ def base_overlay(root, base, touched, entries, sources, parsed):
     return graph(base_entries, base_sources, base_parsed)[0]
 
 
+def fallout_changes(root, base):
+    raw = git(
+        root,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--name-status",
+        "-z",
+        base,
+        "--",
+    ).stdout
+    fields = iter(raw.split(b"\0")[:-1])
+    touched, replaced = set(), set()
+    for status, raw_path in zip(fields, fields, strict=True):
+        path = os.fsdecode(raw_path)
+        touched.add(path)
+        if status in {b"D", b"T"}:
+            replaced.add(path)
+    added = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    touched.update(os.fsdecode(path) for path in added.split(b"\0") if path)
+    return touched, replaced
+
+
+def classify_changes(entries, touched, replaced):
+    changed = {
+        path
+        for path in touched
+        if entries.get(path, {}).get("disposition") in {"source", "reference"}
+    }
+    retired = {path for path in replaced - changed if not excluded(path, None)}
+    return changed, retired
+
+
+def select_fallout(changed, retired, sources, edges, fences):
+    targets = changed | retired
+    affected = {
+        (caller, target)
+        for caller, target, _ in edges
+        if target in targets and caller in sources
+    }
+    callers = {caller for caller, _ in affected}
+    outside = {path for path in targets | callers if not in_paths(path, fences)}
+    primary = (changed | callers) - outside
+    wiring_targets = (targets - outside) | {
+        target for caller, target in affected if caller in primary
+    }
+    return (
+        primary,
+        wiring_targets,
+        {
+            "changed_paths": sorted(changed - outside),
+            "direct_callers": sorted(callers & primary),
+            "outside_fence": sorted(outside),
+            "absent_paths": sorted(retired - outside),
+        },
+    )
+
+
+def wiring_review(targets, retired, entries, limitations):
+    return sorted(
+        path
+        for path in targets
+        if path in retired
+        or entries[path].get("language") in WIRING_LANGUAGES
+        or path in limitations
+    )
+
+
 def fallout_scope(root, state_dir, fences, base, includes):
     paths = normalize_scope(root, includes) if includes else []
     require(
@@ -124,41 +194,15 @@ def fallout_scope(root, state_dir, fences, base, includes):
         .stdout.decode()
         .strip()
     )
-    raw = git(
-        root,
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-renames",
-        "--name-only",
-        "-z",
-        base,
-        "--",
-    ).stdout
-    added = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    touched, replaced = fallout_changes(root, base)
     live, sources = inventory(root, True, ["."], state_dir, gather=True)
-    touched = {os.fsdecode(p) for p in (raw + added).split(b"\0") if p}
-    changed = {
-        path
-        for path in touched
-        if path in live["entries"]
-        and live["entries"][path]["disposition"] in {"source", "reference"}
-    }
-    removed = sorted(path for path in touched if not (root / path).exists())
     entries = live["entries"]
+    changed, retired = classify_changes(entries, touched, replaced)
     edges, limitations, parsed = graph(entries, sources)
     base_edges = base_overlay(root, base, touched, entries, sources, parsed)
-    edited = {path for path in changed if in_paths(path, fences)}
-    retired = {
-        path for path in removed if in_paths(path, fences) and not excluded(path, None)
-    }
-    targets = edited | retired
-    callers = {
-        caller
-        for caller, target, _ in set(edges) | set(base_edges)
-        if target in targets and caller in sources
-    }
-    primary = edited | {path for path in callers if in_paths(path, fences)}
+    primary, wiring_targets, selection = select_fallout(
+        changed, retired, sources, chain(edges, base_edges), fences
+    )
     scopes = normalize_scope(root, [*primary, *paths]) if primary or paths else []
     require(
         any(in_paths(path, scopes) for path in sources),
@@ -171,20 +215,13 @@ def fallout_scope(root, state_dir, fences, base, includes):
     )
     return scopes, {
         "base": base,
-        "changed_paths": sorted(edited),
-        "direct_callers": sorted(callers & primary),
-        "outside_fence": sorted((changed | callers) - primary),
-        "absent_paths": sorted(retired),
+        **selection,
         "manual_paths": paths,
         "graph_limits": {
             path: limitations[path] for path in sorted(primary) if path in limitations
         },
-        "requires_wiring_review": sorted(
-            path
-            for path in targets
-            if path in retired
-            or entries[path].get("language") in WIRING_LANGUAGES
-            or path in limitations
+        "requires_wiring_review": wiring_review(
+            wiring_targets, retired, entries, limitations
         ),
     }
 

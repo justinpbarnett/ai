@@ -55,7 +55,10 @@ Even with a verified slice, `complete --run SLICE` still applies the parent gate
 ```
 
 Fallout pins the supplied commit, includes staged, unstaged, and visible untracked first-party changes, and proposes direct callers from current and base static wiring.
-`--scope` fences the proposal, and `--include` adds confirmed manual paths inside that fence.
+`--scope` limits which files can be proposed, not which changed dependencies are considered when finding callers.
+`--include` adds confirmed manual paths inside that fence.
+`absent_paths` lists in-fence Git deletions and type changes with no live source or reference in the inventory, even when another object occupies the path.
+`outside_fence` reports changed or retired paths and affected callers that are not part of the proposed scope.
 Check `absent_paths`, `outside_fence`, `graph_limits`, and `requires_wiring_review` before acting; imports cannot prove coverage of dynamic wiring or consumers outside the repository.
 Inspect the base and current entry points and add affected paths at setup when the graph cannot find them.
 The saved scope is fixed; if investigation changes the authorized area materially, name the expanded run explicitly rather than silently replacing the original.

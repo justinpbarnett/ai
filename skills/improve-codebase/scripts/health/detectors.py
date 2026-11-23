@@ -1,10 +1,8 @@
-import json
-import posixpath
 from collections import Counter, defaultdict, deque
-from pathlib import PurePosixPath
 
-from .inventory import digest, within
-from .parsers import GRAMMARS, PLACEHOLDER, Source, analyze
+from .dependency_graph import components, resolve_edges
+from .inventory import digest
+from .parsers import GRAMMARS, Source, analyze
 
 DEFAULTS = {
     "file_lines": 500,
@@ -21,20 +19,6 @@ DEFAULTS = {
     "duplicate_tokens": 50,
     "duplicate_lines": 8,
 }
-JS_EXT = (
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".vue",
-    ".json",
-    ".css",
-    ".scss",
-)
 
 
 def candidate(rule, path, anchor, evidence, *, loc=None, related=None):
@@ -72,243 +56,6 @@ def settings(document):
     return DEFAULTS | document
 
 
-def parse_local_aliases(sources):
-    profiles = {}
-    for path, data in sources.items():
-        if PurePosixPath(path).name not in {"tsconfig.json", "jsconfig.json"}:
-            continue
-        try:
-            config = json.loads(data)
-            options = config.get("compilerOptions", {})
-            if config.get("extends") or config.get("references"):
-                raise ValueError("extends or workspace references")
-            base = options.get("baseUrl", ".")
-            if not isinstance(base, str) or base.startswith("/"):
-                raise ValueError("nonlocal baseUrl")
-            paths = options.get("paths", {})
-            if not isinstance(paths, dict):
-                raise ValueError("unsupported paths mapping")
-            for key, targets in paths.items():
-                if (
-                    key.count("*") > 1
-                    or not isinstance(targets, list)
-                    or any(
-                        not isinstance(item, str)
-                        or item.startswith("/")
-                        or item.count("*") > 1
-                        for item in targets
-                    )
-                ):
-                    raise ValueError("unsupported paths mapping")
-            profiles[path] = (base, paths, None)
-        except (ValueError, TypeError, AttributeError):
-            profiles[path] = (
-                None,
-                {},
-                "unsupported tsconfig/jsconfig (expected local JSON without extends or project references)",
-            )
-    return profiles
-
-
-def resolve_edges(entries, parsed, sources):
-    paths = {
-        path
-        for path, entry in entries.items()
-        if entry["disposition"] in {"source", "context"}
-    }
-    profiles = parse_local_aliases(sources)
-    project_roots = {entries[path]["project"] for path in paths}
-    edges, limitations = set(), defaultdict(set)
-    gaps = []
-
-    def targets(base, ref, extensions):
-        resolved = posixpath.normpath(posixpath.join(base, ref))
-        if resolved == ".." or resolved.startswith(("../", "/")):
-            return []
-        return [
-            p
-            for p in dict.fromkeys(
-                [
-                    resolved,
-                    *(resolved + e for e in extensions),
-                    *(resolved + "/index" + e for e in extensions),
-                ]
-            )
-            if p in paths
-        ]
-
-    for path, result in parsed.items():
-        if result["limits"]:
-            limitations[path].update(result["limits"])
-        parent = PurePosixPath(path).parent
-        ancestors = (parent, *parent.parents)
-        project = entries[path]["project"]
-        configs = (
-            str(p / name)
-            for p in ancestors
-            for name in ("tsconfig.json", "jsconfig.json")
-        )
-        config_path = next((p for p in configs if p in profiles), None)
-        if (
-            config_path
-            and profiles[config_path][2]
-            and entries[path]["language"] in {"javascript", "typescript", "tsx", "vue"}
-        ):
-            limitations[path].add(profiles[config_path][2])
-        for kind, ref in result["imports"]:
-            matches = []
-            if kind == "js":
-                if ref.startswith("."):
-                    matches = targets(str(parent), ref, JS_EXT)
-                    if not matches and ref.endswith((".js", ".mjs", ".cjs", ".jsx")):
-                        matches = targets(
-                            str(parent),
-                            ref.rsplit(".", 1)[0],
-                            (".ts", ".mts", ".cts", ".tsx"),
-                        )
-                elif config_path:
-                    base, aliases, _ = profiles[config_path]
-                    if base is not None:
-                        for key, values in aliases.items():
-                            pre, star, post = key.partition("*")
-                            if (
-                                star
-                                and ref.startswith(pre)
-                                and ref.endswith(post)
-                                and len(ref) >= len(pre) + len(post)
-                            ) or key == ref:
-                                capture = (
-                                    ref[len(pre) : len(ref) - len(post)] if star else ""
-                                )
-                                for item in values:
-                                    matches.extend(
-                                        targets(
-                                            posixpath.join(
-                                                posixpath.dirname(config_path), base
-                                            ),
-                                            item.replace("*", capture),
-                                            JS_EXT,
-                                        )
-                                    )
-                        if not matches:
-                            matches = targets(
-                                posixpath.join(posixpath.dirname(config_path), base),
-                                ref,
-                                JS_EXT,
-                            )
-            elif kind == "python":
-                dots = len(ref) - len(ref.lstrip("."))
-                tail = ref[dots:].replace(".", "/")
-                if dots and dots <= len(ancestors):
-                    bases = [str(ancestors[dots - 1])]
-                elif dots:
-                    bases = []
-                else:
-                    bases = list(
-                        dict.fromkeys(
-                            (project, posixpath.join(project, "src"), ".", "src")
-                        )
-                    )
-                for base in bases:
-                    resolved = posixpath.normpath(posixpath.join(base, tail))
-                    matches.extend(
-                        p
-                        for p in (
-                            resolved + ".py",
-                            resolved + ".pyi",
-                            posixpath.join(resolved, "__init__.py"),
-                        )
-                        if p in paths
-                    )
-            elif kind == "style":
-                matches = (
-                    targets(str(parent), ref.removeprefix("/"), (".css", ".scss"))
-                    if not ref.startswith("/")
-                    else targets(".", ref[1:], (".css", ".scss"))
-                )
-                if not matches and not PLACEHOLDER.search(ref):
-                    directory, name = posixpath.split(ref)
-                    matches = targets(
-                        str(parent), posixpath.join(directory, "_" + name), (".scss",)
-                    )
-            elif not PLACEHOLDER.search(ref):
-                matches = targets(
-                    "." if ref.startswith("/") else str(parent),
-                    ref.lstrip("/"),
-                    JS_EXT if kind == "vue-external" else (),
-                )
-            matches = sorted(set(matches) - ({path} if kind == "python" else set()))
-            if len(matches) == 1:
-                other = matches[0]
-                edges.add((path, other, kind))
-                if (
-                    kind == "vue-external"
-                    and entries[other]["language"] not in GRAMMARS
-                ):
-                    gaps.append(
-                        {
-                            "path": path,
-                            "kind": "unsupported",
-                            "surface": "Vue external block",
-                            "reason": f"external source uses an unsupported grammar: {other}",
-                        }
-                    )
-            elif len(matches) > 1:
-                limitations[path].add(f"ambiguous {kind} target: {ref}")
-            else:
-                limitations[path].add(f"unresolved or external {kind} target: {ref}")
-            if kind == "vue-external" and len(matches) != 1:
-                gaps.append(
-                    {
-                        "path": path,
-                        "kind": "unavailable",
-                        "surface": "Vue external block",
-                        "reason": f"cannot resolve {ref}",
-                    }
-                )
-    graph_projects = sorted(project_roots)
-    return (
-        sorted(edges),
-        {k: sorted(v) for k, v in sorted(limitations.items())},
-        gaps,
-        graph_projects,
-    )
-
-
-def components(edges):
-    outgoing, incoming = defaultdict(set), defaultdict(set)
-    for source, target, _ in edges:
-        outgoing[source].add(target)
-        incoming[target].add(source)
-    vertices = sorted(outgoing.keys() | incoming.keys())
-    visited, order = set(), []
-    for start in vertices:
-        stack = [(start, False)]
-        while stack:
-            node, exiting = stack.pop()
-            if exiting:
-                order.append(node)
-            elif node not in visited:
-                visited.add(node)
-                stack.append((node, True))
-                stack.extend(
-                    (child, False)
-                    for child in sorted(outgoing[node], reverse=True)
-                    if child not in visited
-                )
-    visited.clear()
-    for start in reversed(order):
-        group, stack = [], [start]
-        while stack:
-            node = stack.pop()
-            if node not in visited:
-                visited.add(node)
-                group.append(node)
-                stack.extend(incoming[node] - visited)
-        if len(group) > 1 or (group and group[0] in outgoing[group[0]]):
-            yield sorted(group)
-
-
 def window_starts(tokens, length):
     """Winnow rolling hashes, preserving a shared anchor for matching runs of length + window - 1."""
     if len(tokens) < length:
@@ -334,77 +81,87 @@ def window_starts(tokens, length):
         value = (value - values[index] * power) & mask
 
 
-def duplicates(parsed, data, selected, thresholds):
+def block_anchors(stream, language, length):
+    for start in window_starts(stream, length):
+        stop = start + length - 1
+        first, last = stream[start][1], stream[stop][2]
+        if language == "generic-lines" and last - first < 120:
+            continue
+        signature = digest([token[0] for token in stream[start : stop + 1]])
+        yield ("duplicate-block", language, signature), first, last
+
+
+def duplicate_buckets(parsed, selected, thresholds):
     buckets, sizes = defaultdict(list), {}
     for path in sorted(selected):
         result = parsed[path]
-        for name, token_stream in result["streams"]:
-            length = (
-                thresholds["duplicate_lines"]
-                if name == "generic-lines"
-                else thresholds["duplicate_tokens"]
-            )
-            for start in window_starts(token_stream, length):
-                stop = start + length - 1
-                first, last = token_stream[start][1], token_stream[stop][2]
-                if name == "generic-lines" and last - first < 120:
-                    continue
-                key = (
-                    "duplicate-block",
-                    name,
-                    digest([entry[0] for entry in token_stream[start : stop + 1]]),
-                )
-                if (
-                    not buckets[key]
-                    or buckets[key][-1][0] != path
-                    or buckets[key][-1][2] <= first
-                ):
-                    buckets[key].append((path, first, last))
+        for name, stream in result["streams"]:
+            length = thresholds[
+                "duplicate_lines" if name == "generic-lines" else "duplicate_tokens"
+            ]
+            for key, first, last in block_anchors(stream, name, length):
+                matches = buckets[key]
+                if not matches or matches[-1][0] != path or matches[-1][2] <= first:
+                    matches.append((path, first, last))
                     sizes[key] = length
-        for kind, hashed, loc, size in result["groups"]:
-            source = data[path]
-            key = (kind, loc["language"], hashed)
-            buckets[key].append((path, loc, source))
+        for rule, signature, location, size in result["groups"]:
+            key = (rule, location["language"], signature)
+            buckets[key].append((path, location))
             sizes[key] = size
+    return buckets, sizes
+
+
+def duplicate_order(key, first_match):
+    path, position, *_ = first_match
+    start = f"{position:012}" if key[0] == "duplicate-block" else str(position)
+    return path, start, key
+
+
+DUPLICATE_LOCATION_LIMIT = 100
+
+
+def block_locations(matches, language, covered_ends, data, source_map):
+    if all(covered_ends[(path, language)] > start for path, start, _ in matches):
+        return []
+    locations = []
+    for path, start, end in matches:
+        covered_ends[(path, language)] = max(covered_ends[(path, language)], end)
+        if len(locations) < DUPLICATE_LOCATION_LIMIT:
+            if path not in source_map:
+                source_map[path] = Source(data[path])
+            locations.append({"path": path, **source_map[path].location(start, end)})
+    return locations
+
+
+def group_locations(matches):
+    return [
+        {
+            "path": path,
+            **{
+                key: metric[key] for key in ("line", "column", "end_line", "end_column")
+            },
+        }
+        for path, metric in matches[:DUPLICATE_LOCATION_LIMIT]
+    ]
+
+
+def duplicates(parsed, data, selected, thresholds):
+    buckets, sizes = duplicate_buckets(parsed, selected, thresholds)
     covered_ends, source_map = defaultdict(int), {}
     ordering = sorted(
-        (key for key, values in buckets.items() if len(values) >= 2),
-        key=lambda key: (
-            buckets[key][0][0],
-            str(buckets[key][0][1])
-            if key[0] != "duplicate-block"
-            else f"{buckets[key][0][1]:012}",
-            key,
-        ),
+        (key for key, matches in buckets.items() if len(matches) >= 2),
+        key=lambda key: duplicate_order(key, buckets[key][0]),
     )
     for key in ordering:
         rule, language, signature = key
-        values = buckets[key]
-        if rule == "duplicate-block":
-            if all(covered_ends[(path, language)] > start for path, start, _ in values):
-                continue
-            locations = []
-            for path, start, end in values:
-                covered_ends[(path, language)] = max(
-                    covered_ends[(path, language)], end
-                )
-                if len(locations) < 100:
-                    if path not in source_map:
-                        source_map[path] = Source(data[path])
-                    locations.append(
-                        {"path": path, **source_map[path].location(start, end)}
-                    )
-        else:
-            locations = [
-                {
-                    "path": path,
-                    **{
-                        k: metric[k]
-                        for k in ("line", "column", "end_line", "end_column")
-                    },
-                }
-                for path, metric, _ in values[:100]
-            ]
+        matches = buckets[key]
+        locations = (
+            block_locations(matches, language, covered_ends, data, source_map)
+            if rule == "duplicate-block"
+            else group_locations(matches)
+        )
+        if not locations:
+            continue
         yield candidate(
             rule,
             locations[0]["path"],
@@ -412,7 +169,7 @@ def duplicates(parsed, data, selected, thresholds):
             {
                 "language": language,
                 "matched_units": sizes[key],
-                "occurrences": len(values),
+                "occurrences": len(matches),
                 "locations_shown": len(locations),
             },
             loc=locations[0],
@@ -420,11 +177,7 @@ def duplicates(parsed, data, selected, thresholds):
         )
 
 
-def scan_sources(
-    inventory, sources, thresholds, parser_profile, core_only, cache_read, full
-):
-    entries = inventory["entries"]
-    selected = {p for p in sources if entries[p]["disposition"] == "source"}
+def parse_snapshot(entries, sources, parser_profile, core_only, cache_read, full):
     parsed, fresh, work = {}, {}, {}
     cache_keys = {
         p: digest([entries[p]["hash"], entries[p]["language"], parser_profile])
@@ -452,98 +205,101 @@ def scan_sources(
                 "reason": "matching content and detector capability/configuration",
             }
         parsed[path] = result
-    edges, limits, graph_gaps, projects = resolve_edges(entries, parsed, sources)
-    adjacency = defaultdict(set)
-    for source, target, _ in edges:
-        adjacency[source].add(target)
-        adjacency[target].add(source)
-    findings, metrics, gaps = [], {}, []
-    for path in sorted(selected):
-        result = parsed[path]
-        metrics[path] = result["metrics"]
-        gaps.extend({"path": path, **gap} for gap in result["gaps"])
-        loc = entries[path]["loc"]
-        if loc > thresholds["file_lines"]:
-            findings.append(
-                candidate(
-                    "large-file",
-                    path,
-                    "file",
-                    {"nonblank_lines": loc, "threshold": thresholds["file_lines"]},
-                )
+    return parsed, fresh, work
+
+
+METRIC_RULES = {
+    "callable": (
+        ("callable_lines", "lines"),
+        ("parameters", "parameters"),
+        ("nesting", "nesting"),
+        ("complexity", "complexity"),
+    ),
+    "type": (("type_lines", "lines"),),
+    "element": (("html_nodes", "size"), ("html_nesting", "nesting")),
+    "rule": (
+        ("css_declarations", "size"),
+        ("selector_terms", "selector_terms"),
+        ("selector_ids", "selector_ids"),
+        ("nesting", "nesting"),
+    ),
+}
+
+
+def file_metric_findings(path, lines, metrics, thresholds):
+    if lines > thresholds["file_lines"]:
+        yield candidate(
+            "large-file",
+            path,
+            "file",
+            {"nonblank_lines": lines, "threshold": thresholds["file_lines"]},
+        )
+    anchors = Counter()
+    for metric in metrics:
+        anchor = metric["anchor"]
+        anchors[anchor] += 1
+        if anchors[anchor] != 1:
+            anchor += f"#{anchors[anchor]}"
+        for rule, field in METRIC_RULES[metric["kind"]]:
+            if metric[field] <= thresholds[rule]:
+                continue
+            evidence = "parameter_evidence" if rule == "parameters" else "evidence"
+            yield candidate(
+                rule,
+                path,
+                anchor,
+                {
+                    "metric": field,
+                    "value": metric[field],
+                    "threshold": thresholds[rule],
+                    "language": metric["language"],
+                    "structural_evidence": metric.get(evidence),
+                },
+                loc=metric,
             )
-        anchors = Counter()
-        for metric in result["metrics"]:
-            kind = metric["kind"]
-            anchor = metric["anchor"]
-            anchors[anchor] += 1
-            if anchors[anchor] != 1:
-                anchor += f"#{anchors[anchor]}"
-            rules = {
-                "callable": [
-                    ("callable_lines", "lines"),
-                    ("parameters", "parameters"),
-                    ("nesting", "nesting"),
-                    ("complexity", "complexity"),
-                ],
-                "type": [("type_lines", "lines")],
-                "element": [("html_nodes", "size"), ("html_nesting", "nesting")],
-                "rule": [
-                    ("css_declarations", "size"),
-                    ("selector_terms", "selector_terms"),
-                    ("selector_ids", "selector_ids"),
-                    ("nesting", "nesting"),
-                ],
-            }[kind]
-            for rule, field in rules:
-                if metric[field] > thresholds[rule]:
-                    findings.append(
-                        candidate(
-                            rule,
-                            path,
-                            anchor,
-                            {
-                                "metric": field,
-                                "value": metric[field],
-                                "threshold": thresholds[rule],
-                                "language": metric["language"],
-                                "structural_evidence": metric.get(
-                                    "parameter_evidence"
-                                    if rule == "parameters"
-                                    else "evidence"
-                                ),
-                            },
-                            loc=metric,
-                        )
-                    )
-    relevant = selected | {other for path in selected for other in adjacency[path]}
-    for path in sorted(relevant - selected):
+
+
+def scan_gaps(entries, parsed, selected, edges, graph_gaps):
+    for path in sorted(selected):
+        yield from ({"path": path, **gap} for gap in parsed[path]["gaps"])
+    neighbors = set()
+    for source, target, _ in edges:
+        if source in selected:
+            neighbors.add(target)
+        if target in selected:
+            neighbors.add(source)
+    for path in sorted(neighbors - selected):
         if entries[path]["language"] in GRAMMARS:
-            gaps.extend({"path": path, **gap} for gap in parsed[path]["gaps"])
-    gaps.extend(gap for gap in graph_gaps if gap["path"] in relevant)
-    findings.extend(duplicates(parsed, sources, selected, thresholds))
+            yield from ({"path": path, **gap} for gap in parsed[path]["gaps"])
+    relevant = selected | neighbors
+    yield from (gap for gap in graph_gaps if gap["path"] in relevant)
+
+
+def cycle_findings(edges, selected):
     by_source = defaultdict(list)
     for edge in edges:
         by_source[edge[0]].append(edge)
     for members in components(edges):
         affected = sorted(set(members) & selected)
-        if affected:
-            member_set = set(members)
-            cycle_edges = [
-                edge
-                for source in members
-                for edge in by_source[source]
-                if edge[1] in member_set
-            ]
-            findings.append(
-                candidate(
-                    "dependency-cycle",
-                    affected[0],
-                    "resolved-edges",
-                    {"members": members, "edges": cycle_edges},
-                    related=[{"path": path} for path in members if path != affected[0]],
-                )
-            )
+        if not affected:
+            continue
+        member_set = set(members)
+        cycle_edges = [
+            edge
+            for source in members
+            for edge in by_source[source]
+            if edge[1] in member_set
+        ]
+        yield candidate(
+            "dependency-cycle",
+            affected[0],
+            "resolved-edges",
+            {"members": members, "edges": cycle_edges},
+            related=[{"path": path} for path in members if path != affected[0]],
+        )
+
+
+def source_sizes(entries, selected):
     partition_sizes = defaultdict(lambda: {"files": 0, "nonblank_lines": 0})
     for path in selected:
         partition = partition_sizes[entries[path]["project"]]
@@ -552,23 +308,37 @@ def scan_sources(
     sizes = sorted(
         ((p, entries[p]["loc"]) for p in selected), key=lambda pair: (-pair[1], pair[0])
     )
+    return dict(partition_sizes), sizes
+
+
+def scan_sources(
+    inventory, sources, thresholds, parser_profile, core_only, cache_read, full
+):
+    entries = inventory["entries"]
+    selected = {path for path in sources if entries[path]["disposition"] == "source"}
+    parsed, fresh, work = parse_snapshot(
+        entries, sources, parser_profile, core_only, cache_read, full
+    )
+    edges, limits, graph_gaps, projects = resolve_edges(entries, parsed, sources)
+    metrics = {path: parsed[path]["metrics"] for path in sorted(selected)}
+    findings = [
+        finding
+        for path, measured in metrics.items()
+        for finding in file_metric_findings(
+            path, entries[path]["loc"], measured, thresholds
+        )
+    ]
+    findings.extend(duplicates(parsed, sources, selected, thresholds))
+    findings.extend(cycle_findings(edges, selected))
+    partitions, sizes = source_sizes(entries, selected)
     return {
         "candidates": findings,
         "edges": edges,
         "limitations": limits,
-        "gaps": gaps,
+        "gaps": list(scan_gaps(entries, parsed, selected, edges, graph_gaps)),
         "projects": projects,
-        "partitions": dict(partition_sizes),
+        "partitions": partitions,
         "file_rankings": sizes,
         "metrics": metrics,
         "detector_work": work,
     }, fresh
-
-
-def project_context(project, entries):
-    return {
-        path
-        for path, entry in entries.items()
-        if entry.get("hash")
-        and (entry.get("project") == project or within(path, project))
-    }

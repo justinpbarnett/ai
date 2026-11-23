@@ -305,13 +305,111 @@ def is_project_guide(path):
     )
 
 
-def inventory(root, is_git, scopes, state_dir, *, gather=False):
-    state_relative = (
-        state_dir.relative_to(root).as_posix()
-        if state_dir.is_relative_to(root)
+def skipped_entry(reason, selected, *, incomplete=False):
+    return (
+        {"disposition": "incomplete" if incomplete else "excluded", "reason": reason}
+        if selected
         else None
     )
-    paths = git_files(root) if is_git else walk_files(root, state_relative)
+
+
+def classify_content(name, data, hashed, selected):
+    language = source_language(name)
+    guide = is_project_guide(name)
+    suffix = Path(name).suffix
+    try:
+        text = data.decode("utf-8-sig")
+        if "\x00" in text or any(ord(c) < 9 for c in text[:8192]):
+            raise UnicodeError("binary content")
+    except UnicodeError:
+        return skipped_entry(
+            "binary or unsupported encoding",
+            selected or guide,
+            incomplete=bool(language or guide),
+        )
+    if GENERATED.search(b"\n".join(data.splitlines()[:12])):
+        return skipped_entry("generated source header", selected)
+    shebang = data.startswith(b"#!")
+    if (
+        not language
+        and not shebang
+        and (suffix.lower() in DOCUMENT_EXTENSIONS or guide)
+    ):
+        return {
+            "disposition": "reference",
+            "reason": "documentation; review context only",
+            "hash": hashed,
+        }
+    if not language and (shebang or not suffix):
+        language = "generic"
+    return {
+        "disposition": "source" if selected else "context",
+        "hash": hashed,
+        "language": language or "unknown",
+        "bytes": len(data),
+        "loc": sum(bool(line.strip()) for line in text.splitlines()),
+    }
+
+
+def inventory_entry(root, name, reason, selected):
+    filename = Path(name).name
+    config = (
+        CONFIG.fullmatch(filename)
+        or PROJECT.fullmatch(filename)
+        or filename in LOCKFILES
+    )
+    if reason and not (config and reason == "dependency lockfile"):
+        incomplete = reason in {
+            "unmerged index entry",
+            "directory cannot be enumerated",
+            "filesystem traversal depth exceeded",
+        }
+        return skipped_entry(reason, selected, incomplete=incomplete), None, None
+    try:
+        path = safe_file(root, name)
+        # Git can list tracked children under a directory replaced by a nested checkout.
+        if any(
+            (p / ".git").exists()
+            for p in path.parents
+            if p != root and p.is_relative_to(root)
+        ):
+            return skipped_entry("nested Git boundary", selected), None, None
+        data = read_source(path)
+    except FileNotFoundError:
+        return skipped_entry("tracked path absent in worktree", selected), None, None
+    except (OSError, ValueError, RuntimeError) as exc:
+        detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        return (
+            skipped_entry(
+                detail,
+                selected or config or is_project_guide(name),
+                incomplete=not detail.startswith("symlink not followed"),
+            ),
+            None,
+            None,
+        )
+    hashed = content_hash(data)
+    entry = (
+        skipped_entry(reason, selected)
+        if reason
+        else classify_content(name, data, hashed, selected)
+    )
+    return entry, data, hashed if config else None
+
+
+def owning_project(name, projects):
+    parent = Path(name).parent
+    return next(
+        (
+            path.as_posix()
+            for path in (parent, *parent.parents)
+            if path.as_posix() in projects
+        ),
+        ".",
+    )
+
+
+def collect_entries(root, paths, scopes, state_relative, *, gather):
     projects = {
         Path(p).parent.as_posix()
         for p, reason in paths.items()
@@ -322,132 +420,38 @@ def inventory(root, is_git, scopes, state_dir, *, gather=False):
     entries, sources, rules = {}, {}, {}
     for name, boundary in sorted(paths.items()):
         selected = any(within(name, prefix) for prefix in scopes)
-        config = bool(
-            CONFIG.fullmatch(Path(name).name)
-            or PROJECT.fullmatch(Path(name).name)
-            or Path(name).name in LOCKFILES
+        entry, data, rule_hash = inventory_entry(
+            root, name, boundary or excluded(name, state_relative), selected
         )
-        reason = boundary or excluded(name, state_relative)
-        if reason and not (config and reason == "dependency lockfile"):
-            if selected:
-                entries[name] = {
-                    "disposition": "excluded"
-                    if reason
-                    not in {
-                        "unmerged index entry",
-                        "directory cannot be enumerated",
-                        "filesystem traversal depth exceeded",
-                    }
-                    else "incomplete",
-                    "reason": reason,
-                }
+        if rule_hash is not None:
+            rules[name] = rule_hash
+        if entry is None:
             continue
-        parent = Path(name).parent
-        project = next(
-            (
-                p.as_posix()
-                for p in (parent, *parent.parents)
-                if p.as_posix() in projects
-            ),
-            ".",
-        )
-        language = source_language(name)
-        reference = not language and (
-            Path(name).suffix.lower() in DOCUMENT_EXTENSIONS or is_project_guide(name)
-        )
-        try:
-            path = safe_file(root, name)
-            # Git can list tracked children under a directory replaced by a nested checkout.
-            if any(
-                (p / ".git").exists()
-                for p in path.parents
-                if p != root and p.is_relative_to(root)
-            ):
-                if selected:
-                    entries[name] = {
-                        "disposition": "excluded",
-                        "reason": "nested Git boundary",
-                    }
-                continue
-            data = read_source(path)
-        except FileNotFoundError:
-            if selected:
-                entries[name] = {
-                    "disposition": "excluded",
-                    "reason": "tracked path absent in worktree",
-                }
-            continue
-        except (OSError, ValueError, RuntimeError) as exc:
-            if selected or config or is_project_guide(name):
-                reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-                entries[name] = {
-                    "disposition": "excluded"
-                    if reason.startswith("symlink not followed")
-                    else "incomplete",
-                    "reason": reason,
-                }
-            continue
-        hashed = content_hash(data)
-        if config:
-            rules[name] = hashed
-        if reason:
-            if selected:
-                entries[name] = {"disposition": "excluded", "reason": reason}
-            continue
-        try:
-            text = data.decode("utf-8-sig")
-            if "\x00" in text or any(ord(c) < 9 for c in text[:8192]):
-                raise UnicodeError("binary content")
-        except UnicodeError:
-            if selected or is_project_guide(name):
-                entries[name] = {
-                    "disposition": "incomplete"
-                    if language or is_project_guide(name)
-                    else "excluded",
-                    "reason": "binary or unsupported encoding",
-                }
-            continue
-        if GENERATED.search(b"\n".join(data.splitlines()[:12])):
-            if selected:
-                entries[name] = {
-                    "disposition": "excluded",
-                    "reason": "generated source header",
-                }
-            continue
-        if reference and not data.startswith(b"#!"):
-            entries[name] = {
-                "disposition": "reference",
-                "reason": "documentation; review context only",
-                "hash": hashed,
-                "project": project,
-            }
-            continue
-        if not language and (data.startswith(b"#!") or not Path(name).suffix):
-            language = "generic"
-        entries[name] = {
-            "disposition": "source" if selected else "context",
-            "hash": hashed,
-            "language": language or "unknown",
-            "project": project,
-            "bytes": len(data),
-            "loc": sum(bool(line.strip()) for line in text.splitlines()),
-        }
-        if gather:
+        entries[name] = entry
+        disposition = entry["disposition"]
+        if disposition in {"source", "context", "reference"}:
+            entry["project"] = owning_project(name, projects)
+        if gather and disposition in {"source", "context"}:
             sources[name] = data
+    return entries, sources, rules
+
+
+def inventory(root, is_git, scopes, state_dir, *, gather=False):
+    state_relative = (
+        state_dir.relative_to(root).as_posix()
+        if state_dir.is_relative_to(root)
+        else None
+    )
+    paths = git_files(root) if is_git else walk_files(root, state_relative)
+    entries, sources, rules = collect_entries(
+        root, paths, scopes, state_relative, gather=gather
+    )
     for scope in scopes:
-        if (
-            scope != "."
-            and not any(within(path, scope) for path in paths)
-            and not (root / scope).exists()
-        ):
-            # Never turn a vanished scope into an empty clean result.
-            entries.setdefault(
-                scope,
-                {
-                    "disposition": "incomplete",
-                    "reason": "requested scope does not exist",
-                },
-            )
+        if scope != "." and not (root / scope).exists():
+            entries[scope] = {
+                "disposition": "incomplete",
+                "reason": "requested scope does not exist",
+            }
     observed = {
         path: entry
         for path, entry in entries.items()

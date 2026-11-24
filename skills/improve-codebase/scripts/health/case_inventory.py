@@ -309,6 +309,23 @@ def csharp_count(data, node, case):
                 case["snapshots"] += 1
 
 
+def has_skip(data, node):
+    return any(
+        name in {"Ignore", "Skip"} or skip_argument(data, attribute)
+        for name, attribute in attribute_names(data, node)
+    )
+
+
+def csharp_skipped(data, node):
+    while node is not None:
+        if node.type in {"method_declaration", "class_declaration"} and has_skip(
+            data, node
+        ):
+            return True
+        node = node.parent
+    return False
+
+
 def csharp_cases(surface, root):
     data, cases = surface.data, []
     for node in descendants(root):
@@ -319,10 +336,7 @@ def csharp_cases(surface, root):
             continue
         name = node_text(data, node.child_by_field_name("name"))
         case = new_case(surface, node, name)
-        case["skipped"] = any(
-            name in {"Ignore", "Skip"} or skip_argument(data, attribute)
-            for name, attribute in attributes
-        )
+        case["skipped"] = csharp_skipped(data, node)
         csharp_count(data, node, case)
         cases.append(case)
     return sorted(cases, key=lambda case: case["line"])

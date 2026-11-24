@@ -18,13 +18,16 @@ export function normalizeUrl(value: string, base?: string): string {
   return url.href;
 }
 
+const TRACKING_PARAMETERS = new Set(["fbclid", "gclid"]);
+
 function isTrackingParameter(segment: string): boolean {
   const rawKey = segment.split("=", 1)[0].replace(/\+/g, " ");
   let key = rawKey;
   try {
     key = decodeURIComponent(rawKey);
   } catch {}
-  return /^utm_/i.test(key) || ["fbclid", "gclid"].includes(key);
+  const name = key.toLowerCase();
+  return name.startsWith("utm_") || TRACKING_PARAMETERS.has(name);
 }
 
 export function checkScope(url: string, allowedUrl?: UrlPolicy): void {

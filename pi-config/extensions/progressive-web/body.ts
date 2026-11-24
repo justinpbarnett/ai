@@ -1,14 +1,28 @@
 import { NonRetryableError } from "./url-policy.ts";
 
-export const maxResponseBytes = 10 * 1024 * 1024;
+export const maxResponseMebibytes = 10;
+export const maxResponseBytes = maxResponseMebibytes * 1024 * 1024;
+const markupSniffBytes = 1024;
 
 export function oversizeError(): NonRetryableError {
-  return new NonRetryableError("Response exceeds the 10 MiB download limit.");
+  return new NonRetryableError(
+    `Response exceeds the ${maxResponseMebibytes} MiB download limit.`,
+  );
+}
+
+function declaredCharset(buffer: Buffer, contentType: string | null): string {
+  return (
+    contentType?.match(/charset=["']?([^;\s"']+)/i)?.[1] ||
+    buffer
+      .subarray(0, markupSniffBytes)
+      .toString("latin1")
+      .match(/<meta[^>]+charset\s*=\s*["']?\s*([^\s"';/>]+)/i)?.[1] ||
+    "utf-8"
+  );
 }
 
 export function decodeBody(buffer: Buffer, contentType: string | null): string {
-  const charset =
-    contentType?.match(/charset=["']?([^;\s"']+)/i)?.[1] || "utf-8";
+  const charset = declaredCharset(buffer, contentType);
   try {
     return new TextDecoder(charset).decode(buffer);
   } catch {

@@ -81,6 +81,7 @@ function resolveContentUrls(root: HTMLElement, url: string): void {
   for (const anchor of root.querySelectorAll("a[href]")) {
     try {
       const target = new URL(anchor.getAttribute("href")!, url);
+      if (["mailto:", "tel:"].includes(target.protocol)) continue;
       anchor.setAttribute("href", normalizeUrl(target.href) + target.hash);
     } catch {
       anchor.removeAttribute("href");
@@ -162,9 +163,10 @@ export function extractPage(response: PageResponse): PageContent {
     ))
       node.remove();
     removeSideForms(document);
-    const main = document.querySelector<HTMLElement>(
-      "main,[role='main'],article",
-    );
+    const articles = document.querySelectorAll<HTMLElement>("article");
+    const main =
+      document.querySelector<HTMLElement>("main,[role='main']") ||
+      (articles.length === 1 ? articles[0] : null);
     const article =
       !main && isProbablyReaderable(document)
         ? new Readability(document.cloneNode(true) as Document, {

@@ -2,15 +2,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-  crawl,
+  brightDataMinimumTimeoutMs,
   crawlLimits,
-  dispose,
   MAX_SCRAPE_URLS,
   maxTierNumber,
-  readiness,
-  scrapeBatch,
+  previewDescription,
+  previewLimits,
   scrapeTimeoutLimits,
-} from "./core.ts";
+  searchLimits,
+} from "./limits.ts";
 import {
   formatResults,
   resultMetadata,
@@ -18,7 +18,19 @@ import {
   type WebResult,
 } from "./results.ts";
 import { cliPath } from "./config.ts";
-import { search, searchLimits } from "./search.ts";
+
+let engine:
+  | Promise<[typeof import("./core.ts"), typeof import("./search.ts")]>
+  | undefined;
+
+function loadEngine() {
+  engine ??= Promise.all([import("./core.ts"), import("./search.ts")]);
+  return engine;
+}
+
+async function disposeEngine(): Promise<void> {
+  if (engine) await (await engine)[0].dispose();
+}
 
 const tierOptions = {
   startTier: Type.Optional(
@@ -41,7 +53,7 @@ const tierOptions = {
     Type.Integer({
       minimum: scrapeTimeoutLimits.minimum,
       maximum: scrapeTimeoutLimits.maximum,
-      description: `Per-tier timeout in milliseconds, default ${scrapeTimeoutLimits.fallback}. Bright Data gets at least 60000.`,
+      description: `Per-tier timeout in milliseconds, default ${scrapeTimeoutLimits.fallback}. Bright Data gets at least ${brightDataMinimumTimeoutMs}.`,
     }),
   ),
   waitForSelector: Type.Optional(
@@ -63,12 +75,12 @@ async function resultMessage(kind: string, result: WebResult) {
   const formatted = formatResults(result);
   const paths = await saveDocument(kind, result, formatted.markdown);
   const overview = truncateHead(formatted.overview, {
-    maxBytes: 10000,
-    maxLines: 300,
+    maxBytes: previewLimits.overviewBytes,
+    maxLines: previewLimits.overviewLines,
   });
   const preview = truncateHead(formatted.body, {
-    maxBytes: 47000 - overview.outputBytes,
-    maxLines: 1900 - overview.outputLines,
+    maxBytes: previewLimits.bytes - overview.outputBytes,
+    maxLines: previewLimits.lines - overview.outputLines,
   });
   const truncated = overview.truncated || preview.truncated;
   const summary = {
@@ -101,7 +113,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_search",
     label: "Web Search",
-    description: `Search the web using Brave Search. Returns ranked titles, URLs, snippets, extra excerpts, optional age, and pagination metadata. Default ${searchLimits.count.fallback} results, maximum ${searchLimits.count.maximum}; offset is a page index from ${searchLimits.offset.minimum} to ${searchLimits.offset.maximum}. Supports site: and other query operators, freshness, country, language, and SafeSearch. This discovers pages; use web_scrape on selected URLs for full content. Requires a separately configured Brave Search API key. Queries are sent to Brave and may incur API charges. One request per call, with no automatic retries or pagination. Preview is limited to 47 KB/1900 lines; full Markdown and JSON are saved privately.`,
+    description: `Search the web using Brave Search. Returns ranked titles, URLs, snippets, extra excerpts, optional age, and pagination metadata. Default ${searchLimits.count.fallback} results, maximum ${searchLimits.count.maximum}; offset is a page index from ${searchLimits.offset.minimum} to ${searchLimits.offset.maximum}. Supports site: and other query operators, freshness, country, language, and SafeSearch. This discovers pages; use web_scrape on selected URLs for full content. Requires a separately configured Brave Search API key. Queries are sent to Brave and may incur API charges. One request per call, with no automatic retries or pagination. Preview is limited to ${previewDescription}; full Markdown and JSON are saved privately.`,
     promptSnippet:
       "Search the web with Brave to discover relevant pages before scraping them",
     promptGuidelines: [
@@ -175,6 +187,7 @@ export default function (pi: ExtensionAPI) {
         content: [{ type: "text", text: "Searching Brave..." }],
         details: undefined,
       });
+      const { search } = (await loadEngine())[1];
       const result = await search(params, { signal });
       return resultMessage("search", result);
     },
@@ -183,8 +196,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_scrape",
     label: "Web Scrape",
-    description:
-      "Read 1-10 public web pages as clean Markdown. Automatically escalates through HTTP fetch + Readability, cURL with browser headers, Playwright JavaScript rendering, then paid Bright Data Web Unlocker when configured. Stops at the first usable result. Does not use your browser profile or log into sites. Returns source URLs and tier diagnostics. Preview is limited to 47 KB/1900 lines; full Markdown and JSON are saved to private temporary files. Tier 4 sends the URL to Bright Data and may incur charges; maxTier: 3 disables it. This is fetching, not search or interactive browser control.",
+    description: `Read 1-${MAX_SCRAPE_URLS} public web pages as clean Markdown. Automatically escalates through HTTP fetch + Readability, cURL with browser headers, Playwright JavaScript rendering, then paid Bright Data Web Unlocker when configured. Stops at the first usable result. Does not use your browser profile or log into sites. Returns source URLs and tier diagnostics. Preview is limited to ${previewDescription}; full Markdown and JSON are saved to private temporary files. Tier 4 sends the URL to Bright Data and may incur charges; maxTier: 3 disables it. This is fetching, not search or interactive browser control.`,
     promptSnippet:
       "Fetch public web pages as Markdown with automatic four-tier fallback",
     promptGuidelines: [
@@ -205,6 +217,7 @@ export default function (pi: ExtensionAPI) {
       ...tierOptions,
     }),
     async execute(_id, params, signal, onUpdate) {
+      const { scrapeBatch } = (await loadEngine())[0];
       const result = await scrapeBatch(params, {
         signal,
         onProgress: (message: string) =>
@@ -220,7 +233,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_crawl",
     label: "Web Crawl",
-    description: `Crawl a public website using the same four-tier scraper. Follows links breadth-first on the starting origin, respects robots.txt, crawl-delay and nofollow, and deduplicates URLs. Defaults: ${crawlLimits.maxPages.fallback} page attempts, depth ${crawlLimits.maxDepth.fallback}, ${crawlLimits.delayMs.fallback / 1000} second between pages. Hard maximum: ${crawlLimits.maxPages.maximum} page attempts, depth ${crawlLimits.maxDepth.maximum}. pathPrefix can constrain a documentation section. Every page, failure, skipped URL and discovered link is saved as JSON, alongside combined Markdown. Preview is limited to 47 KB/1900 lines. Each tier-4 page can incur a Bright Data charge; maxTier: 3 disables paid requests. No authentication or browser-profile access.`,
+    description: `Crawl a public website using the same four-tier scraper. Follows links breadth-first on the starting origin, respects robots.txt, crawl-delay and nofollow, and deduplicates URLs. Defaults: ${crawlLimits.maxPages.fallback} page attempts, depth ${crawlLimits.maxDepth.fallback}, ${crawlLimits.delayMs.fallback / 1000} second between pages. Hard maximum: ${crawlLimits.maxPages.maximum} page attempts, depth ${crawlLimits.maxDepth.maximum}. pathPrefix can constrain a documentation section. Every page, failure, skipped URL and discovered link is saved as JSON, alongside combined Markdown. Preview is limited to ${previewDescription}. Each tier-4 page can incur a Bright Data charge; maxTier: 3 disables paid requests. No authentication or browser-profile access.`,
     promptSnippet:
       "Crawl a bounded section of a public website into Markdown and JSON",
     annotations: {
@@ -260,6 +273,7 @@ export default function (pi: ExtensionAPI) {
       ...tierOptions,
     }),
     async execute(_id, params, signal, onUpdate) {
+      const { crawl } = (await loadEngine())[0];
       const result = await crawl(params, {
         signal,
         onProgress: (message: string) =>
@@ -276,6 +290,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Show search/scraper readiness and private credential setup instructions",
     async handler(_args, _ctx) {
+      const { readiness } = (await loadEngine())[0];
       const current = await readiness();
       pi.sendMessage({
         customType: "web-scraper-status",
@@ -303,5 +318,5 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("session_shutdown", dispose);
+  pi.on("session_shutdown", disposeEngine);
 }

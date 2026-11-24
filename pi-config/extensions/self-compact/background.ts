@@ -152,8 +152,8 @@ export class BackgroundCompaction {
 		if (!job?.result) return;
 		const request = requestForTurn(turn, job);
 		if (!request) return;
-		const usage = turn.settings.tokens ?? tokenCount(turn.event.context.contextEntries);
-		const draft = checkpointDraft(job.cut, job.result, request, usage);
+		const contextTokens = turn.settings.tokens ?? tokenCount(turn.event.context.contextEntries);
+		const draft = checkpointDraft(job.cut, job.result, request, contextTokens);
 		this.discard();
 		if ("type" in draft || request.source === "tool") return draft;
 	}
@@ -172,7 +172,7 @@ export class BackgroundCompaction {
 	private startSummary({ model, ctx }: Turn, cut: Cut, anchor: string, handoff?: string) {
 		const started: BackgroundJob = { cut, anchor, model, controller: new AbortController(), handoff };
 		this.job = started;
-		this.cycle.recordAutomaticAttempt();
+		if (!handoff) this.cycle.recordAutomaticAttempt();
 		void summarizeCut(cut, model, ctx.modelRegistry, started.controller.signal).then((result) => {
 			if (this.job !== started) return;
 			started.result = result;

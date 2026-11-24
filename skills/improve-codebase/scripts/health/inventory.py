@@ -214,6 +214,10 @@ def walk_files(root, state_relative):
     return paths
 
 
+class SymlinkNotFollowed(ValueError):
+    pass
+
+
 def safe_file(root, relative):
     path = root / relative
     if (
@@ -223,7 +227,7 @@ def safe_file(root, relative):
     ):
         raise ValueError(f"not a root-relative path: {relative!r}")
     if path.resolve() != path:
-        raise ValueError(f"{SYMLINK_REASON}: {relative!r}")
+        raise SymlinkNotFollowed(f"{SYMLINK_REASON}: {relative!r}")
     return path
 
 
@@ -360,7 +364,7 @@ def inventory_entry(root, name, reason, selected):
             skipped_entry(
                 detail,
                 selected or config or is_project_guide(name),
-                incomplete=not detail.startswith(SYMLINK_REASON),
+                incomplete=not isinstance(exc, SymlinkNotFollowed),
             ),
             None,
             None,

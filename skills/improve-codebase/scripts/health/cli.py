@@ -110,7 +110,7 @@ def prepare_packet(args, store, state, entries, root, view):
         return prepare(store, state, entries, root, selection)
 
 
-def command_report(args, store, state, current, fresh, view):
+def base_report(args, store, state, current, fresh, view):
     summary = getattr(args, "summary", False)
     report = evaluate(
         store,
@@ -130,26 +130,45 @@ def command_report(args, store, state, current, fresh, view):
         profile=store.key,
     )
     report["command"] = args.command
-    if args.command in {"scan", "report"} and not summary:
-        report.update(
-            inventory=current if fresh else state.get("inventory", current),
-            scan=state.get("scan"),
-            moves=state.get("moves", {}),
-            findings=list(state["findings"].values()),
-            capabilities=state.get("capabilities"),
-        )
-    if args.command == "report":
-        report.update(
-            verification=state["verification"],
-            original_baseline=state.get("original_baseline", {}),
-            verification_manifest=state["manifest"],
-            history=store.history(),
-            diagnostic_runs=state.get("diagnostic_runs", {}),
-        )
-    if args.command == "next" and not summary:
+    return report
+
+
+def inventory_fields(state, current, fresh):
+    return dict(
+        inventory=current if fresh else state.get("inventory", current),
+        scan=state.get("scan"),
+        moves=state.get("moves", {}),
+        findings=list(state["findings"].values()),
+        capabilities=state.get("capabilities"),
+    )
+
+
+def scan_report(args, store, state, current, fresh, view):
+    report = base_report(args, store, state, current, fresh, view)
+    if not args.summary:
+        report.update(inventory_fields(state, current, fresh))
+    return report
+
+
+def next_report(args, store, state, current, fresh, view):
+    report = base_report(args, store, state, current, fresh, view)
+    if not args.summary:
         report["backlog"] = [
             f for f in state["findings"].values() if f["status"] in UNRESOLVED
         ]
+    return report
+
+
+def full_report(args, store, state, current, fresh, view):
+    report = base_report(args, store, state, current, fresh, view)
+    report.update(inventory_fields(state, current, fresh))
+    report.update(
+        verification=state["verification"],
+        original_baseline=state.get("original_baseline", {}),
+        verification_manifest=state["manifest"],
+        history=store.history(),
+        diagnostic_runs=state.get("diagnostic_runs", {}),
+    )
     return report
 
 
@@ -235,22 +254,30 @@ def scan_command(args, scope, envelope):
             full=args.full,
             checkpoint=args.checkpoint,
         )
-        return command_report(args, store, state, current, True, view), 0
+        return scan_report(args, store, state, current, True, view), 0
 
 
-def report_for(args, scope, envelope):
+def report_for(build, args, scope, envelope):
     with open_store(args, scope) as store:
         scope, state, view = load_ledger(args, store, scope, envelope)
         current, fresh = current_inventory(store, state, scope)
-        return command_report(args, store, state, current, fresh, view)
+        return build(args, store, state, current, fresh, view)
+
+
+def status_command(args, scope, envelope):
+    return report_for(base_report, args, scope, envelope), 0
+
+
+def next_command(args, scope, envelope):
+    return report_for(next_report, args, scope, envelope), 0
 
 
 def report_command(args, scope, envelope):
-    return report_for(args, scope, envelope), 0
+    return report_for(full_report, args, scope, envelope), 0
 
 
 def complete_command(args, scope, envelope):
-    report = report_for(args, scope, envelope)
+    report = report_for(base_report, args, scope, envelope)
     return report, int(not report["complete"])
 
 
@@ -278,6 +305,8 @@ def evidence_command(args, scope, envelope):
 HANDLERS = CommandHandlers(
     doctor=doctor_command,
     scan=scan_command,
+    status=status_command,
+    next=next_command,
     report=report_command,
     complete=complete_command,
     run=run_command,
@@ -324,13 +353,13 @@ def finding_lines(output):
     if output["next_phase"] == "transform" and ready:
         yield f"Next ready finding: {ready[0]}"
     findings = output.get("findings", output.get("backlog", []))
-    limit = len(findings) if output["command"] == "report" else 24
+    limit = len(findings) if "history" in output else 24
     for item in findings[:limit]:
         loc = item["location"]
         yield f"{item['id']} {item['status']}: {item['rule']} at {loc['path']!r}:{loc.get('line', 1)} ({item['anchor']!r})"
     if len(findings) > limit:
         yield f"{len(findings) - limit} more findings; use report for the full list."
-    if output["command"] == "report" and output.get("history"):
+    if output.get("history"):
         points = " → ".join(
             str(row["strict_debt_points"]) for row in output["history"][-8:]
         )
@@ -343,7 +372,7 @@ def review_lines(output):
         f"{work[key]} {key}"
         for key in ("reused", "new", "changed", "invalidated", "pending")
     )
-    if output["command"] == "next" and isinstance(work.get("discovery"), list):
+    if "backlog" in output and isinstance(work.get("discovery"), list):
         due = (
             item
             for stage in STAGES

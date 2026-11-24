@@ -36,6 +36,8 @@ def test_evidence(rows, language, parse_gapped):
         "cases": cases,
         "support": not rows and language in TEST_LANGUAGES and not parse_gapped,
     }
+    if len(cases) < len(rows):
+        evidence["cases_shown"] = len(cases)
     if language not in TEST_LANGUAGES or (not rows and parse_gapped):
         evidence["unparsed"] = True
     return evidence
@@ -56,7 +58,7 @@ def comment_evidence(rows):
         if lines > 1:
             entry["lines"] = lines
         locations.append(entry)
-    return {
+    evidence = {
         "removable": len(removable),
         "by_class": dict(sorted(Counter(row[1] for row in removable).items())),
         "kept": dict(
@@ -64,6 +66,9 @@ def comment_evidence(rows):
         ),
         "locations": locations,
     }
+    if len(locations) < len(removable):
+        evidence["locations_shown"] = len(locations)
+    return evidence
 
 
 def comment_signature(rows):

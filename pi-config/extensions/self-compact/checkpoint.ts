@@ -84,12 +84,12 @@ function currentTurnIndex(event: TurnEndEvent) {
 	return event.toolResultEntryIds.some((id) => !visibleResultIds.has(id)) ? -1 : currentIndex;
 }
 
-export function selectCut(event: TurnEndEvent, ctx: ExtensionContext, keepRecentTokens: number, usage: number | null): Cut | undefined {
+export function selectCut(event: TurnEndEvent, ctx: ExtensionContext, keepRecentTokens: number, contextTokens: number | null): Cut | undefined {
 	const currentIndex = currentTurnIndex(event);
 	if (currentIndex < 0) return;
 	const { contextEntries: entries } = event.context;
 	const total = tokenCount(entries);
-	const savings = minimumSavings(usage ?? total);
+	const savings = minimumSavings(contextTokens ?? total);
 	let retained = 0;
 	let assistant: Cut | undefined;
 	const pairing = new ToolCallPairing();
@@ -158,10 +158,10 @@ export async function summarizeCut(
 	}
 }
 
-export function checkpointDraft(cut: Cut, result: SummaryResult, request: CheckpointRequest, usage: number): CompactionEntryDraft | { reason: string } {
+export function checkpointDraft(cut: Cut, result: SummaryResult, request: CheckpointRequest, contextTokens: number): CompactionEntryDraft | { reason: string } {
 	if ("reason" in result) return result;
 	const summary = request.source === "tool" ? `${result.text}\n\n## Agent handoff\n${request.handoff}` : result.text;
-	if (cut.prefixTokens - summaryTokens(summary) - CHECKPOINT_FRAMING_TOKENS < minimumSavings(usage)) {
+	if (cut.prefixTokens - summaryTokens(summary) - CHECKPOINT_FRAMING_TOKENS < minimumSavings(contextTokens)) {
 		return { reason: "checkpoint would not reclaim enough context" };
 	}
 	return {

@@ -12,6 +12,8 @@ from .review_units import AXES, STAGES
 class CommandHandlers:
     doctor: Callable
     scan: Callable
+    status: Callable
+    next: Callable
     report: Callable
     complete: Callable
     run: Callable
@@ -62,12 +64,12 @@ def register_scan_commands(sub, handlers):
         (
             "status",
             "show debt, coverage, fresh evidence, and unmet gates",
-            handlers.report,
+            handlers.status,
         ),
         (
             "next",
             "show the next safe phase and dependency-ready findings",
-            handlers.report,
+            handlers.next,
         ),
         ("report", "show the inventory, findings, and history", handlers.report),
         (

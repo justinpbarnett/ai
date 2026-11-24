@@ -14,7 +14,8 @@ import { hostedWriterBlocked, writeSummary, writeThinkingSummary, writesThinking
 const COUNT_FLAG = "explain-tools-count";
 const NO_AUTO_FLAG = "explain-tools-no-auto";
 const MAX_HISTORY = 12;
-const USAGE = `/explain-tools [1–${MAX_COUNT} | on | off | status | recent]`;
+const SUBCOMMANDS = ["on", "off", "status", "recent"] as const;
+const USAGE = `/explain-tools [1–${MAX_COUNT} | ${SUBCOMMANDS.join(" | ")}]`;
 const NOTE_MARK = "●";
 const BLOCK_START = /^(?:\s|#|>|\||<|```|~~~|[*+-]\s|[*_-]{3}|\d+[.)]\s)/u;
 const PROGRESS_NOTES = "Keep the user posted with short notes in plain text while you work. Before your first tool call, say in one sentence what you will do first. After that, write one or two sentences when you find something that matters, change direction, or start a new step: say what you found, naming the file, command or fact, and what you will do next. Skip notes between routine calls.";
@@ -275,7 +276,7 @@ class ToolExplainer {
 	private registerCommand() {
 		this.pi.registerCommand("explain-tools", {
 			description: "Explain recent tool output, turn automatic summaries on or off, or list recent tool summaries",
-			getArgumentCompletions: (prefix) => [...Array.from({ length: MAX_COUNT }, (_, index) => String(index + 1)), "on", "off", "status", "recent"]
+			getArgumentCompletions: (prefix) => [...Array.from({ length: MAX_COUNT }, (_, index) => String(index + 1)), ...SUBCOMMANDS]
 				.filter((value) => prefix && value.startsWith(prefix) && value !== prefix).map((value) => ({ value, label: value })),
 			handler: (args, ctx) => this.handleCommand(args, ctx),
 		});
@@ -284,20 +285,25 @@ class ToolExplainer {
 	private async handleCommand(args: string, ctx: ExtensionContext) {
 		if (ctx.mode !== "tui") return;
 		const input = args.trim();
-		if (input === "status") {
-			const { writer } = this.settings;
-			const route = writerStatus(writer, ctx.isProjectTrusted());
-			ctx.ui.notify(`Automatic summaries: ${this.autoEnabled(ctx) ? "on" : "off"} · manual count: ${this.count() ?? "invalid"} · writer: ${route}${writesThinking(writer) ? "" : " · thinking: headers only"}`);
-			return;
+		const subcommand = SUBCOMMANDS.find((name) => name === input);
+		switch (subcommand) {
+			case "status": {
+				const { writer } = this.settings;
+				const route = writerStatus(writer, ctx.isProjectTrusted());
+				ctx.ui.notify(`Automatic summaries: ${this.autoEnabled(ctx) ? "on" : "off"} · manual count: ${this.count() ?? "invalid"} · writer: ${route}${writesThinking(writer) ? "" : " · thinking: headers only"}`);
+				return;
+			}
+			case "on":
+			case "off":
+				return this.setAutomatic(ctx, subcommand === "on");
 		}
-		if (input === "on" || input === "off") return this.setAutomatic(ctx, input === "on");
 		if (!ctx.isIdle() || ctx.hasPendingMessages() || this.active.manual) {
 			ctx.ui.notify("Wait until Pi is idle to open tool explanations.", "warning");
 			return;
 		}
 		const session = this.active;
 		const { signal } = session.controller;
-		if (input === "recent") return showRecentHistory(ctx, session, this.history);
+		if (subcommand === "recent") return showRecentHistory(ctx, session, this.history);
 		if (!ctx.isProjectTrusted()) { ctx.ui.notify("Tool explanations require a trusted Pi session.", "warning"); return; }
 		const requested = input ? parseCount(input) : this.count() ?? DEFAULT_COUNT;
 		if (!requested) { ctx.ui.notify(`Use ${USAGE}.`, "warning"); return; }

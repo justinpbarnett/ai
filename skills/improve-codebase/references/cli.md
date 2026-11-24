@@ -148,6 +148,7 @@ Scanner findings require current detector coverage of their affected paths; depe
 An unrelated scanner gap does not block that individual resolution, but still blocks whole-scope completion.
 A disappearing detector observation, a skipped file, or a move across the scope boundary is not a resolution.
 For a deliberate in-scope deletion such as removing a forwarding module, include `removal` with exactly the deleted `paths`, reviewed `surviving_paths`, and `evidence` for the deletion and ownership transfer.
+A `wide-folder` finding resolves when the members recorded at pending left the folder as in-scope moves matched by content or as a declared `removal`, and a member still on disk or moved into tests or out of scope is not a resolution.
 
 ## Verification and diagnostics
 

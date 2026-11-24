@@ -162,6 +162,10 @@ def triage(store, state, document, state_dir, entries):
         after["pending_since"] = state["revision"] + 1
         after["pending_snapshot"] = state["snapshot"]
         after["change_evidence"] = string(document, "evidence")
+        if before["rule"] == WIDE_FOLDER:
+            after["pending_members"] = folder_members(
+                entries, before["observation"]["directory"]
+            )
     if status == "resolved":
         removal = verify_resolution(store, state, before, document, state_dir, entries)
         record_resolution(state, before, after, document, removal)
@@ -209,21 +213,74 @@ def authorized_removal(state, finding, document, entries, missing):
     }
 
 
-def directory_membership_changed(finding, entries):
-    if finding["rule"] != WIDE_FOLDER:
-        return False
-    folder = finding["observation"]["directory"]
-    current = sum(
-        1
+def folder_members(entries, folder):
+    return {
+        path: entry["hash"]
         for path, entry in entries.items()
         if entry.get("disposition") == "source"
         and not is_test_path(path)
         and directory(path) == folder
+    }
+
+
+def departed_destinations(state, pending, departed, entries, folder):
+    destinations = {}
+    for path in departed:
+        carriers = [
+            carrier
+            for carrier, entry in entries.items()
+            if entry.get("hash") == pending[path]
+        ]
+        in_scope = [
+            carrier
+            for carrier in carriers
+            if entries[carrier]["disposition"] == "source"
+            and not is_test_path(carrier)
+            and directory(carrier) != folder
+        ]
+        require(
+            in_scope or not carriers,
+            "a move across the scope boundary or into tests is not a resolution",
+        )
+        recorded = state.get("moves", {}).get(path)
+        destinations[path] = [recorded] if recorded in in_scope else in_scope
+    return destinations
+
+
+def wide_folder_inputs(state, finding, document, entries):
+    pending = finding.get("pending_members")
+    require(
+        pending is not None,
+        "this wide-folder finding was marked pending without its members recorded; "
+        "move it to open and mark it pending again",
     )
-    return current != finding["observation"]["files"]
+    folder = finding["observation"]["directory"]
+    current = folder_members(entries, folder)
+    departed = sorted(set(pending) - set(current))
+    require(departed, "no relevant source inputs changed")
+    root = Path(state["root"])
+    require(
+        not any(
+            (root / path).exists() or (root / path).is_symlink() for path in departed
+        ),
+        "a skipped file is not a resolution",
+    )
+    destinations = departed_destinations(state, pending, departed, entries, folder)
+    deleted = {path for path, moved in destinations.items() if not moved}
+    moved_to = {target for moved in destinations.values() for target in moved}
+    removal = None
+    if deleted:
+        removal = authorized_removal(state, finding, document, entries, deleted)
+    location = finding["location"]["path"]
+    required_paths = ({location} - set(departed)) | moved_to
+    if removal:
+        required_paths |= set(removal["surviving_paths"])
+    return required_paths, removal
 
 
 def resolution_inputs(state, finding, document, entries):
+    if finding["rule"] == WIDE_FOLDER:
+        return wide_folder_inputs(state, finding, document, entries)
     required_paths = set(finding["source_hashes"])
     missing = {
         path
@@ -242,8 +299,7 @@ def resolution_inputs(state, finding, document, entries):
         any(
             entries.get(p, {}).get("hash") != stamp
             for p, stamp in finding["source_hashes"].items()
-        )
-        or directory_membership_changed(finding, entries),
+        ),
         "no relevant source inputs changed",
     )
     return required_paths, removal

@@ -10,6 +10,10 @@ When you have a recommendation for reversible work inside the current task, do i
 
 Stop and ask first before production deploys, merges to main, deleting data, and anything other people will see.
 
+## Issues and tickets
+
+When I ask you to file an issue or ticket, file it and stop. Don't read code beyond what the issue needs, and don't start the change, even when the change is reversible. I'll ask for the build separately.
+
 ## Jira
 
 Draft Jira comments and replies in chat with the exact wording, and I post them myself. This holds when the task touches Jira and when I approved a broader plan. Status transitions and changelog sheet updates are fine when I ask for them.

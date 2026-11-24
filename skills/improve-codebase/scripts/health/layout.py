@@ -43,12 +43,17 @@ def production_edges(edges):
     ]
 
 
-def outside_importer_edges(edges, folder):
-    return [
-        (source, target)
-        for source, target in edges
-        if within(target, folder) and not within(source, folder)
-    ]
+def outside_importer_index(edges):
+    index = defaultdict(list)
+    for source, target in edges:
+        end = target.rfind("/")
+        while end > 0:
+            folder = target[:end]
+            if within(source, folder):
+                break
+            index[folder].append((source, target))
+            end = target.rfind("/", 0, end)
+    return index
 
 
 def generic_folders(files, edges):
@@ -58,9 +63,10 @@ def generic_folders(files, edges):
         for ancestor in (parent, *parent.parents):
             if ancestor.name.lower() in GENERIC_FOLDERS:
                 members[ancestor.as_posix()].append(path)
+    outside_importers = outside_importer_index(edges)
     for folder, paths in sorted(members.items()):
         importers = sorted(
-            {directory(source) for source, _ in outside_importer_edges(edges, folder)}
+            {directory(source) for source, _ in outside_importers.get(folder, ())}
         )
         yield (
             GENERIC_FOLDER,
@@ -78,10 +84,11 @@ def generic_folders(files, edges):
 
 
 def single_importers(by_directory, edges):
+    outside_importers = outside_importer_index(edges)
     for folder, paths in sorted(by_directory.items()):
         if folder == "." or len(paths) < 2:
             continue
-        shown = outside_importer_edges(edges, folder)
+        shown = outside_importers.get(folder, [])
         if not shown:
             continue
         importers = {directory(source) for source, _ in shown}

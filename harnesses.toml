@@ -5,10 +5,12 @@
 # Install: ./install.sh [harness|all]   (or python install.py)
 # Uninstall: ./uninstall.sh [harness|all]
 #
-# Minimal profile: only skills + tiny per-harness config files are installed,
+# Minimal profile: skills + tiny per-harness config files are installed,
 # plus one global guidelines file for Claude Code (harness/claude/CLAUDE.md).
-# No rules, agents, or MCP servers. The only hooks and plugins that arrive come
-# from harness/claude/settings.json, which the Claude install links.
+# No rules, agents, or MCP servers. Executable code arrives from two places:
+# the hooks and plugins in harness/claude/settings.json, which the Claude
+# install links, and the TypeScript extensions in pi-config/extensions, which
+# the pi install links into ~/.pi/agent.
 #
 # Manual step, not installed here: Claude Code writes its plugin cache to
 # ~/.claude/plugins. To keep that cache out of ~/.claude, link it yourself with

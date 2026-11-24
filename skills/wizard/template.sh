@@ -93,7 +93,7 @@ pause() {
 # confirm "question" is a y/N gate; returns success on yes.
 confirm() {
   local reply=""
-  printf '  %s? %s [y/N] ' "$YELLOW" "$1"
+  printf '  %s? %s%s [y/N] ' "$YELLOW" "$1" "$RESET"
   if ! read -r reply; then
     _input_ended
     return 1

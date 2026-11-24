@@ -32,10 +32,10 @@ context = "plugins/plan/runtime/planning-context.md"
 
 [planning.skill_groups]
 "plugins/general/skills" = ["research"]
-"plugins/general/runtime/pocock" = ["grill-with-docs", "grilling"]
-"plugins/plan/runtime/pocock" = [
+"plugins/general/runtime" = ["grill-with-docs", "grilling"]
+"plugins/plan/runtime" = [
     "domain-modeling", "to-spec", "to-tickets", "retro",
-    "setup-matt-pocock-skills", "writing-for-agents",
+    "setup-tech-skills", "writing-for-agents",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────

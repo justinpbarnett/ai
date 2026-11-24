@@ -134,12 +134,19 @@ def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool
         for name in names
     }
     context_source = checkout / context_path
+    links = {context: context_source, **sources}
+    # Older installs linked into an extra directory and used the upstream setup name.
+    legacy_links = {}
+    for destination, source in sources.items():
+        if source.parent.name == "runtime":
+            name = "setup-matt-pocock-skills" if destination.name == "setup-tech-skills" else destination.name
+            legacy_links[skills_dir / name] = source.parent / "pocock" / name
 
     if skills_dir.is_symlink() or (skills_dir.exists() and not skills_dir.is_dir()):
         raise ValueError(f"existing {skills_dir} must be a real directory to manage individual planning skills")
 
     if uninstall:
-        for destination, source in (sources | {context: context_source}).items():
+        for destination, source in [*links.items(), *legacy_links.items()]:
             if remove_managed_link(source, destination, dry_run=dry_run):
                 print(f"    REMOVE {destination}")
         return
@@ -157,11 +164,16 @@ def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool
             return
         raise ValueError(message)
 
-    links = {context: context_source, **sources}
     for destination, source in links.items():
         if destination.exists() or destination.is_symlink():
+            if destination in legacy_links and is_managed_link(legacy_links[destination], destination):
+                continue
             if not is_managed_link(source, destination):
                 raise ValueError(f"{destination} already exists and points elsewhere; left the installation untouched")
+
+    for destination, source in legacy_links.items():
+        if remove_managed_link(source, destination, dry_run=dry_run):
+            print(f"    REMOVE old planning link {destination}")
 
     for destination, source in links.items():
         if is_managed_link(source, destination):

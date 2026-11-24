@@ -123,12 +123,12 @@ def folder_cycles(by_directory, edges):
             and directory(source) != directory(target)
         )
         endpoints = sorted({file for edge in file_edges for file in edge})
-        owned_set = set(owned)
-        path = next(file for file in endpoints if directory(file) in owned_set)
+        selected = {path for d in owned for path in by_directory[d]}
+        path = min([file for file in endpoints if file in selected] or selected)
         yield (
             FOLDER_CYCLE,
             path,
-            "directories:" + "|".join(sorted(members)),
+            "directories",
             {
                 "members": members,
                 "edge_count": len(file_edges),

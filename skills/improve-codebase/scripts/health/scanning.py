@@ -12,7 +12,7 @@ from .detectors import (
 from .hashing import content_hash, digest
 from .history import commit_history, hotspots
 from .inventory import inventory
-from .ledger import detect_moves, observe
+from .ledger import detect_moves, located_first, observe, relocation_destination
 from .parsers import capabilities
 from .review_units import REVIEW_VERSION, units_for
 from .rules import HISTORY_RULES
@@ -196,11 +196,16 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
     previous_snapshot = state.get("snapshot")
     prior_entries = state.get("inventory", {}).get("entries", {})
     moves = detect_moves(prior_entries, live["entries"])
-    relocations = {
+    merged_relocations = {
         old: new
         for old, new in state.get("relocations", {}).items()
         if not live["entries"].get(old, {}).get("hash")
     } | moves
+    relocations = {
+        old: new
+        for old, new in merged_relocations.items()
+        if relocation_destination(merged_relocations, old, live["entries"]) is not None
+    }
     old_profile = state.get("observation_profile")
     changed_parser = state.get("parser_profile") != parser_profile
     if snapshot != previous_snapshot:
@@ -231,7 +236,7 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
         scan_revision=state["revision"] + 1,
         scan_repeated_snapshot=previous_snapshot == snapshot,
     )
-    for observation in candidates:
+    for observation in located_first(state, candidates):
         observe(state, observation | {"detector_profile": profile})
     if checkpoint:
         checkpoint_progress(state)
@@ -240,8 +245,10 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
         store.cache(fresh)
         store.delete_detector_cache_outside_prefixes(
             {
-                parser_cache_prefix(current_parser_profile(capabilities(False))),
-                parser_cache_prefix(current_parser_profile(capabilities(True))),
+                parser_cache_prefix(parser_profile),
+                parser_cache_prefix(
+                    current_parser_profile(capabilities(not core_only))
+                ),
             }
         )
         store.save(

@@ -86,6 +86,10 @@ class Store:
             isolation_level=None,
         )
         self.connection.execute("PRAGMA trusted_schema = OFF")
+        if not write and self.is_empty_database():
+            self.close()
+            self.connection = None
+            return
         try:
             if write:
                 with self.transaction():
@@ -95,6 +99,14 @@ class Store:
         except BaseException:
             self.close()
             raise
+
+    def is_empty_database(self):
+        return (
+            self.connection.execute("PRAGMA user_version").fetchone()[0] == 0
+            and not self.connection.execute(
+                "SELECT 1 FROM sqlite_schema LIMIT 1"
+            ).fetchone()
+        )
 
     def select(self, scopes, thresholds, base=None):
         profile = [scopes, ledger_thresholds(thresholds)]

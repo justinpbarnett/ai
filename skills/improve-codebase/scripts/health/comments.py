@@ -22,7 +22,11 @@ ESLINT_NAMES = re.compile(
     r"|exported\s+[\w$]+(?:\s*,\s*[\w$]+)*)\s*$"
 )
 ENCODING = re.compile(r"^#.*coding[:=]\s*[-\w.]+")
-LEGAL = re.compile(r"copyright|SPDX|^\W*(?:the\s+)?licen[sc]e", re.I)
+LEGAL = re.compile(
+    r"copyright\s*(?:\(c\)|©|\d{4})|\(c\)\s*\d{4}|©|all rights reserved|SPDX"
+    r"|^\W*(?:the\s+)?licen[sc]e",
+    re.I,
+)
 MARKER = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
 BANNER = re.compile(r"([=\-#*~_])\1{3,}")
 BRACKETS = re.compile(r"[\s{}()\[\];,]*")

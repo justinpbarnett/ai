@@ -259,7 +259,7 @@ def departed_destinations(state, finding, departed, entries, folder, declared):
     pending = finding["pending_members"]
     known = set(pending) | set(finding["pending_twins"])
     relocations = state.get("relocations", {})
-    moved, deleted = {}, set()
+    move_destinations, deleted = set(), set()
     for digest_value in sorted({pending[path] for path in departed}):
         group = [path for path in departed if pending[path] == digest_value]
         in_folder, in_scope, stray = carrier_classes(
@@ -292,8 +292,8 @@ def departed_destinations(state, finding, departed, entries, folder, declared):
                 "a move across the scope boundary or into tests is not a resolution",
             )
             if carrier in in_scope:
-                moved[path] = carrier
-    return moved, deleted
+                move_destinations.add(carrier)
+    return move_destinations, deleted
 
 
 def wide_folder_inputs(state, finding, document, entries):
@@ -314,16 +314,15 @@ def wide_folder_inputs(state, finding, document, entries):
         ),
         "a skipped file is not a resolution",
     )
-    moved, deleted = departed_destinations(
+    move_destinations, deleted = departed_destinations(
         state, finding, departed, entries, folder, declared_removal_paths(document)
     )
-    require(moved or deleted, "no relevant source inputs changed")
-    moved_to = set(moved.values())
+    require(move_destinations or deleted, "no relevant source inputs changed")
     removal = None
     if deleted:
         removal = authorized_removal(state, finding, document, entries, deleted)
     location = finding["location"]["path"]
-    required_paths = ({location} - set(departed)) | moved_to
+    required_paths = ({location} - set(departed)) | move_destinations
     if removal:
         required_paths |= set(removal["surviving_paths"])
     return required_paths, removal

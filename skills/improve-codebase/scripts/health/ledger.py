@@ -39,14 +39,21 @@ def evidence_paths(finding):
     )
 
 
-def moved_finding(findings, finding, moves):
-    if not moves:
+def unclaimed(state, item):
+    return item.get("last_seen_revision") != state["revision"] + 1
+
+
+def moved_finding(state, finding, entries):
+    relocations = state.get("relocations")
+    if not relocations:
         return None
     destinations = finding["source_hashes"]
     matches = [
         item
-        for item in findings.values()
-        if moves.get(item["location"]["path"]) in destinations
+        for item in state["findings"].values()
+        if unclaimed(state, item)
+        and relocation_destination(relocations, item["location"]["path"], entries)
+        in destinations
         and item["origin"] == finding["origin"]
         and item["rule"] == finding["rule"]
         and item["anchor"] == finding["anchor"]
@@ -57,7 +64,7 @@ def moved_finding(findings, finding, moves):
 
 
 def same_folder_finding(findings, finding):
-    if not finding["anchor"].startswith(("directory:", "directories:")):
+    if finding["origin"] != "scanner" or not finding["anchor"].startswith("directory:"):
         return None
     matches = [
         item
@@ -66,6 +73,24 @@ def same_folder_finding(findings, finding):
         and item["rule"] == finding["rule"]
         and item["anchor"] == finding["anchor"]
         and item.get("identity", "") == finding.get("identity", "")
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def overlapping_members_finding(state, finding):
+    members = finding.get("observation", {}).get("members")
+    if not isinstance(members, list):
+        return None
+    matches = [
+        item
+        for item in state["findings"].values()
+        if unclaimed(state, item)
+        and item["origin"] == finding["origin"]
+        and item["rule"] == finding["rule"]
+        and item["anchor"] == finding["anchor"]
+        and item.get("identity", "") == finding.get("identity", "")
+        and isinstance(item.get("observation", {}).get("members"), list)
+        and set(item["observation"]["members"]) & set(members)
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -90,23 +115,35 @@ def unused_identifier(findings, candidate):
     return candidate
 
 
-def resolve_identity(state, finding):
-    findings = state["findings"]
+def located_prior(state, finding):
     location_key = finding_id(finding)
-    location_keys = state.setdefault("finding_keys", {})
-    identifier = location_keys.get(location_key, location_key)
-    prior = findings.get(identifier)
+    identifier = state.get("finding_keys", {}).get(location_key, location_key)
+    prior = state["findings"].get(identifier)
     if prior is not None and prior["location"]["path"] != finding["location"]["path"]:
         prior = None
+    return location_key, prior
+
+
+def located_first(state, findings):
+    return sorted(
+        findings, key=lambda finding: located_prior(state, finding)[1] is None
+    )
+
+
+def resolve_identity(state, finding, entries):
+    findings = state["findings"]
+    location_key, prior = located_prior(state, finding)
     if prior is None:
-        prior = moved_finding(
-            findings, finding, state.get("moves")
-        ) or same_folder_finding(findings, finding)
+        prior = (
+            moved_finding(state, finding, entries)
+            or same_folder_finding(findings, finding)
+            or overlapping_members_finding(state, finding)
+        )
     if prior is not None:
         identifier = prior["id"]
     else:
         identifier = unused_identifier(findings, location_key)
-    location_keys[location_key] = identifier
+    state.setdefault("finding_keys", {})[location_key] = identifier
     return identifier, prior
 
 
@@ -157,7 +194,7 @@ def observe(state, finding, *, entries=None):
     finding["source_hashes"] = {
         path: entries[path]["hash"] for path in evidence_paths(finding)
     }
-    identifier, prior = resolve_identity(state, finding)
+    identifier, prior = resolve_identity(state, finding, entries)
     if recorded_severity_applies(prior, finding):
         finding["severity"] = prior["severity"]
     status = recurrence_status(prior, finding)

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ClassifierResult, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import { findJev, jevBlocker, trustedJevChoice } from "../shared/openrouter.js";
-import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
+import { isShareablePrompt, promptDigest } from "../shared/prompt-privacy.js";
 
 const PROVIDER = "jev";
 const MODEL = "auto";
@@ -13,7 +13,6 @@ const THINKING_RANK: Record<ModelThinkingLevel, number> = { off: 0, minimal: 1, 
 const CLASSIFIER_TIMEOUT_MS = 3500;
 const EXCERPT_LIMIT = 2000;
 const PENDING_PROMPT_LIMIT = 32;
-const LOCAL_ONLY_INPUT = /(?:^|\s)@\S|<(?:file|skill|attachment)\b|file:\/\/|```|~~~/i;
 
 const DEFAULT_TIERS = {
 	"S+": "openai/gpt-6.2-astra",
@@ -140,7 +139,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("input", (event, ctx) => {
 		if (ctx.model?.provider !== PROVIDER || ![MODEL, UPGRADE_MODEL].includes(ctx.model.id) || !ctx.isProjectTrusted() || event.source === "extension") return;
 		const text = event.text.trim();
-		if (!text || event.images?.length || text.startsWith("/") || LOCAL_ONLY_INPUT.test(text) || CREDENTIAL_LIKE.test(text)) return;
+		if (!text || event.images?.length || !isShareablePrompt(text)) return;
 		if (typedPromptDigests.size >= PENDING_PROMPT_LIMIT) {
 			const oldest = typedPromptDigests.values().next().value;
 			if (oldest !== undefined) typedPromptDigests.delete(oldest);

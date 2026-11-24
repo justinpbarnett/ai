@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
 import { OPENROUTER_WRITER_MODEL, isOpenRouterModelId } from "../shared/openrouter.js";
+import { onlyKnownKeys, readSettingsFile } from "../shared/settings-file.js";
 import type { Writer } from "./writer.js";
 
+const SETTINGS_FILE = "tool-explainer.json";
+const SETTING_KEYS = ["count", "auto", "writer", "ollamaModel", "openrouterModel"] as const;
 export const DEFAULT_COUNT = 3;
 export const MAX_COUNT = 10;
 
@@ -25,6 +25,7 @@ function configuredWriter(kind: unknown, ollamaModel?: string, openrouterModel?:
 
 function parseSettings(value: unknown): Settings {
 	if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("Invalid settings");
+	onlyKnownKeys(value, SETTING_KEYS);
 	const { count, auto, writer, ollamaModel, openrouterModel } = value as Record<string, unknown>;
 	if (count !== undefined && (typeof count !== "number" || !parseCount(count))) throw new Error("Invalid count");
 	if (auto !== undefined && typeof auto !== "boolean") throw new Error("Invalid auto");
@@ -35,9 +36,9 @@ function parseSettings(value: unknown): Settings {
 
 export function config(): Settings {
 	try {
-		return parseSettings(JSON.parse(readFileSync(join(getAgentDir(), "tool-explainer.json"), "utf8")));
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults;
-		return { ...defaults, auto: false, writer: { kind: "off" }, warning: `Invalid tool-explainer.json. Check auto (boolean), count (1–${MAX_COUNT}), writer (ollama, openrouter, or off), and model IDs. Automatic explanations are disabled.` };
+		const value = readSettingsFile(SETTINGS_FILE);
+		return value === undefined ? defaults : parseSettings(value);
+	} catch {
+		return { ...defaults, auto: false, writer: { kind: "off" }, warning: `Invalid ${SETTINGS_FILE}. Check key spelling, auto (boolean), count (1–${MAX_COUNT}), writer (ollama, openrouter, or off), and model IDs. Automatic explanations are disabled.` };
 	}
 }

@@ -1,6 +1,6 @@
 import type { ExtensionContext, InputEvent, ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
 import { JEV_CLASSIFIER_MODEL, findJev, jevBlocker, trustedJevAnswer } from "../shared/openrouter.js";
-import { CREDENTIAL_LIKE, promptDigest } from "../shared/prompt-privacy.js";
+import { isShareablePrompt, promptDigest } from "../shared/prompt-privacy.js";
 import { autoEnabled } from "./policy.js";
 import type { Policy } from "./policy.js";
 import { bounded } from "./requests.js";
@@ -14,8 +14,6 @@ export type JevMode = "on" | "off" | "unavailable";
 type SwitchDecision = "switch" | "deferred" | "unavailable" | "cancelled";
 export type PromptPair = { previous: string; current: string };
 interface Excerpt { digest: string; text: string }
-
-const NON_PROMPT = /(?:^|\s)(?:[!/]\S|@\S)|\[.*?\]\(file:|file:\/\//i;
 
 class TaskSwitchCandidates {
 	private pending?: Excerpt;
@@ -33,7 +31,7 @@ class TaskSwitchCandidates {
 
 	observeInput(event: InputEvent, idle: boolean) {
 		if (!idle || event.source !== "interactive" || event.streamingBehavior || event.images?.length ||
-			!event.text.trim() || NON_PROMPT.test(event.text) || CREDENTIAL_LIKE.test(event.text)) {
+			!event.text.trim() || !isShareablePrompt(event.text)) {
 			this.clear();
 			return;
 		}

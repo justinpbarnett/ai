@@ -4,7 +4,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CREDENTIAL_LIKE } from "../shared/prompt-privacy.js";
-import { clip, plain, purposeExcerpt, safeLabel, sensitive } from "./screening.js";
+import { clip, plain, valueExcerpt, safeLabel, sensitive } from "./screening.js";
 import { shellLabel } from "./shell-label.js";
 
 const MAX_BATCH_BYTES = 12 * 1024;
@@ -49,7 +49,7 @@ function safeName(name: string): string {
 function workspacePath(path: string, cwd: string): string | undefined {
 	if (path.startsWith("~") || /^[a-z]:[/\\]|^\\/i.test(path)) return;
 	const target = relative(cwd, resolve(cwd, path.replace(/^@/, "")));
-	if (target !== ".." && !target.startsWith("../") && !isAbsolute(target)) return plain(target || ".");
+	if (target.split(sep)[0] !== ".." && !isAbsolute(target)) return plain(target || ".");
 }
 
 function safeTarget(raw: string, cwd: string): string | undefined {
@@ -60,24 +60,24 @@ function safeTarget(raw: string, cwd: string): string | undefined {
 	if (safeLabel(target)) return target;
 }
 
-const verbs = {
-	read: ["Read a file", "Could not read a file"],
-	edit: ["Edited a file", "Could not edit a file"],
-	write: ["Wrote a file", "Could not write a file"],
-	search: ["Searched the workspace", "Workspace search failed"],
-	list: ["Listed directory contents", "Could not list directory contents"],
-	gitStatus: ["Checked the working tree", "Could not check the working tree"],
-	gitDiff: ["Inspected changes", "Could not inspect changes"],
-	gitLog: ["Inspected commit history", "Could not inspect commit history"],
-	test: ["Ran a test command", "The test command returned an error"],
-	print: ["Ran a command to print text", "The print command failed"],
-	shell: ["Ran shell code with no visible command name", "Shell code failed"],
-	webSearch: ["Searched the web", "Web search failed"],
-	webRead: ["Fetched web content", "Could not fetch web content"],
-	tool: ["Completed a tool call", "The tool returned an error"],
+const actions = {
+	read: { name: "file read", done: "Read a file", failed: "Could not read a file" },
+	edit: { name: "file edit", done: "Edited a file", failed: "Could not edit a file" },
+	write: { name: "file write", done: "Wrote a file", failed: "Could not write a file" },
+	search: { name: "workspace search", done: "Searched the workspace", failed: "Workspace search failed" },
+	list: { name: "directory listing", done: "Listed directory contents", failed: "Could not list directory contents" },
+	gitStatus: { name: "Git status check", done: "Checked the working tree", failed: "Could not check the working tree" },
+	gitDiff: { name: "Git diff", done: "Inspected changes", failed: "Could not inspect changes" },
+	gitLog: { name: "Git history lookup", done: "Inspected commit history", failed: "Could not inspect commit history" },
+	test: { name: "test command", done: "Ran a test command", failed: "The test command returned an error" },
+	print: { name: "print command", done: "Ran a command to print text", failed: "The print command failed" },
+	shell: { name: "shell command", done: "Ran shell code with no visible command name", failed: "Shell code failed" },
+	webSearch: { name: "web search", done: "Searched the web", failed: "Web search failed" },
+	webRead: { name: "web fetch", done: "Fetched web content", failed: "Could not fetch web content" },
+	tool: { name: "tool call", done: "Completed a tool call", failed: "The tool returned an error" },
 } as const;
 
-export type Action = keyof typeof verbs;
+export type Action = keyof typeof actions;
 
 function bashAction(command: string): Action {
 	if (/[\n\r;&|<>`]|\$\(/.test(command)) return "shell";
@@ -108,35 +108,18 @@ function actionFor(call: Invocation): Action {
 	}
 }
 
-const activityNames = {
-	read: ["file read", "file reads"],
-	edit: ["file edit", "file edits"],
-	write: ["file write", "file writes"],
-	search: ["workspace search", "workspace searches"],
-	list: ["directory listing", "directory listings"],
-	gitStatus: ["Git status check", "Git status checks"],
-	gitDiff: ["Git diff", "Git diffs"],
-	gitLog: ["Git history lookup", "Git history lookups"],
-	test: ["test command", "test commands"],
-	print: ["print command", "print commands"],
-	shell: ["shell command", "shell commands"],
-	webSearch: ["web search", "web searches"],
-	webRead: ["web fetch", "web fetches"],
-} satisfies Record<Exclude<Action, "tool">, [string, string]>;
-
-export type ToolActivity = { singular: string; plural: string; target?: string };
-export const genericActivity: ToolActivity = { singular: "tool call", plural: "tool calls" };
+export type ToolActivity = { name: string; target?: string };
+export const genericActivity: ToolActivity = { name: actions.tool.name };
 
 export function toolActivity(call: Invocation, cwd: string): ToolActivity {
 	const action = actionFor(call);
 	if (action === "tool") {
 		const name = safeName(call.toolName);
-		return name === "tool" || !safeLabel(name) ? genericActivity : { singular: `call to ${name}`, plural: `calls to ${name}` };
+		return name === "tool" || !safeLabel(name) ? genericActivity : { name: `call to ${name}` };
 	}
-	const [singular, plural] = activityNames[action];
 	const rawPath = isFileAction(action) ? stringArg(call, "path") : undefined;
 	const path = rawPath ? safeTarget(rawPath, cwd) : undefined;
-	return { singular, plural, target: path ? purposeExcerpt(basename(path)) : undefined };
+	return { name: actions[action].name, target: path ? valueExcerpt(basename(path)) : undefined };
 }
 
 function manualLabel(call: Invocation, action: Action, cwd: string): string | undefined {
@@ -160,7 +143,7 @@ function manualDescription(call: Call, cwd: string): string {
 	const text = content.some((block) => block.type === "text" && Boolean(block.text.trim()));
 	const suffix = image ? " Returned an image." : !text && !isError ? " No text output." : "";
 	const description = action === "shell" ? describeShell(label, isError)
-		: `${verbs[action][isError ? 1 : 0]}${label ? ` (${label})` : ""}`;
+		: `${actions[action][isError ? "failed" : "done"]}${label ? ` (${label})` : ""}`;
 	return `${description}.${suffix}`;
 }
 
@@ -180,13 +163,13 @@ export function purposeCall(call: Invocation, cwd: string): PurposeCall {
 	const command = shellCommand(call);
 	const rawPath = stringArg(call, "path");
 	const path = rawPath && safeTarget(rawPath, cwd);
-	const target = path ? purposeExcerpt(workspacePath(path, cwd) ?? basename(path)) : undefined;
+	const target = path ? valueExcerpt(workspacePath(path, cwd) ?? basename(path)) : undefined;
 	const query = stringArg(call, "query") ?? stringArg(call, "pattern");
-	return { operation, tool, command, target, search: query ? purposeExcerpt(query) : undefined };
+	return { operation, tool, command, target, search: query ? valueExcerpt(query) : undefined };
 }
 
 function describeShell(label: string | undefined, failed: boolean): string {
-	return label ? `${failed ? "Shell error:" : "Ran"} ${label}` : verbs.shell[failed ? 1 : 0];
+	return label ? `${failed ? "Shell error:" : "Ran"} ${label}` : actions.shell[failed ? "failed" : "done"];
 }
 
 function isFileAction(action: Action): boolean {

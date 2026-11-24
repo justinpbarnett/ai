@@ -202,6 +202,7 @@ Neither model ID needs to be specified if you want the defaults above.
 `count` sets how many recent calls a bare `/explain-tools` explains, from 1 to 10.
 Launch with `--explain-tools-count 4` or `--explain-tools-no-auto` to override either for one session.
 The portable installer links the extension and leaves the settings file local.
+An unknown key, such as a misspelled `writer`, makes Pi warn and turns automatic explanations off.
 Restart Pi or run `/reload` after installing or changing that file.
 To try it without installation, use `pi -ne -e "$HOME/dev/ai/pi-config/extensions/tool-explainer/index.ts"`.
 

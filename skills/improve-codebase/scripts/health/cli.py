@@ -14,12 +14,12 @@ from .ledger import UNRESOLVED
 from .parsers import capabilities
 from .review_packets import PacketSelection, prepare
 from .review_units import STAGES
+from .rules import settings
 from .runs import current_run, fallout_scope, run_name, slice_configuration
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
 from .state import Store, corrupt_database_message, is_corrupt_database
 from .state_dir import STATE_DATABASE, discover_root, safe_state_dir
-from .thresholds import settings
 from .validation import read_json, require
 
 

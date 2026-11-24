@@ -11,6 +11,15 @@ PYTHON_SNAPSHOT_CALL = re.compile(r"assert_?match_?snapshot", re.I)
 JS_SUITES = {"describe", "xdescribe", "fdescribe", "suite"}
 JS_CASES = {"it", "xit", "fit", "test", "xtest", "specify", "xspecify"} | JS_SUITES
 JS_SKIP_MODIFIERS = {"skip", "todo", "fixme"}
+JS_CALLBACK_NODES = frozenset(
+    {
+        "arrow_function",
+        "function_expression",
+        "generator_function",
+        "identifier",
+        "member_expression",
+    }
+)
 JS_SNAPSHOT_MATCHER = re.compile(
     r"^(?:to(?:Match|ThrowErrorMatching)(?:Inline|File|Image)?Snapshot|matchSnapshot)$"
 )
@@ -275,9 +284,13 @@ def js_case_name(data, call):
     if arguments is None or arguments.type != "arguments":
         return None, None
     first = arguments.named_children[0] if arguments.named_child_count else None
-    if first is None or first.type not in {"string", "template_string"}:
+    if first is None:
         return None, None
-    return node_text(data, first).strip("`\"'"), arguments
+    if first.type in {"string", "template_string"}:
+        return node_text(data, first).strip("`\"'"), arguments
+    if any(item.type in JS_CALLBACK_NODES for item in arguments.named_children[1:]):
+        return node_text(data, first), arguments
+    return None, None
 
 
 def is_skipped_js_case(base, modifiers, skipped):

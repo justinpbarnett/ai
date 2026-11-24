@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 from .hashing import digest
 from .ledger import UNRESOLVED, now, strict_debt_points
-from .thresholds import ledger_thresholds
+from .rules import ledger_thresholds
 from .validation import require
 
 SCHEMA_VERSION = 1

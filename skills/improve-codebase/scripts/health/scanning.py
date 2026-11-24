@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .detectors import scan_sources
-from .hashing import analyzer_profiles, content_hash, current_parser_profile, digest
+from .hashing import content_hash, digest
 from .history import commit_history, hotspots
 from .inventory import inventory
 from .ledger import claim_order, detect_moves, observe, relocation_destination
 from .parsers import ParseOptions, capabilities, parser_cache_prefix
+from .profiles import analyzer_profiles, current_parser_profile
 from .review_units import REVIEW_VERSION, units_for
 from .rules import HISTORY_RULES
 from .validation import require

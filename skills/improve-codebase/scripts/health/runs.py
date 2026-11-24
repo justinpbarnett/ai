@@ -4,7 +4,6 @@ from itertools import chain
 from pathlib import PurePosixPath
 
 from .dependency_graph import resolve_edges
-from .hashing import current_parser_profile
 from .history import REGULAR_MODES, git
 from .inventory import (
     MAX_SOURCE_BYTES,
@@ -18,6 +17,7 @@ from .inventory import (
 )
 from .parsers import ParseOptions, analyze, capabilities, parse_snapshot
 from .paths import directory, in_paths
+from .profiles import current_parser_profile
 from .review_units import needs_wiring_review
 from .validation import require
 

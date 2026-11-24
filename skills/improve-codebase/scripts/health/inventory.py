@@ -119,6 +119,7 @@ GENERATOR_BANNER = re.compile(
 BANNER_CONTINUED_END = re.compile(rb"[A-Za-z0-9,]$")
 BANNER_CONTINUATION = re.compile(rb"[a-z]")
 BANNER_COMMENT = re.compile(rb"^\s*(?:(?://+|#+|/\*+|<!--|\*)\s*)(.*)$")
+MARKDOWN_BANNER_COMMENT = re.compile(rb"^\s*<!--\s*(.*)$")
 BANNER_PROLOGUE = re.compile(rb"^\s*(?:<\?xml|<!doctype)", re.I)
 BANNER_LINES = 12
 NON_SOURCE = set(
@@ -357,8 +358,8 @@ def has_generated_banner(data, markdown=False):
         if not line.strip() or BANNER_PROLOGUE.match(line):
             previous = None
             continue
-        comment = BANNER_COMMENT.match(line)
-        if comment is None or (markdown and line.lstrip().startswith(b"#")):
+        comment = (MARKDOWN_BANNER_COMMENT if markdown else BANNER_COMMENT).match(line)
+        if comment is None:
             return False
         text = comment.group(1)
         if not continues_sentence(previous, text) and GENERATOR_BANNER.search(text):

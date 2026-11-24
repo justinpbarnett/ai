@@ -25,6 +25,7 @@ class ScanScope:
     scopes: list[str]
     thresholds: dict[str, int]
     state_dir: Path
+    fallout_plan: tuple | None = None
 
     def history(self):
         return commit_history(self.root, self.is_git)

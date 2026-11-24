@@ -29,7 +29,7 @@ from .state_dir import STATE_DATABASE, discover_root, safe_state_dir
 from .validation import read_json, require
 
 
-def validate_run_arguments(args, root, is_git):
+def validate_run_arguments(args):
     if args.action == "list":
         require(
             not (args.run or args.scope or args.thresholds),
@@ -42,17 +42,21 @@ def validate_run_arguments(args, root, is_git):
     else:
         require(not args.run, "pass the new run name as a positional argument")
         require(args.base or not args.include, "--include requires --base")
-        if args.base:
-            require(is_git, "fallout mode requires a Git worktree")
-            resolve_base_commit(root, args.base)
 
 
-def plan_fallout(args, root, is_git, scopes, thresholds):
-    state_dir = safe_state_dir(root, is_git, args.state_dir, False)
-    store = Store(state_dir / STATE_DATABASE, root, scopes, thresholds)
+def plan_fallout(args, scope):
+    if not (args.command == "run" and args.action == "start" and args.base):
+        return None
+    require(scope.is_git, "fallout mode requires a Git worktree")
+    resolve_base_commit(scope.root, args.base)
+    store = Store(
+        scope.state_dir / STATE_DATABASE, scope.root, scope.scopes, scope.thresholds
+    )
     try:
         require_new_run(store, args.name)
-        return fallout_scope(store, root, state_dir, scopes, args.base, args.include)
+        return fallout_scope(
+            store, scope.root, scope.state_dir, scope.scopes, args.base, args.include
+        )
     finally:
         store.close()
 
@@ -63,7 +67,7 @@ def require_new_run(store, name):
     )
 
 
-def configure_run(args, store, scope, plan):
+def configure_run(args, store, scope):
     if args.action == "list":
         return {"runs": store.runs()}
     name = run_name(args.name)
@@ -78,8 +82,8 @@ def configure_run(args, store, scope, plan):
             "scope": scope.scopes,
             "thresholds": scope.thresholds,
         }
-        if plan:
-            paths, fallout = plan
+        if scope.fallout_plan:
+            paths, fallout = scope.fallout_plan
             configuration.update(scope=paths, fallout=fallout)
     with store.transaction():
         require_new_run(store, name)
@@ -192,13 +196,9 @@ def command_workspace(args, envelope):
     )
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
-    plan = None
     if args.command == "run":
-        validate_run_arguments(args, root, is_git)
-        if args.action == "start" and args.base:
-            plan = plan_fallout(args, root, is_git, scopes, thresholds)
-    initialize = not args.run and args.writes and args.command in {"scan", "run"}
-    state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
+        validate_run_arguments(args)
+    state_dir = safe_state_dir(root, is_git, args.state_dir, False)
     envelope.update(
         root=str(root),
         git_worktree=is_git,
@@ -206,6 +206,11 @@ def command_workspace(args, envelope):
         state_dir=str(state_dir),
         state_path=str(state_dir / STATE_DATABASE),
     )
+    scope = ScanScope(root, is_git, scopes, thresholds, state_dir)
+    scope = replace(scope, fallout_plan=plan_fallout(args, scope))
+    initialize = not args.run and args.writes and args.command in {"scan", "run"}
+    if initialize:
+        state_dir = safe_state_dir(root, is_git, args.state_dir, True)
     if args.writes and not initialize:
         require(
             (state_dir / STATE_DATABASE).is_file(),
@@ -214,7 +219,7 @@ def command_workspace(args, envelope):
             else "scan before recording evidence",
         )
         state_dir = safe_state_dir(root, is_git, args.state_dir, True)
-    return ScanScope(root, is_git, scopes, thresholds, state_dir), plan
+    return replace(scope, state_dir=state_dir)
 
 
 def doctor_command(args, scope, envelope):
@@ -236,9 +241,9 @@ def open_store(args, scope):
         store.close()
 
 
-def run_command(args, scope, envelope, plan=None):
+def run_command(args, scope, envelope):
     with open_store(args, scope) as store:
-        return configure_run(args, store, scope, plan), 0
+        return configure_run(args, store, scope), 0
 
 
 def load_ledger(args, store, scope, envelope):
@@ -331,9 +336,7 @@ HANDLERS = CommandHandlers(
 
 
 def execute(args, envelope):
-    scope, plan = command_workspace(args, envelope)
-    if plan:
-        return args.handler(args, scope, envelope, plan)
+    scope = command_workspace(args, envelope)
     return args.handler(args, scope, envelope)
 
 

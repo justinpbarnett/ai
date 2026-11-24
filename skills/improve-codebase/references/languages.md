@@ -23,6 +23,7 @@ Check whether the project's compiler or runtime accepts the input before treatin
 If the project accepts it, keep the source unchanged and report the scanner limitation unless there is a separate, verified reason to change the source.
 Unresolved references are reported as limitations, not guessed edges; unresolved Vue external blocks are capability gaps.
 Standard library, `node:` and unaliased package imports are reported as `external` limitations and do not make a file need wiring review; Python packages outside the standard library stay unresolved, since the resolver cannot tell them from a missing local module.
+A Python import that names a directory holding Python sources (a namespace package, or a package importing itself) records no edge and no limitation; its members still resolve or report.
 In a supported `tsconfig.json` or `jsconfig.json`, `paths` targets are relative to the config directory unless it sets `baseUrl`.
 An unmatched bare specifier is only tried directly under an explicit `baseUrl`.
 

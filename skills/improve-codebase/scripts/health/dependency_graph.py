@@ -244,36 +244,37 @@ def source_or_stub(paths, stem):
     return stem + ".py" if stem + ".py" in paths else stem + ".pyi"
 
 
-def python_targets(site, ref):
+def python_module_paths(site, ref):
     dots = len(ref) - len(ref.lstrip("."))
     if dots > len(site.ancestors):
         return []
-    bases = python_bases(site.ancestors, site.project, dots)
     tail = ref[dots:].replace(".", "/")
+    return [
+        posixpath.normpath(posixpath.join(base, tail))
+        for base in python_bases(site.ancestors, site.project, dots)
+    ]
+
+
+def python_targets(site, ref):
+    named = bool(ref.lstrip("."))
     matches = []
-    for base in bases:
-        resolved = posixpath.normpath(posixpath.join(base, tail))
+    for resolved in python_module_paths(site, ref):
         candidates = [
             source_or_stub(
                 site.paths, posixpath.normpath(posixpath.join(resolved, "__init__"))
             )
         ]
-        if tail:
+        if named:
             candidates = [source_or_stub(site.paths, resolved), *candidates]
         matches.extend(path for path in candidates if path in site.paths)
     return matches
 
 
 def names_python_package_directory(site, ref):
-    dots = len(ref) - len(ref.lstrip("."))
-    if dots > len(site.ancestors):
-        return False
-    tail = ref[dots:].replace(".", "/")
-    for base in python_bases(site.ancestors, site.project, dots):
-        directory = posixpath.normpath(posixpath.join(base, tail))
-        if directory in site.python_directories:
-            return True
-    return False
+    return any(
+        directory in site.python_directories
+        for directory in python_module_paths(site, ref)
+    )
 
 
 def python_source_directories(paths):

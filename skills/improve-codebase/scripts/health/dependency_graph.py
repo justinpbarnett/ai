@@ -32,6 +32,7 @@ class ImportSite:
     ancestors: tuple[PurePosixPath, ...]
     project: str
     aliases: LocalAliases | None
+    python_directories: frozenset[str]
 
 
 def relative_option(value):
@@ -263,6 +264,27 @@ def python_targets(site, ref):
     return matches
 
 
+def names_python_package_directory(site, ref):
+    dots = len(ref) - len(ref.lstrip("."))
+    if dots > len(site.ancestors):
+        return False
+    tail = ref[dots:].replace(".", "/")
+    for base in python_bases(site.ancestors, site.project, dots):
+        directory = posixpath.normpath(posixpath.join(base, tail))
+        if directory in site.python_directories:
+            return True
+    return False
+
+
+def python_source_directories(paths):
+    return frozenset(
+        str(ancestor)
+        for path in paths
+        if path.endswith((".py", ".pyi"))
+        for ancestor in PurePosixPath(path).parents
+    )
+
+
 def style_targets(paths, parent, ref):
     base = "." if ref.startswith("/") else parent
     stripped = ref.removeprefix("/")
@@ -348,6 +370,8 @@ def unresolved_problem(site, import_kind, ref, targets):
         return None
     if is_external_import(site.aliases, import_kind, ref):
         return EXTERNAL_PROBLEM
+    if import_kind in PYTHON_KINDS and names_python_package_directory(site, ref):
+        return None
     return "unresolved or external"
 
 
@@ -362,6 +386,7 @@ def resolve_edges(entries, parsed, sources):
         if entry["disposition"] in {"source", "context"}
     }
     profiles = parse_local_aliases(sources)
+    python_directories = python_source_directories(paths)
     edges, limitations = set(), defaultdict(set)
     gaps = []
     for path, result in parsed.items():
@@ -369,7 +394,11 @@ def resolve_edges(entries, parsed, sources):
         ancestors = (parent, *parent.parents)
         entry = entries[path]
         site = ImportSite(
-            paths, ancestors, entry["project"], nearest_aliases(ancestors, profiles)
+            paths,
+            ancestors,
+            entry["project"],
+            nearest_aliases(ancestors, profiles),
+            python_directories,
         )
         limits = source_limitations(result, site.aliases, entry["language"])
         if limits:

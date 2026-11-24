@@ -6,6 +6,8 @@ End every report with a short, separate **Waiting on you** list. Each item names
 
 Write each report so someone reading cold can follow it: lead with what happened in plain words, and define any internal name, flag or label the first time you use it. When I say I don't understand, rewrite the answer from the start in plain words instead of adding detail.
 
+When I ask for a shorter version, a Slack message, or a plain-language version, reply with only that text at the length I asked for. No preamble, no breakdown, and no second version after it.
+
 ## Reversible work
 
 When you have a recommendation for reversible work inside the current task, do it, then report. That covers gaps you found, follow up fixes, cleanup, opening PRs into staging, merging a PR into staging once its checks pass when I have asked for the merge, and committing your own edits. I answer "do what you recommend" almost every time, so a turn that ends by offering the work costs me a round trip. A status update ends with your recommendation, and by then its reversible part is already done: only steps from the list below wait for my word.

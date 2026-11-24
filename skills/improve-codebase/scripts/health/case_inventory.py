@@ -5,7 +5,7 @@ SKIP_DECORATOR = re.compile(r"@\s*(?:[\w.]+\.)?(?:skip|xfail)\b(?!\w)")
 PYTHON_INTERACTION = re.compile(
     r"assert_(?:not_)?(?:called|awaited|any_call|any_await|has_calls|has_awaits)\w*"
 )
-PYTHON_SKIP_CALLS = {"skip", "xfail", "skipTest"}
+PYTHON_SKIP_CALLS = {"skip", "xfail", "pytest.skip", "pytest.xfail", "self.skipTest"}
 PYTHON_SNAPSHOT_FIXTURE = "snapshot"
 PYTHON_SNAPSHOT_CALL = re.compile(r"assert_?match_?snapshot", re.I)
 JS_SUITES = {"describe", "xdescribe", "fdescribe", "suite"}
@@ -27,6 +27,7 @@ CSHARP_TEST_ATTRIBUTES = {
     "TestCaseSource",
 }
 CSHARP_SKIP_ATTRIBUTES = {"Ignore", "Skip"}
+CSHARP_ROW_ATTRIBUTES = {"TestCase", "InlineData", "DataRow", "TestFixture"}
 CSHARP_SKIP_ARGUMENTS = {"Skip", "Ignore", "IgnoreReason"}
 CSHARP_SKIPPABLE_DECLARATIONS = {
     "method_declaration",
@@ -78,7 +79,7 @@ def count_python_call(data, call, case):
         case["assertions"] += 1
     if PYTHON_INTERACTION.fullmatch(last):
         case["interactions"] += 1
-    if last in PYTHON_SKIP_CALLS:
+    if name in PYTHON_SKIP_CALLS:
         case["skipped"] = True
     if PYTHON_SNAPSHOT_CALL.fullmatch(last):
         case["snapshots"] += 1
@@ -318,9 +319,13 @@ def csharp_count(data, node, case):
 
 
 def has_skip(data, node):
-    return any(
-        name in CSHARP_SKIP_ATTRIBUTES or skip_argument(data, attribute)
-        for name, attribute in attribute_names(data, node)
+    rows, others = [], []
+    for name, attribute in attribute_names(data, node):
+        if name in CSHARP_SKIP_ATTRIBUTES:
+            return True
+        (rows if name in CSHARP_ROW_ATTRIBUTES else others).append(attribute)
+    return any(skip_argument(data, attribute) for attribute in others) or (
+        bool(rows) and all(skip_argument(data, attribute) for attribute in rows)
     )
 
 

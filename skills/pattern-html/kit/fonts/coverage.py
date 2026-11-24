@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+SUBTABLE = re.compile(r'<cmap_format_(\d+) platformID="(\d+)" platEncID="(\d+)"[^>]*>(.*?)</cmap_format_\1>', re.S)
+UNICODE_WINDOWS_ENCODINGS = ("1", "10")
 HERE = Path(__file__).resolve().parent
 FACES = {
     "Routed Gothic": ["routed-gothic"],
@@ -19,7 +21,12 @@ def points(name, work):
     subprocess.run(["woff2_decompress", str(work / f"{name}.woff2")], check=True)
     subprocess.run(["ttx", "-q", "-t", "cmap", "-o", str(work / f"{name}.ttx"), str(work / f"{name}.ttf")], check=True)
     dump = (work / f"{name}.ttx").read_text(encoding="utf-8")
-    return {int(code, 16) for code in re.findall(r'<map code="0x([0-9a-fA-F]+)"', dump)}
+    return {
+        int(code, 16)
+        for _, platform, encoding, body in SUBTABLE.findall(dump)
+        if platform == "0" or (platform == "3" and encoding in UNICODE_WINDOWS_ENCODINGS)
+        for code in re.findall(r'<map code="0x([0-9a-fA-F]+)"', body)
+    }
 
 
 def ranges(codes):

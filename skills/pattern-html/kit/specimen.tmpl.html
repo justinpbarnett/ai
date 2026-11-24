@@ -65,14 +65,14 @@
 <div class="wide">
 <table>
   <tr><th style="width:110px">Name</th><th style="width:110px">Value</th><th>Job</th><th class="num" style="width:130px">On ground</th><th style="width:230px">Shown</th></tr>
-  <tr><td>Ground</td><td>#0B0C0E</td><td>The page itself</td><td class="num"></td><td>Behind everything</td></tr>
-  <tr><td>Ink</td><td>#E7E5DF</td><td>Everything read</td><td class="num">15.5 to 1</td><td>This text</td></tr>
-  <tr><td>Muted</td><td>#9C9A93</td><td>The second voice: kickers, credits, table heads</td><td class="num">6.95 to 1</td><td><span class="muted">This text</span></td></tr>
-  <tr><td>Rule</td><td>#2B2C31</td><td>Lines only. Too faint to carry a word</td><td class="num">1.4 to 1</td><td>The lines of this table</td></tr>
-  <tr><td>Act</td><td>#FFD60A</td><td>One 2 px line on the one thing to do</td><td class="num">13.9 to 1</td><td>The line at the foot of this page</td></tr>
-  <tr><td>OK</td><td>#22C55E</td><td>A state that is fine</td><td class="num">8.6 to 1</td><td><span class="state ok">OK</span></td></tr>
-  <tr><td>Caution</td><td>#FFD60A</td><td>A state that needs a look. A filled field with black letters</td><td class="num">13.9 to 1</td><td><span class="state caution">Caution</span></td></tr>
-  <tr><td>Fault</td><td>#E5484D</td><td>A state that is broken</td><td class="num">5.0 to 1</td><td><span class="state fault">Fault</span></td></tr>
+  <tr><td>Ground</td><td>{{fact:token-ground}}</td><td>The page itself</td><td class="num"></td><td>Behind everything</td></tr>
+  <tr><td>Ink</td><td>{{fact:token-ink}}</td><td>Everything read</td><td class="num">{{fact:contrast-ink}}</td><td>This text</td></tr>
+  <tr><td>Muted</td><td>{{fact:token-muted}}</td><td>The second voice: kickers, credits, table heads</td><td class="num">{{fact:contrast-muted}}</td><td><span class="muted">This text</span></td></tr>
+  <tr><td>Rule</td><td>{{fact:token-rule}}</td><td>Lines only. Too faint to carry a word</td><td class="num">{{fact:contrast-rule}}</td><td>The lines of this table</td></tr>
+  <tr><td>Act</td><td>{{fact:token-act}}</td><td>One 2 px line on the one thing to do</td><td class="num">{{fact:contrast-act}}</td><td>The line at the foot of this page</td></tr>
+  <tr><td>OK</td><td>{{fact:token-ok}}</td><td>A state that is fine</td><td class="num">{{fact:contrast-ok}}</td><td><span class="state ok">OK</span></td></tr>
+  <tr><td>Caution</td><td>{{fact:token-caution}}</td><td>A state that needs a look. A filled field with black letters</td><td class="num">{{fact:contrast-caution}}</td><td><span class="state caution">Caution</span></td></tr>
+  <tr><td>Fault</td><td>{{fact:token-fault}}</td><td>A state that is broken</td><td class="num">{{fact:contrast-fault}}</td><td><span class="state fault">Fault</span></td></tr>
 </table>
 </div>
 <p><span class="tag call">New</span>A readout: one number that matters, with its unit, and its state beside the sentence that explains it.</p>
@@ -108,12 +108,12 @@
 <table>
   <caption>The fonts inside every built page</caption>
   <tr><th>File</th><th>Job</th><th class="num">Bytes</th></tr>
-  <tr><td><code>routed-gothic.woff2</code></td><td>Marks and titles</td><td class="num">19,976</td></tr>
-  <tr><td><code>jbm-Regular.woff2</code></td><td>Reading text</td><td class="num">24,756</td></tr>
-  <tr><td><code>jbm-Bold.woff2</code></td><td>Bold</td><td class="num">25,232</td></tr>
-  <tr><td><code>jbm-Italic.woff2</code></td><td>Italic</td><td class="num">26,412</td></tr>
-  <tr><td><code>jbm-BoldItalic.woff2</code></td><td>Bold italic</td><td class="num">26,804</td></tr>
-  <tr><td><strong>All five</strong></td><td>About 164 KB once written into the page as text</td><td class="num"><strong>123,180</strong></td></tr>
+  <tr><td><code>routed-gothic.woff2</code></td><td>Marks and titles</td><td class="num">{{fact:bytes-routed-gothic.woff2}}</td></tr>
+  <tr><td><code>jbm-Regular.woff2</code></td><td>Reading text</td><td class="num">{{fact:bytes-jbm-Regular.woff2}}</td></tr>
+  <tr><td><code>jbm-Bold.woff2</code></td><td>Bold</td><td class="num">{{fact:bytes-jbm-Bold.woff2}}</td></tr>
+  <tr><td><code>jbm-Italic.woff2</code></td><td>Italic</td><td class="num">{{fact:bytes-jbm-Italic.woff2}}</td></tr>
+  <tr><td><code>jbm-BoldItalic.woff2</code></td><td>Bold italic</td><td class="num">{{fact:bytes-jbm-BoldItalic.woff2}}</td></tr>
+  <tr><td><strong>All five</strong></td><td>About {{fact:kb-fonts}} KB once written into the page as text</td><td class="num"><strong>{{fact:bytes-fonts}}</strong></td></tr>
 </table>
 </div>
 <p><span class="tag take">Approved</span>Terms and their meanings, <code>dl</code>, as the cards in section 09 use it. <span class="tag call">New</span><code>dl.w</code> gives the terms a wider column.</p>
@@ -279,7 +279,7 @@
     <h3>One Act</h3>
     <p class="lead">The brand yellow, as one thin line on the one thing the page asks for.</p>
     <dl>
-      <dt>Value</dt><dd>#FFD60A, 2 px, along the top edge of the ask or of the primary button.</dd>
+      <dt>Value</dt><dd>{{fact:token-act}}, 2 px, along the top edge of the ask or of the primary button.</dd>
       <dt>When</dt><dd>Once on a page, and only when the page asks for something.</dd>
       <dt>Limit</dt><dd>Never a filled button, a heading, a highlight, or a line in a chart.</dd>
     </dl>
@@ -288,7 +288,7 @@
     <h3>States</h3>
     <p class="lead">Green, yellow, and red report a real state and nothing else, and each shows its word.</p>
     <dl>
-      <dt>Value</dt><dd>OK in #22C55E. CAUTION as a filled #FFD60A field with black letters. FAULT in #E5484D.</dd>
+      <dt>Value</dt><dd>OK in {{fact:token-ok}}. CAUTION as a filled {{fact:token-caution}} field with black letters. FAULT in {{fact:token-fault}}.</dd>
       <dt>When</dt><dd>A check that passed or failed, a machine that is up or down, a value inside or outside its limit.</dd>
       <dt>Limit</dt><dd>Never to rank, to decorate, or to tell the lines of a chart apart.</dd>
     </dl>
@@ -297,7 +297,7 @@
     <h3>Square</h3>
     <p class="lead">Square corners and 1 px rules. A part stands out by its frame, never by a shadow.</p>
     <dl>
-      <dt>Value</dt><dd>Lines 1 px in #2B2C31. A frame in ink where a part has to stand out, as a tag or a button does.</dd>
+      <dt>Value</dt><dd>Lines 1 px in {{fact:token-rule}}. A frame in ink where a part has to stand out, as a tag or a button does.</dd>
       <dt>When</dt><dd>Every part of every page.</dd>
       <dt>Limit</dt><dd>No rounded corner, no shadow, no gradient, no blur.</dd>
     </dl>

@@ -26,7 +26,7 @@ woff2_compress routed-gothic.ttf
 
 Keep it that way. The license reserves the name, so a subset or an altered copy would have to ship under another name.
 
-It holds 522 characters. It has the middle dot, × − + ± °, the four arrows, ′ ″, µ, Ø, ⌀, §, #, and curly quotes. It has no ellipsis, no Greek (so no Ω), and no ≤ ≥ ≈ ✓ ■. Spell those out in a title or a drawing label, or keep them in reading text.
+It holds 485 characters. It has the middle dot, × − + ± °, the four arrows, ′ ″, µ, Ø, ⌀, §, #, and curly quotes. It has no ellipsis, no Greek (so no Ω), and no ≤ ≥ ≈ ✓ ■. Spell those out in a title or a drawing label, or keep them in reading text.
 
 ## JetBrains Mono
 

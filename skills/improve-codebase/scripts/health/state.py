@@ -11,6 +11,7 @@ from .rules import ledger_thresholds
 from .validation import require
 
 SCHEMA_VERSION = 1
+UNIT_STATES = ("units", "previous_units")
 PRESERVE_LEDGER = "preserve the ledger and ask before archiving it"
 CORRUPT_CODES = {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}
 RUNS_TABLE = (
@@ -33,6 +34,106 @@ def is_corrupt_database(exc):
 
 def corrupt_database_message(exc):
     return f"state database is corrupt ({exc}); {PRESERVE_LEDGER}"
+
+
+UNIT_MAPS = ("context", "limitations", "rule_hashes")
+UNIT_SHAPE = (*UNIT_MAPS, "relationships", "files", "axis")
+
+
+def is_file_unit(unit):
+    return len(unit["files"]) == 1 and not unit.get("wiring_partition")
+
+
+def unit_edges(unit):
+    return {tuple(edge) for edge in unit["relationships"]}
+
+
+def usable_bases(unit, units, file_units):
+    bases = []
+    for path in unit["files"]:
+        base_id = file_units.get((unit["axis"], path))
+        base = units.get(base_id)
+        if base is None or base is unit or not all(key in base for key in UNIT_SHAPE):
+            continue
+        if all(base[name].keys() <= unit[name].keys() for name in UNIT_MAPS) and (
+            unit_edges(base) <= unit_edges(unit)
+        ):
+            bases.append(base_id)
+    return bases
+
+
+def merged_maps(bases, source):
+    merged = {name: {} for name in UNIT_MAPS}
+    edges = set()
+    for base_id in bases:
+        for name in UNIT_MAPS:
+            merged[name].update(source[base_id][name])
+        edges |= unit_edges(source[base_id])
+    return merged, edges
+
+
+def remainder_unit(unit, bases, merged, edges):
+    remainder = {
+        **unit,
+        "bases": bases,
+        "relationships": sorted(unit_edges(unit) - edges),
+    }
+    for name in UNIT_MAPS:
+        remainder[name] = {
+            key: value
+            for key, value in sorted(unit[name].items())
+            if key not in merged[name] or merged[name][key] != value
+        }
+    return remainder
+
+
+def loaded_unit(stored, source):
+    bases = stored.get("bases")
+    if not bases:
+        return stored
+    merged, edges = merged_maps(bases, source)
+    unit = {key: value for key, value in stored.items() if key != "bases"}
+    for name in UNIT_MAPS:
+        unit[name] = dict(sorted((merged[name] | stored[name]).items()))
+    unit["relationships"] = [list(edge) for edge in sorted(edges | unit_edges(stored))]
+    return unit
+
+
+def normalized_unit(unit):
+    if not all(key in unit for key in UNIT_SHAPE):
+        return unit
+    return {**unit, "relationships": [list(edge) for edge in unit["relationships"]]}
+
+
+def stored_unit(unit, units, file_units):
+    if not all(key in unit for key in UNIT_SHAPE) or is_file_unit(unit):
+        return unit
+    bases = usable_bases(unit, units, file_units)
+    if not bases:
+        return unit
+    merged, edges = merged_maps(bases, units)
+    stored = remainder_unit(unit, bases, merged, edges)
+    if loaded_unit(stored, units) != normalized_unit(unit):
+        return unit
+    return stored
+
+
+def stored_units(units):
+    file_units = {
+        (unit["axis"], unit["files"][0]): identifier
+        for identifier, unit in units.items()
+        if all(key in unit for key in UNIT_SHAPE) and is_file_unit(unit)
+    }
+    return {
+        identifier: stored_unit(unit, units, file_units)
+        for identifier, unit in units.items()
+    }
+
+
+def loaded_units(stored):
+    return {
+        identifier: loaded_unit(unit, stored) for identifier, unit in stored.items()
+    }
 
 
 def packed(value):
@@ -190,7 +291,10 @@ class Store:
                 "idle_cycles": 0,
                 "progress_at_checkpoint": 0,
             }
-        return unpacked(row[1]) | {"revision": row[0]}
+        state = unpacked(row[1]) | {"revision": row[0]}
+        return state | {
+            name: loaded_units(state[name]) for name in UNIT_STATES if name in state
+        }
 
     def stored_revision(self):
         row = self.connection.execute(
@@ -210,7 +314,18 @@ class Store:
         state["revision"] += 1
         self.connection.execute(
             "INSERT OR REPLACE INTO scopes VALUES (?, ?, ?)",
-            (self.key, state["revision"], packed(state)),
+            (
+                self.key,
+                state["revision"],
+                packed(
+                    state
+                    | {
+                        name: stored_units(state[name])
+                        for name in UNIT_STATES
+                        if name in state
+                    }
+                ),
+            ),
         )
         self.connection.execute(
             "INSERT INTO history(scope, at, kind, payload) VALUES (?, ?, ?, ?)",

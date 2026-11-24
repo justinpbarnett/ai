@@ -26,6 +26,14 @@ CSHARP_TEST_ATTRIBUTES = {
     "DataTestMethod",
     "TestCaseSource",
 }
+CSHARP_SKIP_ATTRIBUTES = {"Ignore", "Skip"}
+CSHARP_SKIP_ARGUMENTS = {"Skip", "Ignore", "IgnoreReason"}
+CSHARP_SKIPPABLE_DECLARATIONS = {
+    "method_declaration",
+    "class_declaration",
+    "record_declaration",
+    "struct_declaration",
+}
 CSHARP_INTERACTIONS = {
     "Received",
     "DidNotReceive",
@@ -267,7 +275,7 @@ def skip_argument(data, attribute):
         argument.type == "attribute_argument"
         and argument.named_children
         and argument.named_children[0].type == "identifier"
-        and node_text(data, argument.named_children[0]) == "Skip"
+        and node_text(data, argument.named_children[0]) in CSHARP_SKIP_ARGUMENTS
         and argument.named_child_count > 1
         for argument in descendants(attribute)
     )
@@ -311,16 +319,14 @@ def csharp_count(data, node, case):
 
 def has_skip(data, node):
     return any(
-        name in {"Ignore", "Skip"} or skip_argument(data, attribute)
+        name in CSHARP_SKIP_ATTRIBUTES or skip_argument(data, attribute)
         for name, attribute in attribute_names(data, node)
     )
 
 
 def csharp_skipped(data, node):
     while node is not None:
-        if node.type in {"method_declaration", "class_declaration"} and has_skip(
-            data, node
-        ):
+        if node.type in CSHARP_SKIPPABLE_DECLARATIONS and has_skip(data, node):
             return True
         node = node.parent
     return False

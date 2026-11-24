@@ -432,7 +432,10 @@ def import_review(store, state, document, entries):
         )
         receipts.extend(rows)
         observed.extend(findings)
-    store.save_receipts(receipts)
+    store.save_receipts(
+        receipts,
+        {unit["inputs"]: unit["context"] for unit in upload.expected.values()},
+    )
     store.consume_packet(packet["id"])
     store.save(
         state,

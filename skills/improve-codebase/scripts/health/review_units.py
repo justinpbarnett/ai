@@ -177,7 +177,9 @@ def confirmation_matches(saved, discovery, completion):
 
 def matching_receipts(store, state, entries, *, completion=False, stale_inputs=None):
     units = state.get("units", {})
-    receipts = store.receipts({unit["inputs"] for unit in units.values()})
+    receipts = store.receipts(
+        {unit["inputs"]: unit["context"] for unit in units.values()}
+    )
     valid = {}
     for unit_id, unit in units.items():
         passes = {}

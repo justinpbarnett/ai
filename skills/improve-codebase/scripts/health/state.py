@@ -10,7 +10,8 @@ from .ledger import UNRESOLVED, now, strict_debt_points
 from .rules import ledger_thresholds
 from .validation import require
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+LEGACY_SCHEMA_VERSION = 1
 UNIT_STATES = ("units", "previous_units")
 PRESERVE_LEDGER = "preserve the ledger and ask before archiving it"
 CORRUPT_CODES = {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}
@@ -136,6 +137,22 @@ def loaded_units(stored):
     }
 
 
+def outside_context(reads, context):
+    return {
+        path: stamp
+        for path, stamp in sorted(reads.items())
+        if context.get(path) != stamp
+    }
+
+
+def stored_receipt(receipt, context):
+    return {**receipt, "reads": outside_context(receipt["reads"], context)}
+
+
+def loaded_receipt(stored, context):
+    return {**stored, "reads": dict(sorted((context | stored["reads"]).items()))}
+
+
 def packed(value):
     return zlib.compress(
         json.dumps(
@@ -255,13 +272,15 @@ class Store:
             self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             return
         require(
-            schema == SCHEMA_VERSION,
+            schema in (LEGACY_SCHEMA_VERSION, SCHEMA_VERSION),
             f"unsupported state schema {schema}; expected {SCHEMA_VERSION}",
         )
         identity = self.connection.execute("SELECT root FROM identity").fetchall()
         require(
             identity == [(str(root),)], "state database belongs to a different worktree"
         )
+        if initialize and schema == LEGACY_SCHEMA_VERSION:
+            self.connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
     def transaction(self):
@@ -385,10 +404,10 @@ class Store:
             [value for prefix in sorted(prefixes) for value in (prefix, prefix)],
         )
 
-    def receipts(self, units):
+    def receipts(self, contexts):
         current, shared = defaultdict(dict), defaultdict(lambda: defaultdict(dict))
-        for unit, stage, scope, payload in self.rows("receipts", "unit", units):
-            receipt = unpacked(payload)
+        for unit, stage, scope, payload in self.rows("receipts", "unit", contexts):
+            receipt = loaded_receipt(unpacked(payload), contexts[unit])
             if scope == self.key:
                 current[unit][stage] = receipt
             elif not receipt["findings"] and not receipt.get("observations"):
@@ -415,12 +434,12 @@ class Store:
     def consume_packet(self, packet_id):
         self.connection.execute("DELETE FROM packets WHERE id = ?", (packet_id,))
 
-    def save_receipts(self, receipts):
+    def save_receipts(self, receipts, contexts):
         self.connection.executemany(
             "INSERT OR REPLACE INTO receipts (unit, pass, scope, payload)"
             " VALUES (?, ?, ?, ?)",
             (
-                (unit, stage, scope, packed(receipt))
+                (unit, stage, scope, packed(stored_receipt(receipt, contexts[unit])))
                 for unit, stage, scope, receipt in receipts
             ),
         )

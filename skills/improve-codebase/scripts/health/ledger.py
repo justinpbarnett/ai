@@ -57,7 +57,7 @@ def moved_finding(findings, finding, moves):
 
 
 def same_folder_finding(findings, finding):
-    if not finding["anchor"].startswith("directory:"):
+    if not finding["anchor"].startswith(("directory:", "directories:")):
         return None
     matches = [
         item
@@ -70,8 +70,24 @@ def same_folder_finding(findings, finding):
     return matches[0] if len(matches) == 1 else None
 
 
+def relocation_destination(relocations, path, entries):
+    visited = set()
+    while path in relocations and path not in visited:
+        visited.add(path)
+        path = relocations[path]
+    if visited and entries.get(path, {}).get("hash"):
+        return path
+    return None
+
+
 def recorded_severity_applies(prior, finding):
     return bool(prior and prior.get("triaged_at") and "severity" in finding)
+
+
+def unused_identifier(findings, candidate):
+    while candidate in findings:
+        candidate = digest([candidate])[:24]
+    return candidate
 
 
 def resolve_identity(state, finding):
@@ -80,12 +96,16 @@ def resolve_identity(state, finding):
     location_keys = state.setdefault("finding_keys", {})
     identifier = location_keys.get(location_key, location_key)
     prior = findings.get(identifier)
+    if prior is not None and prior["location"]["path"] != finding["location"]["path"]:
+        prior = None
     if prior is None:
         prior = moved_finding(
             findings, finding, state.get("moves")
         ) or same_folder_finding(findings, finding)
-        if prior is not None:
-            identifier = prior["id"]
+    if prior is not None:
+        identifier = prior["id"]
+    else:
+        identifier = unused_identifier(findings, location_key)
     location_keys[location_key] = identifier
     return identifier, prior
 

@@ -111,10 +111,6 @@ def folder_cycles(by_directory, edges):
         for source, target in edges
         if directory(source) != directory(target)
     }
-    known = defaultdict(set)
-    for source, target in edges:
-        known[directory(source)].add(source)
-        known[directory(target)].add(target)
     for members in components(sorted(directory_edges)):
         owned = [d for d in members if by_directory.get(d)]
         if not owned:
@@ -126,20 +122,22 @@ def folder_cycles(by_directory, edges):
             if {directory(source), directory(target)} <= member_set
             and directory(source) != directory(target)
         )
-        path = by_directory[owned[0]][0]
+        endpoints = sorted({file for edge in file_edges for file in edge})
+        owned_set = set(owned)
+        path = next(file for file in endpoints if directory(file) in owned_set)
         yield (
             FOLDER_CYCLE,
             path,
-            "directories",
+            "directories:" + "|".join(sorted(members)),
             {
                 "members": members,
                 "edge_count": len(file_edges),
                 "edges": [list(edge) for edge in file_edges[:EDGE_LIMIT]],
             },
             [
-                {"path": sorted(known[d] | set(by_directory.get(d, ())))[0]}
+                {"path": next(file for file in endpoints if directory(file) == d)}
                 for d in members
-                if d != owned[0]
+                if d != directory(path)
             ],
         )
 

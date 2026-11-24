@@ -196,6 +196,11 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
     previous_snapshot = state.get("snapshot")
     prior_entries = state.get("inventory", {}).get("entries", {})
     moves = detect_moves(prior_entries, live["entries"])
+    relocations = {
+        old: new
+        for old, new in state.get("relocations", {}).items()
+        if not live["entries"].get(old, {}).get("hash")
+    } | moves
     old_profile = state.get("observation_profile")
     changed_parser = state.get("parser_profile") != parser_profile
     if snapshot != previous_snapshot:
@@ -220,6 +225,7 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
         scope_inputs=scope_inputs,
         scope_evidence_version=SCOPE_EVIDENCE_VERSION,
         moves=moves,
+        relocations=relocations,
         rubric=rubric,
         units=units,
         scan_revision=state["revision"] + 1,

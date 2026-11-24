@@ -4,6 +4,7 @@ from .layout import directory
 from .ledger import (
     SEVERITIES,
     now,
+    relocation_destination,
     validate_dependencies,
     validate_prerequisite_cycle,
 )
@@ -193,7 +194,7 @@ def authorized_removal(state, finding, document, entries, missing):
         not any(
             (root / path).exists()
             or (root / path).is_symlink()
-            or path in state.get("moves", {})
+            or relocation_destination(state.get("relocations", {}), path, entries)
             for path in removed
         ),
         "an existing or relocated path is not an authorized deletion",
@@ -232,31 +233,67 @@ def preexisting_twins(entries, members):
     ]
 
 
-def departed_destinations(state, finding, departed, entries, folder):
+def declared_removal_paths(document):
+    removal = document.get("removal")
+    paths = removal.get("paths") if isinstance(removal, dict) else None
+    if isinstance(paths, list):
+        return {path for path in paths if isinstance(path, str)}
+    return set()
+
+
+def carrier_classes(entries, folder, known, digest_value):
+    in_folder, in_scope, stray = [], [], []
+    for carrier, entry in sorted(entries.items()):
+        if entry.get("hash") != digest_value or carrier in known:
+            continue
+        if entry["disposition"] != "source" or is_test_path(carrier):
+            stray.append(carrier)
+        elif directory(carrier) == folder:
+            in_folder.append(carrier)
+        else:
+            in_scope.append(carrier)
+    return in_folder, in_scope, stray
+
+
+def departed_destinations(state, finding, departed, entries, folder, declared):
     pending = finding["pending_members"]
     known = set(pending) | set(finding["pending_twins"])
-    destinations = {}
-    for path in departed:
-        carriers = [
-            carrier
-            for carrier, entry in entries.items()
-            if entry.get("hash") == pending[path] and carrier not in known
-        ]
-        in_scope = [
-            carrier
-            for carrier in carriers
-            if entries[carrier]["disposition"] == "source"
-            and not is_test_path(carrier)
-            and directory(carrier) != folder
-        ]
-        require(
-            in_scope or not carriers,
-            "a move across the scope boundary or into tests is not a resolution, "
-            "and neither is a rename inside the folder",
+    relocations = state.get("relocations", {})
+    moved, deleted = {}, set()
+    for digest_value in sorted({pending[path] for path in departed}):
+        group = [path for path in departed if pending[path] == digest_value]
+        in_folder, in_scope, stray = carrier_classes(
+            entries, folder, known, digest_value
         )
-        recorded = state.get("moves", {}).get(path)
-        destinations[path] = [recorded] if recorded in in_scope else in_scope
-    return destinations
+        unclaimed = {*in_folder, *in_scope, *stray}
+        destinations = {
+            path: relocation_destination(relocations, path, entries) for path in group
+        }
+        claim_order = {
+            path: (
+                0 if destinations[path] in unclaimed else 2 if path in declared else 1,
+                path,
+            )
+            for path in group
+        }
+        for path in sorted(group, key=claim_order.get):
+            free = [
+                carrier
+                for carrier in (destinations[path], *in_folder, *in_scope, *stray)
+                if carrier in unclaimed
+            ]
+            if not free:
+                deleted.add(path)
+                continue
+            carrier = free[0]
+            unclaimed.discard(carrier)
+            require(
+                carrier not in stray,
+                "a move across the scope boundary or into tests is not a resolution",
+            )
+            if carrier in in_scope:
+                moved[path] = carrier
+    return moved, deleted
 
 
 def wide_folder_inputs(state, finding, document, entries):
@@ -277,9 +314,11 @@ def wide_folder_inputs(state, finding, document, entries):
         ),
         "a skipped file is not a resolution",
     )
-    destinations = departed_destinations(state, finding, departed, entries, folder)
-    deleted = {path for path, moved in destinations.items() if not moved}
-    moved_to = {target for moved in destinations.values() for target in moved}
+    moved, deleted = departed_destinations(
+        state, finding, departed, entries, folder, declared_removal_paths(document)
+    )
+    require(moved or deleted, "no relevant source inputs changed")
+    moved_to = set(moved.values())
     removal = None
     if deleted:
         removal = authorized_removal(state, finding, document, entries, deleted)

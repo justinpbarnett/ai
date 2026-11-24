@@ -14,12 +14,8 @@ import {
   responseText,
 } from "./body.ts";
 import { loadCredentials } from "./config.ts";
-import {
-  checkScope,
-  NonRetryableError,
-  normalizeUrl,
-  type UrlPolicy,
-} from "./url-policy.ts";
+import { NonRetryableError } from "./errors.ts";
+import { checkScope, normalizeUrl, type UrlPolicy } from "./url-policy.ts";
 
 interface RequestContext {
   signal: AbortSignal;

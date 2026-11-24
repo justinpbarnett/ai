@@ -3,7 +3,8 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 import type { PageResponse } from "./transports.ts";
-import { NonRetryableError, normalizeUrl } from "./url-policy.ts";
+import { NonRetryableError } from "./errors.ts";
+import { normalizeUrl } from "./url-policy.ts";
 
 export interface PageContent {
   title: string;

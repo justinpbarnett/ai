@@ -1,6 +1,7 @@
 import type { ClassifierQuestion, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { completionText, findJev, jevBlocker, jsonSchemaPayload, trustedJevAnswer, trustedJevChoice, usableWriter } from "../shared/openrouter.js";
+import { withTimeout } from "../shared/abort.js";
 import type { Slot } from "./labels.js";
 import { labelSchema, LABEL_INSTRUCTIONS, parseLabels, type Evidence, type SummaryResult } from "./writer.js";
 
@@ -56,18 +57,19 @@ export function openRouterBlocker(ctx: ExtensionContext): string | undefined {
 export async function classifyMissionWithJev(registry: Registry, evidence: MissionEvidence, signal: AbortSignal): Promise<"switch" | "keep" | undefined> {
 	const jev = findJev(registry);
 	if (!jev) return;
-	try {
-		const deadline = AbortSignal.any([signal, AbortSignal.timeout(MISSION_CHECK_TIMEOUT_MS)]);
-		const result = await registry.classify(jev, { state: evidence, questions: { mission: missionQuestion } }, { signal: deadline, maxRetries: 0 });
-		signal.throwIfAborted();
-		if (deadline.aborted) return;
-		const answer = trustedJevAnswer(result, "mission");
-		if (answer?.type === "bool") {
-			return answer.probability >= MISSION_SWITCH_PROBABILITY ? "switch" : "keep";
+	return withTimeout([signal], MISSION_CHECK_TIMEOUT_MS, async (deadline) => {
+		try {
+			const result = await registry.classify(jev, { state: evidence, questions: { mission: missionQuestion } }, { signal: deadline, maxRetries: 0 });
+			const answer = trustedJevAnswer(result, "mission");
+			if (answer?.type === "bool") {
+				return answer.probability >= MISSION_SWITCH_PROBABILITY ? "switch" : "keep";
+			}
+		} catch {
+			return;
 		}
-	} catch {
-		signal.throwIfAborted();
-	}
+	}, (timedOut, combined) => {
+		if (!timedOut) throw combined.reason;
+	});
 }
 
 function trustedChoice(result: ClassifierResult, key: string, question: typeof intentQuestion | typeof topicQuestion) {

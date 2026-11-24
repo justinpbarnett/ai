@@ -24,12 +24,19 @@ let engine:
   | undefined;
 
 function loadEngine() {
-  engine ??= Promise.all([import("./core.ts"), import("./search.ts")]);
+  engine ??= Promise.all([import("./core.ts"), import("./search.ts")]).catch(
+    (error) => {
+      engine = undefined;
+      throw error;
+    },
+  );
   return engine;
 }
 
 async function disposeEngine(): Promise<void> {
-  if (engine) await (await engine)[0].dispose();
+  if (!engine) return;
+  const loaded = await engine.catch(() => undefined);
+  if (loaded) await loaded[0].dispose();
 }
 
 const tierOptions = {

@@ -1,7 +1,5 @@
 from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict, deque
-from collections.abc import Callable
-from dataclasses import dataclass
 
 from .dependency_graph import components, resolve_edges
 from .hashing import digest
@@ -18,7 +16,7 @@ from .lean_evidence import (
     test_evidence,
     test_signature,
 )
-from .parsers import analyze
+from .parsers import parse_snapshot
 from .paths import is_test_path
 from .rules import DEPENDENCY_CYCLE, DUPLICATE_BLOCK
 from .syntax_tree import (
@@ -206,57 +204,6 @@ def duplicates(parsed, data, selected, thresholds):
             loc=locations[0],
             related=locations[1:],
         )
-
-
-@dataclass(frozen=True)
-class ParseOptions:
-    parser_profile: str
-    core_only: bool
-    cache_read: Callable
-    full: bool
-
-
-def parser_cache_prefix(parser_profile):
-    return f"{parser_profile}:"
-
-
-def parse_snapshot(entries, sources, options):
-    parsed, fresh, work = {}, {}, {}
-    cache_keys = {
-        p: parser_cache_prefix(options.parser_profile)
-        + digest(
-            [
-                entries[p]["hash"],
-                entries[p]["language"],
-                options.parser_profile,
-                is_test_path(p),
-            ]
-        )
-        for p in sources
-    }
-    cached = {} if options.full else options.cache_read(set(cache_keys.values()))
-    for path, data in sources.items():
-        key = cache_keys[path]
-        result = cached.get(key)
-        if result is None:
-            result = fresh.get(key) or analyze(
-                data, entries[path]["language"], options.core_only, is_test_path(path)
-            )
-            if not result["gaps"]:
-                fresh[key] = result
-            work[path] = {
-                "status": "investigated" if not result["gaps"] else "pending",
-                "reason": "forced refresh"
-                if options.full
-                else "no valid detector result for current inputs",
-            }
-        else:
-            work[path] = {
-                "status": "reused",
-                "reason": "matching content and detector capability/configuration",
-            }
-        parsed[path] = result
-    return parsed, fresh, work
 
 
 METRIC_RULES = {

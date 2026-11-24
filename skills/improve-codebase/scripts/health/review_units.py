@@ -28,6 +28,10 @@ def project_context(project, entries):
     }
 
 
+def needs_wiring_review(language, limits):
+    return language in WIRING_LANGUAGES or blocks_wiring(limits)
+
+
 class ReviewUnits:
     def __init__(self, inventory, scan, rubric):
         self.entries = inventory["entries"]
@@ -124,9 +128,7 @@ class ReviewUnits:
     def register_sources(self, source, uncertain_files):
         for path in sorted(source):
             entry = self.entries[path]
-            if entry["language"] in WIRING_LANGUAGES or blocks_wiring(
-                self.limits.get(path, ())
-            ):
+            if needs_wiring_review(entry["language"], self.limits.get(path, ())):
                 uncertain_files[entry["project"]].add(path)
             for axis in AXES:
                 self.register(axis, [path], self.adjacent[path])

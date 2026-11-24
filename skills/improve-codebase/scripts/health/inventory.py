@@ -130,9 +130,22 @@ def normalize_scope(root, requested):
     return [p for p in sorted(paths) if not any(q != p and within(p, q) for q in paths)]
 
 
-def excluded(path, state_relative, is_directory=False):
+GENERATED_SUFFIXES = (
+    ".g.cs",
+    ".g.i.cs",
+    ".generated.cs",
+    ".designer.cs",
+    ".min.js",
+    ".min.css",
+    ".map",
+    ".pb.go",
+    ".pb.cc",
+    ".pb.h",
+)
+
+
+def excluded_by_parts(path, state_relative, is_directory):
     parts = Path(path).parts
-    name = parts[-1]
     if protected_parts(parts, is_directory) or path.startswith(".config/gcloud/"):
         return "protected path"
     if any(part in ARTIFACTS for part in parts) or (
@@ -143,6 +156,12 @@ def excluded(path, state_relative, is_directory=False):
         parts[i : i + 2] == ("vendor", "bundle") for i in range(len(parts) - 1)
     ):
         return "installed dependencies"
+    return None
+
+
+def excluded_by_name(path):
+    parts = Path(path).parts
+    name = Path(path).name
     if name.lower() == "changelog.md":
         return "historical changelog"
     if name in LOCKFILES:
@@ -155,24 +174,17 @@ def excluded(path, state_relative, is_directory=False):
         or name.endswith(".nuget.dgspec.json")
     ):
         return "generated MSBuild output"
-    if path.lower().endswith(
-        (
-            ".g.cs",
-            ".g.i.cs",
-            ".generated.cs",
-            ".designer.cs",
-            ".min.js",
-            ".min.css",
-            ".map",
-            ".pb.go",
-            ".pb.cc",
-            ".pb.h",
-        )
-    ):
+    if path.lower().endswith(GENERATED_SUFFIXES):
         return "generated filename"
     if Path(name).suffix.lower().lstrip(".") in NON_SOURCE:
         return "known non-source file type"
     return None
+
+
+def excluded(path, state_relative, is_directory=False):
+    return excluded_by_parts(path, state_relative, is_directory) or (
+        None if is_directory else excluded_by_name(path)
+    )
 
 
 def git_files(root):
@@ -210,7 +222,7 @@ def walk_files(root, state_relative):
         for name in sorted(folders):
             path = parent / name
             relative = path.relative_to(root).as_posix()
-            reason = excluded(relative, state_relative, True)
+            reason = excluded_by_parts(relative, state_relative, True)
             if not reason:
                 if path.is_symlink():
                     reason = SYMLINK_REASON

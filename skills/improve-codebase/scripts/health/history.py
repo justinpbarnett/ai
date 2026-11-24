@@ -1,6 +1,6 @@
 import os
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 
 
 def subcommand(args):
@@ -13,7 +13,7 @@ def subcommand(args):
     return args[0]
 
 
-def git(root, *args, allowed=(0,), env=None):
+def git(root, *args, allowed=(0,), env=None, stdin=None):
     environment = dict(os.environ if env is None else env)
     for key in (
         "GIT_DIR",
@@ -27,6 +27,7 @@ def git(root, *args, allowed=(0,), env=None):
     result = subprocess.run(
         ["git", "-C", str(root), *args],
         capture_output=True,
+        input=stdin,
         env=environment,
         timeout=45,
     )
@@ -86,12 +87,71 @@ def status_commits(raw):
     return commits
 
 
+def deleted_blobs(root):
+    result = git(
+        root,
+        "diff",
+        "--raw",
+        "--no-abbrev",
+        "--no-renames",
+        "--diff-filter=D",
+        "-z",
+        "HEAD",
+        allowed=(0, 128),
+    )
+    if result.returncode:
+        return {}
+    tokens = result.stdout.split(b"\0")
+    return {
+        os.fsdecode(path): meta.split()[2].decode()
+        for meta, path in zip(tokens[0::2], tokens[1::2], strict=False)
+    }
+
+
+def untracked_blobs(root):
+    listed = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    names = [
+        os.fsdecode(raw)
+        for raw in listed.split(b"\0")
+        if raw and not raw.endswith(b"/") and b"\n" not in raw
+    ]
+    if not names:
+        return {}
+    hashed = git(
+        root,
+        "hash-object",
+        "--stdin-paths",
+        stdin=os.fsencode("\n".join(names) + "\n"),
+    ).stdout.split()
+    return dict(zip(names, (h.decode() for h in hashed), strict=True))
+
+
+def unstaged_renames(root, staged):
+    deleted = {
+        path: blob for path, blob in deleted_blobs(root).items() if path not in staged
+    }
+    if not deleted:
+        return {}
+    untracked = untracked_blobs(root)
+    old_by_blob, new_by_blob = defaultdict(list), defaultdict(list)
+    for path, blob in deleted.items():
+        old_by_blob[blob].append(path)
+    for path, blob in untracked.items():
+        new_by_blob[blob].append(path)
+    return {
+        old[0]: new_by_blob[blob][0]
+        for blob, old in old_by_blob.items()
+        if len(old) == 1 and len(new_by_blob.get(blob, ())) == 1
+    }
+
+
 def working_tree_renames(root):
     result = git(root, "diff", "-M", "--name-status", "-z", "HEAD", allowed=(0, 128))
     if result.returncode:
         return {}
     entries = status_commits(COMMIT_MARK + b"\0" + result.stdout)[0]
-    return {entry[1]: entry[2] for entry in entries if entry[0] == "R"}
+    staged = {entry[1]: entry[2] for entry in entries if entry[0] == "R"}
+    return {**unstaged_renames(root, staged), **staged}
 
 
 def commit_history(root, is_git):

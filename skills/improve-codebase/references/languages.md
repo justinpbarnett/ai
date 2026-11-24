@@ -46,7 +46,7 @@ Layout rules work on directories of authored non-test files: `generic-folder` fo
 They use resolved edges only, so unresolved imports hide cycles and importers.
 `change-coupling` pairs files that changed together in at least `coupling_revisions` commits with a degree of at least `coupling_degree`, where degree is shared commits divided by the mean of each file's commits.
 The history window is the latest 500 commits, and commits over 30 files are skipped as bulk edits.
-Historical paths follow renames committed in history and staged renames in the working tree; an unstaged move (a delete plus an untracked file) is not detected, and its old history stays under the old path.
+Historical paths follow renames committed in history and staged renames in the working tree, and an unstaged move when one deleted path and one untracked file share the same content exactly (read only, no index write); a modified or ambiguous move is not detected, and its old history stays under the old path.
 Without Git history the scan records a limitation and skips coupling and locality.
 Layout locality (mean directories per commit and the share of single directory commits) is reported with `mapped_paths`, and it is a metric, never a candidate.
 

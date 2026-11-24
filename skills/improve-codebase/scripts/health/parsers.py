@@ -1,10 +1,14 @@
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from xml.etree import ElementTree
 
 from .case_inventory import TEST_LANGUAGES, extract_test_cases
 from .comments import finalize_comments
+from .hashing import digest
+from .paths import is_test_path
 from .syntax_tree import (
     GENERIC_STREAM,
     Source,
@@ -235,3 +239,54 @@ def analyze(data, language, core_only, test_file=False):
     result["limits"] = sorted(set(result["limits"]))
     result["imports"] = sorted({tuple(pair) for pair in result["imports"]})
     return result
+
+
+@dataclass(frozen=True)
+class ParseOptions:
+    parser_profile: str
+    core_only: bool
+    cache_read: Callable
+    full: bool
+
+
+def parser_cache_prefix(parser_profile):
+    return f"{parser_profile}:"
+
+
+def parse_snapshot(entries, sources, options):
+    parsed, fresh, work = {}, {}, {}
+    cache_keys = {
+        p: parser_cache_prefix(options.parser_profile)
+        + digest(
+            [
+                entries[p]["hash"],
+                entries[p]["language"],
+                options.parser_profile,
+                is_test_path(p),
+            ]
+        )
+        for p in sources
+    }
+    cached = {} if options.full else options.cache_read(set(cache_keys.values()))
+    for path, data in sources.items():
+        key = cache_keys[path]
+        result = cached.get(key)
+        if result is None:
+            result = fresh.get(key) or analyze(
+                data, entries[path]["language"], options.core_only, is_test_path(path)
+            )
+            if not result["gaps"]:
+                fresh[key] = result
+            work[path] = {
+                "status": "investigated" if not result["gaps"] else "pending",
+                "reason": "forced refresh"
+                if options.full
+                else "no valid detector result for current inputs",
+            }
+        else:
+            work[path] = {
+                "status": "reused",
+                "reason": "matching content and detector capability/configuration",
+            }
+        parsed[path] = result
+    return parsed, fresh, work

@@ -152,6 +152,38 @@ def tiered_targets(paths, base, ref):
     )
 
 
+SUFFIX_SWAPS = {
+    ".js": ((".ts",), (".tsx",)),
+    ".jsx": ((".tsx",),),
+    ".mjs": ((".mts",),),
+    ".cjs": ((".cts",),),
+}
+
+
+def swapped_targets(paths, base, ref):
+    resolved = contained_path(base, ref)
+    suffix = posixpath.splitext(ref)[1]
+    if resolved is None or suffix not in SUFFIX_SWAPS:
+        return []
+    stem = resolved[: -len(suffix)]
+    return next(
+        (
+            matches
+            for tier in SUFFIX_SWAPS[suffix]
+            if (
+                matches := [
+                    path for path in with_extensions(stem, tier) if path in paths
+                ]
+            )
+        ),
+        [],
+    )
+
+
+def resolved_targets(paths, base, ref):
+    return tiered_targets(paths, base, ref) or swapped_targets(paths, base, ref)
+
+
 def alias_replacements(aliases, ref):
     for pattern, replacements in aliases.paths.items():
         prefix, star, suffix = pattern.partition("*")
@@ -167,21 +199,16 @@ def alias_replacements(aliases, ref):
 
 def javascript_targets(paths, parent, ref, aliases):
     if ref.startswith("."):
-        matches = tiered_targets(paths, parent, ref)
-        if not matches and ref.endswith((".js", ".mjs", ".cjs", ".jsx")):
-            return local_targets(
-                paths, parent, ref.rsplit(".", 1)[0], (".ts", ".mts", ".cts", ".tsx")
-            )
-        return matches
+        return resolved_targets(paths, parent, ref)
     if aliases is None or aliases.limitation:
         return []
     matches = [
         path
         for replacement in alias_replacements(aliases, ref)
-        for path in tiered_targets(paths, aliases.root, replacement)
+        for path in resolved_targets(paths, aliases.root, replacement)
     ]
     if not matches and aliases.has_base_url:
-        return tiered_targets(paths, aliases.root, ref)
+        return resolved_targets(paths, aliases.root, ref)
     return matches
 
 

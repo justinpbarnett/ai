@@ -3,13 +3,11 @@ import re
 from itertools import chain
 from pathlib import PurePosixPath
 
-from .dependency_graph import blocks_wiring, resolve_edges
-from .detectors import ParseOptions, parse_snapshot
+from .dependency_graph import resolve_edges
 from .history import git
 from .inventory import (
     MAX_SOURCE_BYTES,
     PROJECT,
-    WIRING_LANGUAGES,
     classify_content,
     excluded,
     inventory,
@@ -17,9 +15,10 @@ from .inventory import (
     owning_project,
     source_language,
 )
-from .parsers import analyze, capabilities
+from .parsers import ParseOptions, analyze, capabilities, parse_snapshot
 from .paths import directory, in_paths
 from .profiles import current_parser_profile
+from .review_units import needs_wiring_review
 from .validation import require
 
 
@@ -185,8 +184,7 @@ def wiring_review(targets, retired, entries, limitations):
         path
         for path in targets
         if path in retired
-        or entries[path].get("language") in WIRING_LANGUAGES
-        or blocks_wiring(limitations.get(path, ()))
+        or needs_wiring_review(entries[path].get("language"), limitations.get(path, ()))
     )
 
 

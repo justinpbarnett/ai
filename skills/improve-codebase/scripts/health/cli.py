@@ -15,7 +15,13 @@ from .parsers import capabilities
 from .review_packets import PacketSelection, prepare
 from .review_units import STAGES
 from .rules import settings
-from .runs import current_run, fallout_scope, run_name, slice_configuration
+from .runs import (
+    current_run,
+    fallout_scope,
+    resolve_base_commit,
+    run_name,
+    slice_configuration,
+)
 from .scanning import REF, ScanScope, current_inventory, scan
 from .scoring import evaluate
 from .state import Store, corrupt_database_message, is_corrupt_database
@@ -23,7 +29,7 @@ from .state_dir import STATE_DATABASE, discover_root, safe_state_dir
 from .validation import read_json, require
 
 
-def validate_run_arguments(args):
+def validate_run_arguments(args, root, is_git):
     if args.action == "list":
         require(
             not (args.run or args.scope or args.thresholds),
@@ -36,6 +42,9 @@ def validate_run_arguments(args):
     else:
         require(not args.run, "pass the new run name as a positional argument")
         require(args.base or not args.include, "--include requires --base")
+        if args.base:
+            require(is_git, "fallout mode requires a Git worktree")
+            resolve_base_commit(root, args.base)
 
 
 def configure_run(args, store, scope):
@@ -56,7 +65,6 @@ def configure_run(args, store, scope):
             "thresholds": scope.thresholds,
         }
         if args.base:
-            require(scope.is_git, "fallout mode requires a Git worktree")
             paths, fallout = fallout_scope(
                 store,
                 scope.root,
@@ -181,7 +189,7 @@ def command_workspace(args, envelope):
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
     if args.command == "run":
-        validate_run_arguments(args)
+        validate_run_arguments(args, root, is_git)
     initialize = not args.run and args.writes and args.command in {"scan", "run"}
     state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
     envelope.update(

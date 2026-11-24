@@ -79,6 +79,8 @@ skills = "skills"
 [codex]
 target = "~/.codex"
 skills_mode = "children"
+# Codex also discovers the team install under ~/.agents/skills.
+standalone_fallbacks = ["setup-tech-skills"]
 
 [codex.symlinks]
 skills = "skills"

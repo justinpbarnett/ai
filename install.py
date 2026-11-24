@@ -112,7 +112,21 @@ def is_skill_dir(path: Path) -> bool:
     return path.is_dir() and (path / "SKILL.md").is_file()
 
 
-def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool, optional: bool) -> None:
+def update_codex_fallback(codex_dir: Path, skill: str, *, shared: bool, dry_run: bool) -> None:
+    if codex_dir.is_symlink() or not codex_dir.is_dir():
+        return
+    sources = REPO_DIR / "skills"
+    target = codex_dir / skill
+    if shared:
+        if remove_managed_link(sources / skill, target, dry_run=dry_run):
+            print(f"    REMOVE {target} (provided by shared planning)")
+    elif not (target.exists() or target.is_symlink()):
+        # Restore the standalone entry only for a Codex profile this installer manages.
+        if any(is_managed_link(sources / child.name, child) for child in codex_dir.iterdir()):
+            link_file(sources / skill, target, dry_run=dry_run)
+
+
+def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool, optional: bool) -> set[str]:
     target = Path(config["target"]).expanduser()
     skills_dir = target / "skills"
     context = target / "passion-planning-context.md"
@@ -146,10 +160,12 @@ def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool
         raise ValueError(f"existing {skills_dir} must be a real directory to manage individual planning skills")
 
     if uninstall:
+        removed = set()
         for destination, source in [*links.items(), *legacy_links.items()]:
             if remove_managed_link(source, destination, dry_run=dry_run):
                 print(f"    REMOVE {destination}")
-        return
+                removed.add(destination.name)
+        return removed
 
     missing = [source for source in sources.values() if not is_skill_dir(source)]
     if not context_source.is_file():
@@ -161,7 +177,7 @@ def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool
         )
         if optional and "TECH_SKILLS_DIR" not in os.environ:
             print(f"    SKIP {message}")
-            return
+            return set()
         raise ValueError(message)
 
     for destination, source in links.items():
@@ -187,9 +203,10 @@ def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool
                 if not is_managed_link(source, destination):
                     raise
         print(f"    LINK {destination} -> {source}")
+    return {destination.name for destination in sources}
 
 
-def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
+def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool, shared: frozenset[str] = frozenset()) -> None:
     if not source_dir.is_dir():
         print(f"    SKIP {target_dir.name} (source dir missing)")
         return
@@ -199,11 +216,11 @@ def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
     if target_dir.is_dir():
         for child in sorted(target_dir.iterdir()):
             source = source_dir / child.name
-            if not is_skill_dir(source) and remove_managed_link(source, child, dry_run=dry_run):
+            if (child.name in shared or not is_skill_dir(source)) and remove_managed_link(source, child, dry_run=dry_run):
                 print(f"    REMOVE stale {child.name}")
 
     for source in sorted(source_dir.iterdir()):
-        if is_skill_dir(source):
+        if source.name not in shared and is_skill_dir(source):
             link_file(source, target_dir / source.name, dry_run=dry_run)
 
 
@@ -247,7 +264,8 @@ def resolve_target_dir(config: dict[str, Any]) -> Path:
     return expand_path(override or config["target"])
 
 
-def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry_run: bool) -> None:
+def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry_run: bool,
+                      shared: frozenset[str] = frozenset()) -> None:
     target_dir = resolve_target_dir(config)
     action = "Uninstalling" if uninstall else "Installing"
     print(f"\n{action} {name}...")
@@ -265,8 +283,10 @@ def configure_harness(name: str, config: dict[str, Any], *, uninstall: bool, dry
             if target.is_symlink():
                 print(f"    SKIP {target.name} (target dir is a symlink)")
                 continue
-            configure_children = unlink_children if uninstall else link_children
-            configure_children(source, target, dry_run=dry_run)
+            if uninstall:
+                unlink_children(source, target, dry_run=dry_run)
+            else:
+                link_children(source, target, dry_run=dry_run, shared=shared)
         elif not uninstall:
             link_file(source, target, dry_run=dry_run)
         elif remove_managed_link(source, target, dry_run=dry_run):
@@ -315,16 +335,25 @@ def main() -> None:
             sys.exit(1)
         selected.append(h)
 
+    planning_dir = Path(config["planning"]["target"]).expanduser() / "skills"
+    fallbacks = set(config["codex"].get("standalone_fallbacks", []))
+    shared = {skill for skill in fallbacks if is_skill_dir(planning_dir / skill)}
     failed = []
     for name in selected:
         try:
             if name == "planning":
-                configure_planning(
+                managed = configure_planning(
                     config[name], uninstall=args.uninstall, dry_run=args.dry_run,
                     optional="all" in args.harnesses,
                 )
+                affected = managed & fallbacks
+                shared = shared - affected if args.uninstall else shared | affected
+                for skill in affected:
+                    update_codex_fallback(resolve_target_dir(config["codex"]) / "skills", skill,
+                                          shared=skill in shared, dry_run=args.dry_run)
             else:
-                configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
+                configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run,
+                                  shared=frozenset(shared) if name == "codex" else frozenset())
         except subprocess.CalledProcessError as error:
             print(f"ERROR: {name} failed (exit {error.returncode}), continuing", file=sys.stderr)
             failed.append(name)

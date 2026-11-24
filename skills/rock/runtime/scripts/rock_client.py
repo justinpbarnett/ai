@@ -51,6 +51,9 @@ class RockAuthError(RockApiError):
 
 
 class RockLoginFailed(RockAuthError):
+    def __init__(self, status=401, method="POST", endpoint="Auth/Login", detail="login rejected"):
+        super().__init__(status, method, endpoint, detail)
+
     def operator_message(self):
         return f"Error: Rock login failed. Check {USERNAME_ENV} and {PASSWORD_ENV} in {passion_env.ENV_FILE}"
 
@@ -127,7 +130,7 @@ class RockClient:
             return
         if resp.status_code == 401:
             log.error("login failed user=%s status=401", self._username)
-            raise RockLoginFailed(401, "POST", "Auth/Login", "login rejected")
+            raise RockLoginFailed()
         log.error("login unexpected status=%d user=%s body=%s",
                    resp.status_code, self._username, resp.text[:200])
         raise RockApiError(resp.status_code, "POST", "Auth/Login", resp.text[:200] or resp.reason)

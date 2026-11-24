@@ -1,5 +1,6 @@
+import { NonRetryableError } from "./errors.ts";
+
 export type UrlPolicy = (url: string) => boolean;
-export class NonRetryableError extends Error {}
 
 export function normalizeUrl(value: string, base?: string): string {
   const url = new URL(value, base);

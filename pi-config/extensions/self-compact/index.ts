@@ -32,7 +32,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerFlag(NOTICE_FLAG, { type: "string", description: "Self-compaction notice threshold in tokens (6000, 6k) or percent (60%)" });
 	pi.registerFlag(WARN_FLAG, { type: "string", description: "Self-compaction warning threshold in tokens (10000, 10k) or percent (80%)" });
-	pi.registerFlag(JEV_OFF_FLAG, { type: "boolean", description: "Start Pi with JEV task-switch detection off" });
+	pi.registerFlag(JEV_OFF_FLAG, { type: "boolean", description: "Start Pi with JEV task-switch detection off; write it as --no-self-compact-jev=true, because Pi gives a bare flag the next word as its value" });
 
 	pi.on("session_start", reset);
 	pi.on("session_shutdown", reset);

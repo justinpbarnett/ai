@@ -119,7 +119,7 @@ Under context pressure, Pi can send up to 512 characters each from two consecuti
 Use Pi's OpenRouter login or `OPENROUTER_API_KEY`; no direct TypeSafe credentials are needed.
 JEV checks for an independent task switch, not what to put in the summary.
 Pi skips queued prompts, commands, attachments and obvious credentials, but that filter is not a guarantee of redaction.
-For work that cannot send prompt excerpts off-machine, start Pi with `--no-self-compact-jev`, or run `/self-compact jev off` before submitting prompts.
+For work that cannot send prompt excerpts off-machine, start Pi with `--no-self-compact-jev=true`, or run `/self-compact jev off` before submitting prompts.
 The command clears stored excerpts and turns JEV off for the loaded extension; the launch flag keeps it off by default across reloads.
 With missing credentials, an unavailable model, or `--offline`, Pi shows `JEV off (unavailable)` without sending a request.
 If a request fails or times out, JEV also switches off and stops retrying; `/self-compact jev on` lets you retry.

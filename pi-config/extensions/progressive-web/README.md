@@ -168,7 +168,7 @@ Options are command-specific: unsupported combinations such as `search "query" -
 
 ## Maintenance
 
-The engine is split into `core.ts` for scraping, caching, and crawl orchestration; `robots.ts` for the robots.txt policy and its 15 second deadline; `transports.ts` for the four network tiers; `content.ts` for page validation and extraction; `config.ts` for credentials; `url-policy.ts` for URL normalization and crawl scope checks; `deadline.ts` for timeout abort signals; and `body.ts` for response size limits and decoding.
+The engine is split into `core.ts` for scraping, caching, and crawl orchestration; `robots.ts` for the robots.txt policy and its 15 second deadline; `transports.ts` for the four network tiers; `content.ts` for page validation and extraction; `config.ts` for credentials; `url-policy.ts` for URL normalization and crawl scope checks; `errors.ts` for the error that stops tier escalation; `deadline.ts` for timeout abort signals; and `body.ts` for response size limits and decoding.
 `search.ts` handles Brave request validation, API calls, and response normalization.
 `results.ts` owns formatting, metadata, and private artifacts for both search and page results.
 `index.ts` and `cli.mjs` are thin adapters over those shared engines.

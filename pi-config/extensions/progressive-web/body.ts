@@ -1,4 +1,4 @@
-import { NonRetryableError } from "./url-policy.ts";
+import { NonRetryableError } from "./errors.ts";
 
 export const maxResponseMebibytes = 10;
 export const maxResponseBytes = maxResponseMebibytes * 1024 * 1024;

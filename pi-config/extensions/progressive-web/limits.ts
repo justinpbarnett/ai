@@ -1,14 +1,22 @@
 export const MAX_SCRAPE_URLS = 10;
 
-export const tierSpecs: { name: string; minimumTimeoutMs?: number }[] = [
-  { name: "HTTP fetch" },
-  { name: "cURL + browser headers" },
-  { name: "Playwright" },
-  { name: "Bright Data", minimumTimeoutMs: 60000 },
+export type TierKey = "http" | "curl" | "browser" | "brightData";
+export const brightDataMinimumTimeoutMs = 60000;
+export const tierSpecs: {
+  key: TierKey;
+  name: string;
+  minimumTimeoutMs?: number;
+}[] = [
+  { key: "http", name: "HTTP fetch" },
+  { key: "curl", name: "cURL + browser headers" },
+  { key: "browser", name: "Playwright" },
+  {
+    key: "brightData",
+    name: "Bright Data",
+    minimumTimeoutMs: brightDataMinimumTimeoutMs,
+  },
 ];
 export const maxTierNumber = tierSpecs.length;
-export const brightDataMinimumTimeoutMs =
-  tierSpecs[maxTierNumber - 1].minimumTimeoutMs!;
 
 export const scrapeTimeoutLimits = {
   minimum: 1000,

@@ -17,3 +17,20 @@ export async function raceAbort<T, A>(signal: AbortSignal, run: (signal: AbortSi
 		signal.removeEventListener("abort", listener);
 	}
 }
+
+export async function withTimeout<T, A>(
+	signals: (AbortSignal | undefined)[],
+	ms: number,
+	run: (signal: AbortSignal) => Promise<T>,
+	onAbort: (timedOut: boolean, signal: AbortSignal) => A,
+): Promise<T | A> {
+	const parents = signals.filter((input) => input !== undefined);
+	const timeout = new AbortController();
+	const signal = AbortSignal.any([timeout.signal, ...parents]);
+	const timer = setTimeout(() => timeout.abort(), ms);
+	try {
+		return await raceAbort(signal, run, () => onAbort(timeout.signal.aborted && !parents.some((parent) => parent.aborted), signal));
+	} finally {
+		clearTimeout(timer);
+	}
+}

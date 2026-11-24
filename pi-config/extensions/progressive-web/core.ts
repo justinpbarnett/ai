@@ -8,15 +8,12 @@ import {
   maxTierNumber,
   scrapeTimeoutLimits,
   tierSpecs,
+  type TierKey,
 } from "./limits.ts";
 import { crawlPolicy } from "./robots.ts";
 import { searchStatus } from "./search.ts";
-import {
-  checkScope,
-  NonRetryableError,
-  normalizeUrl,
-  type UrlPolicy,
-} from "./url-policy.ts";
+import { NonRetryableError } from "./errors.ts";
+import { checkScope, normalizeUrl, type UrlPolicy } from "./url-policy.ts";
 import {
   brightDataFetch,
   browserFetch,
@@ -86,13 +83,16 @@ export interface CrawlOptions extends ScrapeOptions {
   delayMs?: number;
 }
 
-const tiers: {
-  name: string;
-  fetch: PageTransport;
-  minimumTimeoutMs?: number;
-}[] = [httpFetch, curlFetch, browserFetch, brightDataFetch].map(
-  (fetch, index) => ({ ...tierSpecs[index], fetch }),
-);
+const transports: Record<TierKey, PageTransport> = {
+  http: httpFetch,
+  curl: curlFetch,
+  browser: browserFetch,
+  brightData: brightDataFetch,
+};
+const tiers = tierSpecs.map((spec) => ({
+  ...spec,
+  fetch: transports[spec.key],
+}));
 const browserTier = tiers.findIndex((tier) => tier.fetch === browserFetch) + 1;
 const MAX_CACHED_PAGE_BYTES = 2 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 64;

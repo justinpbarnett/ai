@@ -59,7 +59,7 @@ BRANCHES = {
     "csharp": {
         "if_statement",
         "for_statement",
-        "for_each_statement",
+        "foreach_statement",
         "while_statement",
         "do_statement",
         "catch_clause",
@@ -231,11 +231,15 @@ def call_name(data, node):
     return literal(data, name) or node.type
 
 
+def first_real_parameter(params):
+    return next(child for child in params.named_children if "comment" not in child.type)
+
+
 def is_bound_receiver(surface, params, child):
     return (
         surface.language == "python"
         and child.type == "identifier"
-        and child.id == params.named_children[0].id
+        and child.id == first_real_parameter(params).id
         and text(surface.data, child) in {b"self", b"cls"}
     )
 

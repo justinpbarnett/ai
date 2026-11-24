@@ -31,6 +31,7 @@ checkout = "~/dev/passion/tech-skills"
 context = "plugins/plan/runtime/planning-context.md"
 
 [planning.skill_groups]
+"plugins/general/skills" = ["research"]
 "plugins/general/runtime/pocock" = ["grill-with-docs", "grilling"]
 "plugins/plan/runtime/pocock" = [
     "domain-modeling", "to-spec", "to-tickets", "retro",

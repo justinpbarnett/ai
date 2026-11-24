@@ -12,6 +12,9 @@ from .validation import array, object_value, read_json, require, string
 EXIT_CODES = {"ruff": {0, 1}, "eslint": {0, 1}, "stylelint": {0, 2}, "sarif": {0, 1}}
 FORMATS = tuple(EXIT_CODES)
 SOURCE_NEWLINE = re.compile(r"\r\n|\n|\r")
+ESLINT_NEWLINE = re.compile("\r\n|[\r\n\u2028\u2029]")
+STYLELINT_NEWLINE = re.compile("\n")
+SARIF_DEFAULT_NEWLINES = ("\r\n", "\n")
 
 
 def coordinates(line, column, end_line=None, end_column=None):
@@ -57,6 +60,7 @@ def ruff_rows(report):
                 end.get("row"),
                 end.get("column"),
             ),
+            SOURCE_NEWLINE,
         )
 
 
@@ -109,7 +113,23 @@ def js_rows(report, tool):
                     obj.get("endLine"),
                     obj.get("endColumn"),
                 ),
+                ESLINT_NEWLINE if tool == "eslint" else STYLELINT_NEWLINE,
             )
+
+
+def sarif_line_breaks(run):
+    sequences = run.get("newlineSequences", list(SARIF_DEFAULT_NEWLINES))
+    require(
+        isinstance(sequences, list)
+        and sequences
+        and all(isinstance(item, str) and item for item in sequences),
+        "SARIF newlineSequences must be a nonempty list of nonempty strings",
+    )
+    return re.compile(
+        "|".join(
+            re.escape(item) for item in sorted(set(sequences), key=len, reverse=True)
+        )
+    )
 
 
 def sarif_rows(report):
@@ -128,6 +148,7 @@ def sarif_rows(report):
             ),
             "name",
         )
+        line_breaks = sarif_line_breaks(run)
         for invocation in run.get("invocations", []):
             require(
                 object_value(invocation, "SARIF invocation").get("executionSuccessful")
@@ -169,6 +190,7 @@ def sarif_rows(report):
                     region.get("endLine"),
                     region.get("endColumn"),
                 ),
+                line_breaks,
             )
 
 
@@ -273,16 +295,17 @@ def rows_for_report(report, tool, path_for, covered):
 def diagnostic_findings(rows, tool, path_for, root, covered, profile):
     lines = {}
     occurrences = Counter()
-    for file, rule, message, severity, coordinates_ in rows:
+    for file, rule, message, severity, coordinates_, line_breaks in rows:
         path = path_for(file)
         require(path in covered, f"diagnostic path was not declared covered: {path!r}")
-        if path not in lines:
-            lines[path] = SOURCE_NEWLINE.split(
+        key = (path, line_breaks.pattern)
+        if key not in lines:
+            lines[key] = line_breaks.split(
                 read_source(safe_file(root, path)).decode("utf-8-sig")
             )
         index = coordinates_["line"] - 1
-        require(index < len(lines[path]), f"diagnostic line is out of range: {path!r}")
-        anchor = digest([lines[path][index].strip(), re.sub(r"\s+", " ", message)])[:24]
+        require(index < len(lines[key]), f"diagnostic line is out of range: {path!r}")
+        anchor = digest([lines[key][index].strip(), re.sub(r"\s+", " ", message)])[:24]
         group = (path, rule, anchor)
         occurrences[group] += 1
         yield {

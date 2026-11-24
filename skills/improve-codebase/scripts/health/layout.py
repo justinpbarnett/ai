@@ -43,6 +43,14 @@ def production_edges(edges):
     ]
 
 
+def outside_importer_edges(edges, folder):
+    return [
+        (source, target)
+        for source, target in edges
+        if within(target, folder) and not within(source, folder)
+    ]
+
+
 def generic_folders(files, edges):
     members = defaultdict(list)
     for path in sorted(files):
@@ -52,11 +60,7 @@ def generic_folders(files, edges):
                 members[ancestor.as_posix()].append(path)
     for folder, paths in sorted(members.items()):
         importers = sorted(
-            {
-                directory(source)
-                for source, target in edges
-                if within(target, folder) and not within(source, folder)
-            }
+            {directory(source) for source, _ in outside_importer_edges(edges, folder)}
         )
         yield (
             GENERIC_FOLDER,
@@ -74,17 +78,15 @@ def generic_folders(files, edges):
 
 
 def single_importers(by_directory, edges):
-    incoming = defaultdict(list)
-    for source, target in edges:
-        if directory(source) != directory(target):
-            incoming[directory(target)].append((source, target))
     for folder, paths in sorted(by_directory.items()):
-        shown = incoming.get(folder)
-        if folder == "." or len(paths) < 2 or not shown:
+        if folder == "." or len(paths) < 2:
+            continue
+        shown = outside_importer_edges(edges, folder)
+        if not shown:
             continue
         importers = {directory(source) for source, _ in shown}
         importer = next(iter(importers))
-        if len(importers) != 1 or within(importer, folder) or within(folder, importer):
+        if len(importers) != 1 or within(folder, importer):
             continue
         yield (
             SINGLE_IMPORTER,

@@ -184,17 +184,33 @@ def resolved_targets(paths, base, ref):
     return tiered_targets(paths, base, ref) or swapped_targets(paths, base, ref)
 
 
+def alias_capture(pattern, ref):
+    prefix, star, suffix = pattern.partition("*")
+    if pattern == ref:
+        return ""
+    if (
+        star
+        and ref.startswith(prefix)
+        and ref.endswith(suffix)
+        and len(ref) >= len(prefix) + len(suffix)
+    ):
+        return ref[len(prefix) : len(ref) - len(suffix)]
+    return None
+
+
 def alias_replacements(aliases, ref):
+    if ref in aliases.paths and "*" not in ref:
+        return [item.replace("*", "") for item in aliases.paths[ref]]
+    best, best_prefix = None, -1
     for pattern, replacements in aliases.paths.items():
-        prefix, star, suffix = pattern.partition("*")
-        if pattern == ref or (
-            star
-            and ref.startswith(prefix)
-            and ref.endswith(suffix)
-            and len(ref) >= len(prefix) + len(suffix)
-        ):
-            capture = ref[len(prefix) : len(ref) - len(suffix)] if star else ""
-            yield from (item.replace("*", capture) for item in replacements)
+        capture = alias_capture(pattern, ref)
+        prefix_length = pattern.index("*") if "*" in pattern else -1
+        if capture is not None and prefix_length > best_prefix:
+            best, best_prefix = (
+                [item.replace("*", capture) for item in replacements],
+                prefix_length,
+            )
+    return best or []
 
 
 def javascript_targets(paths, parent, ref, aliases):
@@ -202,11 +218,14 @@ def javascript_targets(paths, parent, ref, aliases):
         return resolved_targets(paths, parent, ref)
     if aliases is None or aliases.limitation:
         return []
-    matches = [
-        path
-        for replacement in alias_replacements(aliases, ref)
-        for path in resolved_targets(paths, aliases.root, replacement)
-    ]
+    matches = next(
+        (
+            found
+            for replacement in alias_replacements(aliases, ref)
+            if (found := resolved_targets(paths, aliases.root, replacement))
+        ),
+        [],
+    )
     if not matches and aliases.has_base_url:
         return resolved_targets(paths, aliases.root, ref)
     return matches

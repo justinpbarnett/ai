@@ -165,6 +165,19 @@ def is_test_function(name, in_class):
     return name.startswith("test_") or (in_class and name.startswith("test"))
 
 
+IMPORT_NODES = {"import_statement", "import_from_statement"}
+
+
+def imported_names(data, node):
+    names = []
+    for item in node.children_by_field_name("name"):
+        if item.type == "aliased_import":
+            names.append(node_text(data, item.child_by_field_name("alias")))
+        else:
+            names.append(node_text(data, item).split(".")[0])
+    return names
+
+
 def python_cases(surface, root):
     data, cases, module_suites = surface.data, [], {}
     stack = [(root, False, "module")]
@@ -181,7 +194,7 @@ def python_cases(surface, root):
                     or inherits_suite(data, node, module_suites)
                 )
                 if scope == "module":
-                    module_suites[name] = collected
+                    module_suites[name] = module_suites.get(name, False) or collected
                 stack.append(
                     (
                         node.child_by_field_name("body"),
@@ -194,6 +207,9 @@ def python_cases(surface, root):
                 case["skipped"] = marked
                 python_count(data, node, case)
                 cases.append(case)
+            continue
+        if scope == "module" and kind in IMPORT_NODES:
+            module_suites.update(dict.fromkeys(imported_names(data, node), True))
             continue
         stack.extend((child, skipped, scope) for child in reversed(node.children))
     return cases

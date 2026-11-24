@@ -372,7 +372,18 @@ def collect_style(surface, node, depth, result):
 def collect_js_import(surface, node, result):
     data = surface.data
     if node.type in {"import_statement", "export_statement"}:
-        if ref := literal(data, node.child_by_field_name("source")):
+        source = node.child_by_field_name("source")
+        if source is None:
+            source = next(
+                (
+                    c.child_by_field_name("source")
+                    for c in node.named_children
+                    if c.type == "import_require_clause"
+                ),
+                None,
+            )
+        ref = literal(data, source)
+        if ref:
             result["imports"].append(["js", ref])
         return
     if node.type != "call_expression":

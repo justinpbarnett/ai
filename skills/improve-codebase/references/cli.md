@@ -176,6 +176,7 @@ Stylelint 16 writes its `--formatter json` report to stderr by default; capture 
 Metadata includes `snapshot`, optional expected `revision`, actual `command`, `tool_version`, integer `exit_status`, `complete: true`, absolute `cwd`, and `coverage` (list of local source paths checked, relative to `cwd` or absolute).
 Verify actual tool coverage before claiming it; warnings are not execution failure, but fatal, truncated, skipped, or path-incompatible reports cannot be imported as successful evidence.
 SARIF 2.1.0 supports explicit local paths and physical line locations, not URI-base indirection.
+Diagnostic anchors follow each producer's line breaks, and SARIF honors `run.newlineSequences`.
 Record failed or unavailable analyzer runs as verification evidence instead of uploading an empty report.
 
 ## Completion

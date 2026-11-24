@@ -70,7 +70,7 @@ open_url() {
   for opener in wslview explorer.exe xdg-open open; do
     command -v "$opener" >/dev/null 2>&1 || continue
     printf '  %s↗ opening%s %s\n' "$GREEN" "$RESET" "$url"
-    if "$opener" "$url" >/dev/null 2>&1; then
+    if "$opener" "$url" >/dev/null 2>&1 || [[ "$opener" == explorer.exe ]]; then
       return 0
     fi
     break
@@ -208,6 +208,9 @@ set_var() {
 finish() {
   _clear
   printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
+  if (( _STAGE_INDEX != TOTAL_STAGES )); then
+    warn "TOTAL_STAGES is $TOTAL_STAGES but $_STAGE_INDEX stage(s) ran; fix TOTAL_STAGES in this script"
+  fi
   (( ${#WRITTEN_ENV[@]} ))    && note "wrote ${#WRITTEN_ENV[@]} value(s) to $ENV_FILE: ${WRITTEN_ENV[*]}"
   (( ${#WRITTEN_SECRET[@]} )) && note "set ${#WRITTEN_SECRET[@]} GitHub secret(s): ${WRITTEN_SECRET[*]}"
   if (( ${#SKIPPED[@]} )); then

@@ -5,12 +5,16 @@ import argparse
 import os
 import subprocess
 import sys
-import tomllib
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import uuid4
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.exit(f"ERROR: install.py needs Python 3.11 or newer for tomllib; found {sys.version.split()[0]}")
 
 REPO_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = REPO_DIR / "harnesses.toml"
@@ -234,11 +238,20 @@ def main() -> None:
             sys.exit(1)
         selected.append(h)
 
+    failed = []
     for name in selected:
-        configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
+        try:
+            configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
+        except subprocess.CalledProcessError as error:
+            print(f"ERROR: {name} failed (exit {error.returncode}), continuing", file=sys.stderr)
+            failed.append(name)
 
     if not args.dry_run:
         print("\nDone. Restart your coding harness(es) to pick up changes.")
+
+    if failed:
+        print(f"Failed: {', '.join(failed)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,15 @@
 from pathlib import Path
 
+from .layout import directory
 from .ledger import (
     SEVERITIES,
     now,
     validate_dependencies,
     validate_prerequisite_cycle,
 )
+from .paths import is_test_path
 from .review_units import STAGES, matching_receipts
-from .rules import GRAPH_WIDE_RULES
+from .rules import GRAPH_WIDE_RULES, WIDE_FOLDER
 from .validation import array, object_value, require, string
 from .verification import checks
 
@@ -207,6 +209,20 @@ def authorized_removal(state, finding, document, entries, missing):
     }
 
 
+def directory_membership_changed(finding, entries):
+    if finding["rule"] != WIDE_FOLDER:
+        return False
+    folder = finding["observation"]["directory"]
+    current = sum(
+        1
+        for path, entry in entries.items()
+        if entry.get("disposition") == "source"
+        and not is_test_path(path)
+        and directory(path) == folder
+    )
+    return current != finding["observation"]["files"]
+
+
 def resolution_inputs(state, finding, document, entries):
     required_paths = set(finding["source_hashes"])
     missing = {
@@ -226,7 +242,8 @@ def resolution_inputs(state, finding, document, entries):
         any(
             entries.get(p, {}).get("hash") != stamp
             for p, stamp in finding["source_hashes"].items()
-        ),
+        )
+        or directory_membership_changed(finding, entries),
         "no relevant source inputs changed",
     )
     return required_paths, removal

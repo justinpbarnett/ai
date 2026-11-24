@@ -4,7 +4,7 @@ import sys
 import rock_paths
 
 try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
+    from playwright.sync_api import Error as PwError, TimeoutError as PwTimeout, sync_playwright
 except ModuleNotFoundError:
     sys.exit(
         "Rock's browser tooling is not installed. It is opt-in, because it needs\n"
@@ -15,8 +15,7 @@ except ModuleNotFoundError:
         "That installs both, once. Every later command keeps them."
     )
 
-import passion_env
-from rock_client import PASSWORD_ENV, USERNAME_ENV, RockError, api_errors_reported, get_credentials
+from rock_client import RockError, RockLoginFailed, api_errors_reported, get_credentials
 from rock_log import get_logger
 
 log = get_logger("rock.browser")
@@ -36,7 +35,7 @@ class RockBrowser:
             return True
 
         log.info("browser login user=%s", self._username)
-        self.page.goto(f"{self.base_url}/Login", wait_until="networkidle", timeout=30000)
+        self._open(f"{self.base_url}/Login")
 
         try:
             self.page.fill('input[id$="tbUserName"]', self._username, timeout=10000)
@@ -60,11 +59,18 @@ class RockBrowser:
 
     def goto(self, path):
         if not self._logged_in and not self.login():
-            raise RockError(f"Error: browser login failed. Check {USERNAME_ENV} and {PASSWORD_ENV} in {passion_env.ENV_FILE}")
+            raise RockLoginFailed()
         url = f"{self.base_url}/{path.lstrip('/')}"
         log.info("browser goto %s", path)
-        self.page.goto(url, wait_until="networkidle", timeout=30000)
+        self._open(url)
         return self.page
+
+    def _open(self, url):
+        try:
+            self.page.goto(url, wait_until="networkidle", timeout=30000)
+        except PwError as exc:
+            log.error("browser could not open %s: %s", url, exc)
+            raise RockError(f"Error: could not reach Rock. {str(exc).splitlines()[0]}") from exc
 
     def screenshot(self, path, output=None):
         self.goto(path)

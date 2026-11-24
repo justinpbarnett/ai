@@ -196,7 +196,7 @@ def _resolve_name(client, endpoint, entity_id, field="Name"):
     try:
         result = client.get(f"{endpoint}/{entity_id}", params={"$select": field})
         return result.get(field, "?")
-    except Exception as _e:
+    except RockNotFound as _e:
         log.debug("lookup failed: %s", _e)
         return "?"
 
@@ -210,7 +210,7 @@ def _resolve_person_name(client, alias_id, cache=None):
         alias = client.get(f"PersonAlias/{alias_id}", params={"$select": "PersonId"})
         p = client.get(f"People/{alias['PersonId']}", params={"$select": "FirstName,LastName"})
         name = f"{p['FirstName']} {p['LastName']}"
-    except Exception as _e:
+    except RockNotFound as _e:
         log.debug("lookup failed: %s", _e)
         name = "?"
     if cache is not None:
@@ -261,7 +261,8 @@ def _people_filter(identifier):
         return f"Email eq '{odata_str(identifier)}'"
     parts = identifier.strip().split()
     if len(parts) >= 2:
-        return (f"FirstName eq '{odata_str(parts[0])}' and "
+        given = odata_str(" ".join(parts[:-1]))
+        return (f"(FirstName eq '{given}' or NickName eq '{given}') and "
                 f"LastName eq '{odata_str(parts[-1])}'")
     return f"LastName eq '{odata_str(parts[0])}'"
 
@@ -871,9 +872,9 @@ def _person_detail(person, client):
                                    params={"$select": "FirstName,LastName"})
                     detail.line(f"{roles.get(m['PersonId'], '?'):10s} "
                                 f"{p['FirstName']} {p['LastName']}", depth=1)
-                except Exception as _e:
+                except RockNotFound as _e:
                     log.debug("lookup failed: %s", _e)
-    except Exception as _e:
+    except RockNotFound as _e:
         log.debug("lookup failed: %s", _e)
 
     try:
@@ -897,9 +898,9 @@ def _person_detail(person, client):
                     if rid not in role_cache:
                         role_cache[rid] = _resolve_name(client, "GroupTypeRoles", rid)
                     related.add(f"{role_cache[rid]:20s} {pname}")
-                except Exception as _e:
+                except RockNotFound as _e:
                     log.debug("lookup failed: %s", _e)
-    except Exception as _e:
+    except RockNotFound as _e:
         log.debug("lookup failed: %s", _e)
 
     return detail
@@ -938,7 +939,7 @@ def cmd_group(args, client):
             p = client.get(f"People/{m['PersonId']}",
                            params={"$select": "FirstName,LastName"})
             pname = f"{p['FirstName']} {p['LastName']}"
-        except Exception as _e:
+        except RockNotFound as _e:
             log.debug("person lookup failed: %s", _e)
             pname = f"ID:{m['PersonId']}"
         status = GROUP_MEMBER_STATUSES.get(m.get("GroupMemberStatus"), "?")

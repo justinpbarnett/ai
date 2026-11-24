@@ -151,6 +151,7 @@ REQUIREMENTS = {
         "requires": ["modification.action_order"],
         "lists": ["modification.action_order"],
         "non_empty": ["modification.action_order"],
+        "ids": ["modification.action_order[]"],
     },
     "move_action": {
         "requires": ["modification.action_type_id",
@@ -246,6 +247,12 @@ def plan_problems(operation, plan):
                 problems.setdefault(where, f'"{where}" must be a whole number id, '
                                            f'got {json.dumps(value)}')
 
+    for path in spec.get("ids", ()):
+        for where, value in given_nodes(plan, path, problems):
+            if not is_id(value):
+                problems.setdefault(where, f'"{where}" must be a whole number id, '
+                                           f'got {json.dumps(value)}')
+
     for path in spec.get("names", ()):
         for where, value in given_nodes(plan, path, problems):
             if not is_name(value):
@@ -265,15 +272,13 @@ def plan_problems(operation, plan):
 
 
 def _exact_or_unique(candidates, noun, name, is_exact, contains):
-    for entry_id, label, entry in candidates:
-        if is_exact(entry):
-            return entry_id
-    partial = {entry_id: label for entry_id, label, entry in candidates if contains(entry)}
-    if len(partial) > 1:
-        listed = ", ".join(f"{label!r} (id {entry_id})" for entry_id, label in partial.items())
-        raise PlanError(f"{name!r} matches {len(partial)} {noun}: {listed}. "
+    exact = {entry_id: label for entry_id, label, entry in candidates if is_exact(entry)}
+    matched = exact or {entry_id: label for entry_id, label, entry in candidates if contains(entry)}
+    if len(matched) > 1:
+        listed = ", ".join(f"{label!r} (id {entry_id})" for entry_id, label in matched.items())
+        raise PlanError(f"{name!r} matches {len(matched)} {noun}: {listed}. "
                         f"Give the exact name.")
-    return next(iter(partial), None)
+    return next(iter(matched), None)
 
 
 def resolve_action_type(catalog, name):
@@ -360,24 +365,25 @@ def resolve_workflow_category(client, name):
 NEAR_NAMES = 5
 
 
-def uniquely_named(client, endpoint, name_key, name, scope=""):
+def uniquely_named(client, endpoint, name_key, name, scope="", column="Name", id_column="Id"):
     matches = client.get(endpoint, params={
-        "$filter": f"{scope}Name eq '{odata_str(name)}'",
-        "$select": "Id",
+        "$filter": f"{scope}{column} eq '{odata_str(name)}'",
+        "$select": id_column,
     })
-    if len(matches) == 1:
-        return matches[0]["Id"]
-    if matches:
-        ids = ", ".join(str(match["Id"]) for match in matches)
+    ids = list(dict.fromkeys(match[id_column] for match in matches))
+    if len(ids) == 1:
+        return ids[0]
+    if ids:
+        listed = ", ".join(str(found) for found in ids)
         noun = name_key.replace("_", " ")
-        raise PlanError(f"{len(matches)} {noun}s are named {name!r}, ids {ids}. "
+        raise PlanError(f"{len(ids)} {noun}s are named {name!r}, ids {listed}. "
                         f"Give the id of the one you mean.")
     near = client.get(endpoint, params={
-        "$filter": f"{scope}substringof('{odata_str(name)}', Name) eq true",
-        "$select": "Name",
+        "$filter": f"{scope}substringof('{odata_str(name)}', {column}) eq true",
+        "$select": column,
         "$top": NEAR_NAMES,
     })
-    hint = ", ".join(dict.fromkeys(repr(row["Name"]) for row in near))
+    hint = ", ".join(dict.fromkeys(repr(row[column]) for row in near))
     raise PlanError(f"no {name_key!r} matches {name!r}"
                     + (f". Names that contain it include {hint}." if hint else ""))
 
@@ -408,8 +414,8 @@ def resolve_data_view(client, name):
 
 
 def resolve_page_route(client, route):
-    return _first_id(client, "PageRoutes",
-                     f"Route eq '{odata_str(route.lstrip('/'))}'", "PageId")
+    return uniquely_named(client, "PageRoutes", "parent_page", route.lstrip("/"),
+                          column="Route", id_column="PageId")
 
 
 def resolve_named(name_key, name, resolve, *lookup_args):

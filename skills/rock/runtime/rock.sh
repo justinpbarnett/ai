@@ -13,9 +13,10 @@ fi
 
 umask 077
 runtime="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export ROCK_HOME="${ROCK_HOME:-$HOME/.local/share/passion-rock}"
+rock_home="${ROCK_HOME:-$HOME/.local/share/passion-rock}"
+mkdir -p "$rock_home"
+export ROCK_HOME="$(cd "$rock_home" && pwd)"
 export UV_PROJECT_ENVIRONMENT="$ROCK_HOME/.venv"
-mkdir -p "$ROCK_HOME"
 run=(uv run --frozen --project "$runtime")
 if [[ "${ROCK_WITH_BROWSER:-}" == 1 || "$tool" == browser || -f "$ROCK_HOME/.browser" ]]; then
   run+=(--group browser)

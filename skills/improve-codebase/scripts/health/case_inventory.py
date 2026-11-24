@@ -11,13 +11,18 @@ PYTHON_SNAPSHOT_CALL = re.compile(r"assert_?match_?snapshot", re.I)
 JS_SUITES = {"describe", "xdescribe", "fdescribe", "suite"}
 JS_CASES = {"it", "xit", "fit", "test", "xtest", "specify", "xspecify"} | JS_SUITES
 JS_SKIP_MODIFIERS = {"skip", "todo", "fixme"}
-JS_CALLBACK_NODES = frozenset(
+JS_DATA_NODES = frozenset(
     {
-        "arrow_function",
-        "function_expression",
-        "generator_function",
-        "identifier",
-        "member_expression",
+        "string",
+        "template_string",
+        "number",
+        "true",
+        "false",
+        "null",
+        "undefined",
+        "regex",
+        "object",
+        "array",
     }
 )
 JS_SNAPSHOT_MATCHER = re.compile(
@@ -279,16 +284,21 @@ def js_count(data, node, case):
                 case["assertions"] += 1
 
 
+def real_arguments(arguments):
+    return [item for item in arguments.named_children if "comment" not in item.type]
+
+
 def js_case_name(data, call):
     arguments = call.child_by_field_name("arguments")
     if arguments is None or arguments.type != "arguments":
         return None, None
-    first = arguments.named_children[0] if arguments.named_child_count else None
-    if first is None:
+    real = real_arguments(arguments)
+    if not real:
         return None, None
+    first = real[0]
     if first.type in {"string", "template_string"}:
         return node_text(data, first).strip("`\"'"), arguments
-    if any(item.type in JS_CALLBACK_NODES for item in arguments.named_children[1:]):
+    if any(item.type not in JS_DATA_NODES for item in real[1:]):
         return node_text(data, first), arguments
     return None, None
 

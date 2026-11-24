@@ -231,7 +231,12 @@ def python_targets(site, ref):
         resolved = posixpath.normpath(posixpath.join(base, tail))
         candidates = [posixpath.normpath(posixpath.join(resolved, "__init__.py"))]
         if tail:
-            candidates = [resolved + ".py", resolved + ".pyi", *candidates]
+            module = (
+                resolved + ".py"
+                if resolved + ".py" in site.paths
+                else resolved + ".pyi"
+            )
+            candidates = [module, *candidates]
         matches.extend(path for path in candidates if path in site.paths)
     return matches
 

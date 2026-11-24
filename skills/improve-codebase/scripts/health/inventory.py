@@ -181,10 +181,8 @@ def excluded_by_name(path):
     return None
 
 
-def excluded(path, state_relative, is_directory=False):
-    return excluded_by_parts(path, state_relative, is_directory) or (
-        None if is_directory else excluded_by_name(path)
-    )
+def excluded(path, state_relative):
+    return excluded_by_parts(path, state_relative, False) or excluded_by_name(path)
 
 
 def git_files(root):

@@ -1,4 +1,6 @@
+import hashlib
 import os
+import stat
 import subprocess
 from collections import Counter, defaultdict
 
@@ -87,6 +89,10 @@ def status_commits(raw):
     return commits
 
 
+REGULAR_MODES = {b"100644", b"100755"}
+DIGEST_BY_HEX_LENGTH = {40: "sha1", 64: "sha256"}
+
+
 def deleted_blobs(root):
     result = git(
         root,
@@ -102,28 +108,51 @@ def deleted_blobs(root):
     if result.returncode:
         return {}
     tokens = result.stdout.split(b"\0")
-    return {
-        os.fsdecode(path): meta.split()[2].decode()
-        for meta, path in zip(tokens[0::2], tokens[1::2], strict=False)
-    }
+    deleted = {}
+    for meta, path in zip(tokens[0::2], tokens[1::2], strict=False):
+        fields = meta.split()
+        if fields[0].lstrip(b":") in REGULAR_MODES:
+            deleted[os.fsdecode(path)] = fields[2].decode()
+    return deleted
 
 
-def untracked_blobs(root):
-    listed = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout
-    names = [
-        os.fsdecode(raw)
-        for raw in listed.split(b"\0")
-        if raw and not raw.endswith(b"/") and b"\n" not in raw
-    ]
-    if not names:
-        return {}
-    hashed = git(
+def blob_sizes(root, blobs):
+    listed = git(
         root,
-        "hash-object",
-        "--stdin-paths",
-        stdin=os.fsencode("\n".join(names) + "\n"),
-    ).stdout.split()
-    return dict(zip(names, (h.decode() for h in hashed), strict=True))
+        "cat-file",
+        "--batch-check=%(objectname) %(objectsize)",
+        stdin=os.fsencode("\n".join(sorted(blobs)) + "\n"),
+    ).stdout.split(b"\n")
+    sizes = {}
+    for line in listed:
+        fields = line.split()
+        if len(fields) == 2 and fields[1].isdigit():
+            sizes[fields[0].decode()] = int(fields[1])
+    return sizes
+
+
+def blob_id(content, algorithm):
+    digest = hashlib.new(algorithm, b"blob %d\0" % len(content))
+    digest.update(content)
+    return digest.hexdigest()
+
+
+def untracked_blobs(root, wanted_sizes, algorithm):
+    listed = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    blobs = {}
+    for raw in listed.split(b"\0"):
+        if not raw:
+            continue
+        name = os.fsdecode(raw)
+        try:
+            status = os.lstat(os.path.join(root, name))
+            if not stat.S_ISREG(status.st_mode) or status.st_size not in wanted_sizes:
+                continue
+            with open(os.path.join(root, name), "rb") as handle:
+                blobs[name] = blob_id(handle.read(), algorithm)
+        except OSError:
+            continue
+    return blobs
 
 
 def unstaged_renames(root, staged):
@@ -132,7 +161,12 @@ def unstaged_renames(root, staged):
     }
     if not deleted:
         return {}
-    untracked = untracked_blobs(root)
+    sizes = blob_sizes(root, set(deleted.values()))
+    deleted = {path: blob for path, blob in deleted.items() if blob in sizes}
+    if not deleted:
+        return {}
+    algorithm = DIGEST_BY_HEX_LENGTH.get(len(next(iter(deleted.values()))), "sha1")
+    untracked = untracked_blobs(root, set(sizes.values()), algorithm)
     old_by_blob, new_by_blob = defaultdict(list), defaultdict(list)
     for path, blob in deleted.items():
         old_by_blob[blob].append(path)

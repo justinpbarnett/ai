@@ -147,25 +147,30 @@ def is_test_function(name, in_class):
 
 def python_cases(surface, root):
     data, cases = surface.data, []
-    stack = [(root, False, False)]
+    stack = [(root, False, "module")]
     while stack:
-        node, skipped, in_class = stack.pop()
+        node, skipped, scope = stack.pop()
         kind = node.type
         if kind in {"class_definition", "function_definition"}:
             name = node_text(data, node.child_by_field_name("name"))
             decorators = definition_decorators(data, node)
             marked = skipped or any(SKIP_DECORATOR.match(d) for d in decorators)
             if kind == "class_definition":
-                suite = is_test_class(data, node, name) or in_class
-                stack.append((node.child_by_field_name("body"), marked, suite))
-                continue
-            if is_test_function(name, in_class):
+                collected = scope != "other" and is_test_class(data, node, name)
+                stack.append(
+                    (
+                        node.child_by_field_name("body"),
+                        marked,
+                        "suite" if collected else "other",
+                    )
+                )
+            elif scope != "other" and is_test_function(name, scope == "suite"):
                 case = new_case(surface, node, name)
                 case["skipped"] = marked
                 python_count(data, node, case)
                 cases.append(case)
-                continue
-        stack.extend((child, skipped, in_class) for child in reversed(node.children))
+            continue
+        stack.extend((child, skipped, scope) for child in reversed(node.children))
     return cases
 
 

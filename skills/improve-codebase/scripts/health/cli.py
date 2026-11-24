@@ -416,7 +416,7 @@ def main(argv=None):
             else render_text(result)
         )
         return code
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError) as exc:
         error, code = str(exc), 2
     except (ValueError, RecursionError) as exc:
         error, code = str(exc), 2

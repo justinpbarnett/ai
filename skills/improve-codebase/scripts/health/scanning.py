@@ -2,12 +2,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .detectors import scan_sources
-from .hashing import content_hash, digest
+from .hashing import analyzer_profiles, content_hash, current_parser_profile, digest
 from .history import commit_history, hotspots
 from .inventory import inventory
 from .ledger import claim_order, detect_moves, observe, relocation_destination
 from .parsers import ParseOptions, capabilities, parser_cache_prefix
-from .profiles import analyzer_profiles, current_parser_profile
 from .review_units import REVIEW_VERSION, units_for
 from .rules import HISTORY_RULES
 from .validation import require
@@ -103,6 +102,42 @@ def checkpoint_progress(state):
     state["progress_at_checkpoint"] = state["progress"]
 
 
+def surviving_relocations(state, live, moves):
+    merged_relocations = {
+        old: new
+        for old, new in state.get("relocations", {}).items()
+        if not live["entries"].get(old, {}).get("hash")
+    } | moves
+    return {
+        old: new
+        for old, new in merged_relocations.items()
+        if relocation_destination(merged_relocations, old, live["entries"]) is not None
+    }
+
+
+def kept_cache_prefixes(parser_profile, core_only):
+    return {
+        parser_cache_prefix(parser_profile),
+        parser_cache_prefix(current_parser_profile(capabilities(not core_only))),
+    }
+
+
+def save_scan(store, state, fresh, kept_prefixes, event):
+    with store.transaction():
+        store.assert_revision(state["revision"])
+        store.cache(fresh)
+        store.delete_detector_cache_outside_prefixes(kept_prefixes)
+        store.save(state, "scan", event)
+
+
+def require_stable_source(scope, live):
+    latest, _ = scope.collect()
+    require(
+        live["fingerprint"] == latest["fingerprint"],
+        "source changed during scan; retry on a stable snapshot",
+    )
+
+
 def scan(store, state, scope, *, core_only, full, checkpoint):
     live, files = scope.collect(gather=True)
     caps = capabilities(core_only)
@@ -117,24 +152,11 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
     )
     scope_inputs, snapshot, units = scope_evidence(live, analyzed, profile, rubric)
     analyzed["hotspots"] = hotspots(scope.root, scope.is_git, analyzed["metrics"])
-    latest, _ = scope.collect()
-    require(
-        live["fingerprint"] == latest["fingerprint"],
-        "source changed during scan; retry on a stable snapshot",
-    )
+    require_stable_source(scope, live)
     previous_snapshot = state.get("snapshot")
     prior_entries = state.get("inventory", {}).get("entries", {})
     moves = detect_moves(prior_entries, live["entries"])
-    merged_relocations = {
-        old: new
-        for old, new in state.get("relocations", {}).items()
-        if not live["entries"].get(old, {}).get("hash")
-    } | moves
-    relocations = {
-        old: new
-        for old, new in merged_relocations.items()
-        if relocation_destination(merged_relocations, old, live["entries"]) is not None
-    }
+    relocations = surviving_relocations(state, live, moves)
     old_profile = state.get("observation_profile")
     changed_parser = state.get("parser_profile") != parser_profile
     if snapshot != previous_snapshot:
@@ -169,30 +191,21 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
         observe(state, observation | {"detector_profile": profile})
     if checkpoint:
         checkpoint_progress(state)
-    with store.transaction():
-        store.assert_revision(state["revision"])
-        store.cache(fresh)
-        store.delete_detector_cache_outside_prefixes(
-            {
-                parser_cache_prefix(parser_profile),
-                parser_cache_prefix(
-                    current_parser_profile(capabilities(not core_only))
-                ),
-            }
-        )
-        store.save(
-            state,
-            "scan",
-            {
-                "profile_changed": bool(old_profile) and old_profile != profile,
-                "previous_snapshot": previous_snapshot,
-                "moves": moves,
-                "checkpoint": checkpoint,
-                "idle_cycles": state["idle_cycles"],
-                "inventory_fingerprint": live["fingerprint"],
-                "scope_inputs": scope_inputs,
-            },
-        )
+    save_scan(
+        store,
+        state,
+        fresh,
+        kept_cache_prefixes(parser_profile, core_only),
+        {
+            "profile_changed": bool(old_profile) and old_profile != profile,
+            "previous_snapshot": previous_snapshot,
+            "moves": moves,
+            "checkpoint": checkpoint,
+            "idle_cycles": state["idle_cycles"],
+            "inventory_fingerprint": live["fingerprint"],
+            "scope_inputs": scope_inputs,
+        },
+    )
     return live
 
 

@@ -178,6 +178,19 @@ def imported_names(data, node):
     return names
 
 
+def class_body_entry(data, node, name, marked, scope, module_suites):
+    collected = scope != "other" and (
+        is_test_class(data, node, name) or inherits_suite(data, node, module_suites)
+    )
+    if scope == "module":
+        module_suites[name] = module_suites.get(name, False) or collected
+    return (
+        node.child_by_field_name("body"),
+        marked,
+        "suite" if collected else "other",
+    )
+
+
 def python_cases(surface, root):
     data, cases, module_suites = surface.data, [], {}
     stack = [(root, False, "module")]
@@ -189,18 +202,8 @@ def python_cases(surface, root):
             decorators = definition_decorators(data, node)
             marked = skipped or any(SKIP_DECORATOR.match(d) for d in decorators)
             if kind == "class_definition":
-                collected = scope != "other" and (
-                    is_test_class(data, node, name)
-                    or inherits_suite(data, node, module_suites)
-                )
-                if scope == "module":
-                    module_suites[name] = module_suites.get(name, False) or collected
                 stack.append(
-                    (
-                        node.child_by_field_name("body"),
-                        marked,
-                        "suite" if collected else "other",
-                    )
+                    class_body_entry(data, node, name, marked, scope, module_suites)
                 )
             elif scope != "other" and is_test_function(name, scope == "suite"):
                 case = new_case(surface, node, name)

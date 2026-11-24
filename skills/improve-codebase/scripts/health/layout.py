@@ -110,26 +110,36 @@ def single_importers(by_directory, edges):
         )
 
 
-def folder_cycles(by_directory, edges):
-    directory_edges = {
+def directory_edge_set(edges):
+    return {
         (directory(source), directory(target), "directory")
         for source, target in edges
         if directory(source) != directory(target)
     }
-    for members in components(sorted(directory_edges)):
+
+
+def component_file_edges(edges, member_set):
+    return sorted(
+        (source, target)
+        for source, target in edges
+        if {directory(source), directory(target)} <= member_set
+        and directory(source) != directory(target)
+    )
+
+
+def cycle_anchor_path(by_directory, owned, endpoints):
+    selected = {path for d in owned for path in by_directory[d]}
+    return min([file for file in endpoints if file in selected] or selected)
+
+
+def folder_cycles(by_directory, edges):
+    for members in components(sorted(directory_edge_set(edges))):
         owned = [d for d in members if by_directory.get(d)]
         if not owned:
             continue
-        member_set = set(members)
-        file_edges = sorted(
-            (source, target)
-            for source, target in edges
-            if {directory(source), directory(target)} <= member_set
-            and directory(source) != directory(target)
-        )
+        file_edges = component_file_edges(edges, set(members))
         endpoints = sorted({file for edge in file_edges for file in edge})
-        selected = {path for d in owned for path in by_directory[d]}
-        path = min([file for file in endpoints if file in selected] or selected)
+        path = cycle_anchor_path(by_directory, owned, endpoints)
         yield (
             FOLDER_CYCLE,
             path,

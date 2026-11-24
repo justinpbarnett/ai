@@ -8,6 +8,7 @@ import ipaddr from "ipaddr.js";
 import { chromium, type Browser } from "playwright";
 import {
   maxResponseBytes,
+  maxResponseMebibytes,
   decodeBody,
   oversizeError,
   responseText,
@@ -277,7 +278,9 @@ export async function browserFetch(
     signal.throwIfAborted();
     const body = await page.content();
     if (Buffer.byteLength(body) > maxResponseBytes)
-      throw new NonRetryableError("Rendered page exceeds the 10 MiB limit.");
+      throw new NonRetryableError(
+        `Rendered page exceeds the ${maxResponseMebibytes} MiB limit.`,
+      );
     return {
       status: response.status(),
       url: normalizeUrl(page.url()),

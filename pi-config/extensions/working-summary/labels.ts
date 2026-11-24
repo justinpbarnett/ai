@@ -1,6 +1,6 @@
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
-import { CREDENTIAL_LIKE } from "../shared/prompt-privacy.js";
+import { CREDENTIAL_LIKE, isShareablePrompt } from "../shared/prompt-privacy.js";
 import { replaceControlCharacters, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 export const SLOTS = ["session", "prompt"] as const;
@@ -17,7 +17,6 @@ export const JEV_EXCERPT_COUNT = 2;
 const FILE_BLOCK = /<file name="/;
 const FILE_END = /<\/file>(?:\r?\n|$)/g;
 const IMAGE_NOTE = /^\[Image(?: converted from| omitted:|: original )[^\]\r\n]*\][\t ]*\r?$/gm;
-const FILE_REFERENCE = /(?:^|\s)@[^\s]|\bfile:\/\//i;
 const CODE_FENCE = /```|~~~/;
 const TOPIC_REQUESTS = [
 	{ prefix: /^(?:walk (?:me |us )?through|give (?:me|us) a walkthrough of) /i, kind: "walkthrough" },
@@ -109,7 +108,7 @@ function inspectPrompt(content: UserMessage["content"]) {
 }
 
 function modelExcerpt({ request, safeLine, hasImage, hasFile }: ReturnType<typeof inspectPrompt>): string | undefined {
-	if (!safeLine || hasImage || hasFile || CODE_FENCE.test(request) || FILE_REFERENCE.test(request)) return;
+	if (!safeLine || hasImage || hasFile || !isShareablePrompt(request)) return;
 	return excerpt(safeLine);
 }
 

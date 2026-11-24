@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { configure, configureBrave } from "./config.ts";
+import { crawl, dispose, readiness, scrapeBatch } from "./core.ts";
 import {
-  crawl,
+  brightDataMinimumTimeoutMs,
   crawlLimits,
-  dispose,
   MAX_SCRAPE_URLS,
-  readiness,
-  scrapeBatch,
   scrapeTimeoutLimits,
-} from "./core.ts";
+  searchLimits,
+} from "./limits.ts";
 import { formatResults, hasFailures, saveDocument } from "./results.ts";
-import { search, searchLimits } from "./search.ts";
+import { search } from "./search.ts";
 
 const help = `Pi web search and progressive scraper
 
@@ -36,7 +35,7 @@ Search options:
 Scrape/crawl options:
   --start-tier N    Start at tier 1, 2, 3, or 4
   --max-tier N      Highest permitted tier (3 prevents paid requests)
-  --timeout N       Per-tier timeout in milliseconds (default ${scrapeTimeoutLimits.fallback}; tier 4 at least 60000)
+  --timeout N       Per-tier timeout in milliseconds (default ${scrapeTimeoutLimits.fallback}; tier 4 at least ${brightDataMinimumTimeoutMs})
   --wait-for CSS    Wait for a CSS selector; starts at browser tier 3 by default
   --fresh           Bypass the 15-minute scrape cache (crawls never use it)
   --max-pages N     Crawl page attempt limit, ${crawlLimits.maxPages.minimum}-${crawlLimits.maxPages.maximum} (default ${crawlLimits.maxPages.fallback})

@@ -15,24 +15,20 @@ except ModuleNotFoundError:
         "That installs both, once. Every later command keeps them."
     )
 
-from rock_client import api_errors_reported, get_credentials
+import passion_env
+from rock_client import PASSWORD_ENV, USERNAME_ENV, RockError, api_errors_reported, get_credentials
 from rock_log import get_logger
 
 log = get_logger("rock.browser")
 
-SCREENSHOTS_DIR = rock_paths.SCREENSHOTS
-
 
 class RockBrowser:
     def __init__(self, headless=True):
+        self.base_url, self._username, self._password = get_credentials()
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(headless=headless)
-        self._context = self._browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            ignore_https_errors=True,
-        )
+        self._context = self._browser.new_context(viewport={"width": 1280, "height": 900})
         self.page = self._context.new_page()
-        self.base_url, self._username, self._password = get_credentials()
         self._logged_in = False
 
     def login(self):
@@ -63,8 +59,8 @@ class RockBrowser:
         return True
 
     def goto(self, path):
-        if not self._logged_in:
-            self.login()
+        if not self._logged_in and not self.login():
+            raise RockError(f"Error: browser login failed. Check {USERNAME_ENV} and {PASSWORD_ENV} in {passion_env.ENV_FILE}")
         url = f"{self.base_url}/{path.lstrip('/')}"
         log.info("browser goto %s", path)
         self.page.goto(url, wait_until="networkidle", timeout=30000)
@@ -73,9 +69,9 @@ class RockBrowser:
     def screenshot(self, path, output=None):
         self.goto(path)
         if output is None:
-            SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+            rock_paths.SCREENSHOTS.mkdir(parents=True, exist_ok=True)
             slug = path.strip("/").replace("/", "-").replace("?", "_") or "home"
-            output = str(SCREENSHOTS_DIR / f"{slug}.png")
+            output = str(rock_paths.SCREENSHOTS / f"{slug}.png")
         self.page.screenshot(path=output, full_page=True)
         log.info("screenshot saved %s", output)
         return output
@@ -91,68 +87,6 @@ class RockBrowser:
         except PwTimeout:
             log.info("check_element path=%s selector=%s not_found", path, selector)
             return {"found": False, "visible": False, "bbox": None}
-
-    def check_elements(self, path, selectors):
-        self.goto(path)
-        results = {}
-        for selector in selectors:
-            try:
-                el = self.page.wait_for_selector(selector, timeout=5000)
-                visible = el.is_visible() if el else False
-                results[selector] = {"found": True, "visible": visible}
-            except PwTimeout:
-                results[selector] = {"found": False, "visible": False}
-        return results
-
-    def get_text(self, path, selector, timeout=10000):
-        self.goto(path)
-        try:
-            el = self.page.wait_for_selector(selector, timeout=timeout)
-            text = el.inner_text() if el else ""
-            return text
-        except PwTimeout:
-            return None
-
-    def get_block_content(self, page_id, zone="Main"):
-        path = f"page/{page_id}"
-        self.goto(path)
-        blocks = self.page.query_selector_all(f'.zone-{zone.lower()} .block-instance, .block-content')
-        results = []
-        for b in blocks:
-            results.append({
-                "html": b.inner_html()[:500],
-                "text": b.inner_text()[:300],
-                "visible": b.is_visible(),
-            })
-        return results
-
-    def fill_form(self, path, fields, submit_selector=None):
-        self.goto(path)
-        for selector, value in fields.items():
-            try:
-                el = self.page.wait_for_selector(selector, timeout=5000)
-                tag = el.evaluate("el => el.tagName.toLowerCase()")
-                if tag == "select":
-                    self.page.select_option(selector, label=value)
-                elif tag == "input":
-                    input_type = el.get_attribute("type") or "text"
-                    if input_type in ("checkbox", "radio"):
-                        if value:
-                            el.check()
-                        else:
-                            el.uncheck()
-                    else:
-                        self.page.fill(selector, value)
-                else:
-                    self.page.fill(selector, value)
-                log.info("fill_form %s=%s", selector, value[:50] if isinstance(value, str) else value)
-            except PwTimeout:
-                log.error("fill_form field not found: %s", selector)
-                return False
-        if submit_selector:
-            self.page.click(submit_selector)
-            self.page.wait_for_load_state("networkidle", timeout=15000)
-        return True
 
     def verify_page(self, page_id):
         path = f"page/{page_id}"
@@ -230,24 +164,29 @@ def cmd_verify_page(args):
             print(f"  Errors ({len(result['errors'])}):")
             for e in result["errors"]:
                 print(f"    {e[:200]}")
+        if not result["ok"]:
+            sys.exit(1)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Rock RMS browser automation")
     parser.add_argument("--headed", action="store_true", help="Run with visible browser")
+    headed_anywhere = argparse.ArgumentParser(add_help=False)
+    headed_anywhere.add_argument("--headed", action="store_true", default=argparse.SUPPRESS,
+                                 help="Run with visible browser")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("login", help="Verify browser login works")
+    subparsers.add_parser("login", help="Verify browser login works", parents=[headed_anywhere])
 
-    p_ss = subparsers.add_parser("screenshot", help="Take a screenshot")
+    p_ss = subparsers.add_parser("screenshot", help="Take a screenshot", parents=[headed_anywhere])
     p_ss.add_argument("path", help="URL path (e.g. /page/123)")
     p_ss.add_argument("output", nargs="?", help="Output file path")
 
-    p_ce = subparsers.add_parser("check-element", help="Check if element exists")
+    p_ce = subparsers.add_parser("check-element", help="Check if element exists", parents=[headed_anywhere])
     p_ce.add_argument("path", help="URL path")
     p_ce.add_argument("selector", help="CSS selector")
 
-    p_vp = subparsers.add_parser("verify-page", help="Verify a page loads without errors")
+    p_vp = subparsers.add_parser("verify-page", help="Verify a page loads without errors", parents=[headed_anywhere])
     p_vp.add_argument("page_id", type=int, help="Rock page ID")
 
     parsed = parser.parse_args()

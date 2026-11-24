@@ -23,8 +23,8 @@ export function shownNatively(toolName: string): boolean {
 	return NATIVE_TOOLS.has(toolName);
 }
 
-export function activityLabel({ singular, target }: ToolActivity = genericActivity): string {
-	return `${singular.charAt(0).toUpperCase()}${singular.slice(1)}${target ? `: ${target}` : ""}`;
+export function activityLabel({ name, target }: ToolActivity = genericActivity): string {
+	return `${name.charAt(0).toUpperCase()}${name.slice(1)}${target ? `: ${target}` : ""}`;
 }
 
 function callLabel(state: CallState): string {

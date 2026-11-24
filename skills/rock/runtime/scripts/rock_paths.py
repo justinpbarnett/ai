@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-HOME = Path(os.environ.get("ROCK_HOME") or Path.home() / ".local" / "share" / "passion-rock")
+HOME = Path(os.environ["ROCK_HOME"])
 
 CATALOG = HOME / "catalog.json"
 LOG = HOME / "rock.log"

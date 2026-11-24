@@ -15,6 +15,9 @@ Placeholders are replaced in place. PATH is relative to the file that holds the 
     {{svg:PATH}}         an SVG file, inline
     {{draw:PATH}}        the SVG a drawing script prints; {{draw:PATH#ARG}} runs it with ARG
     {{font:NAME}}        a font from kit/fonts, as base64
+    {{fact:NAME}}        a figure read from the kit as it stands: token-NAME (a color's hex), contrast-NAME
+                         (its ratio to ground, as "6.95 to 1"), bytes-FILE or bytes-fonts (sizes in
+                         kit/fonts), kb-fonts (the fonts as base64 text, in KB)
 
 Anything else in double braces is left alone, so a template can keep slots for another tool to fill.
 To show a placeholder as text on a page, write its first brace as &#123;.
@@ -28,8 +31,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree
 
+import facts
+from tokens import tokens
+
 KIT = Path(__file__).resolve().parent
-KINDS = "kit|css|js|img|svg|draw|font"
+KINDS = "kit|css|js|img|svg|draw|font|fact"
 PLACE = re.compile(r"\{\{(" + KINDS + r"):([^{}\s]+)\}\}")
 LOOSE = re.compile(r"\{\{\s*(?:" + KINDS + r")\s*:[^{}]*\}\}")
 MIME = {
@@ -98,6 +104,23 @@ def draw(path, arg, src="--draw"):
     return svg
 
 
+def fact(name, src, what):
+    kind, _, arg = name.partition("-")
+    page = tokens()
+    try:
+        if kind == "token":
+            return page[arg]
+        if kind == "contrast":
+            return f"{facts.contrast(arg)} to 1"
+        if kind == "bytes":
+            return facts.fonts_bytes() if arg == "fonts" else facts.font_bytes(arg)
+        if kind == "kb" and arg == "fonts":
+            return facts.fonts_as_text_kb()
+    except (KeyError, OSError):
+        pass
+    fail(f"{src}: {what}: no such fact")
+
+
 def expand(text, base, src, including=()):
     for m in LOOSE.finditer(text):
         if not PLACE.fullmatch(m.group(0)):
@@ -107,6 +130,8 @@ def expand(text, base, src, including=()):
         kind, name, what = m.group(1), m.group(2), m.group(0)
         if kind == "font":
             return b64(KIT / "fonts" / name, src, what)
+        if kind == "fact":
+            return fact(name, src, what)
         if kind == "kit":
             return expand_file(KIT / name, KIT, f"kit/{name}", src, what, including)
         if kind == "draw":

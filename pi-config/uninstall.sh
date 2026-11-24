@@ -14,7 +14,7 @@ Environment:
   PI_CODING_AGENT_DIR   Target pi agent dir. Default: ~/.pi/agent
 
 Removes only symlinks in the target pi agent dir that point into this repo's
-pi-config directory. Local secrets and state are never removed.
+pi-config or skills directory. Local secrets and state are never removed.
 EOF
 }
 

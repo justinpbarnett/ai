@@ -1,5 +1,5 @@
 import robotsParser from "robots-parser";
-import { deadlineSignal } from "./deadline.ts";
+import { deadlineFailure, deadlineSignal } from "./deadline.ts";
 import { httpFetch } from "./transports.ts";
 
 const robotsTimeoutMs = 15000;
@@ -30,9 +30,11 @@ async function fetchPolicy(origin: string, signal: AbortSignal) {
 export async function crawlPolicy(origin: string, caller?: AbortSignal) {
   const { deadline, signal } = deadlineSignal(robotsTimeoutMs, caller);
   return fetchPolicy(origin, signal).catch((error: unknown) => {
-    caller?.throwIfAborted();
-    if (deadline.aborted)
-      throw new Error(`robots.txt timed out after ${robotsTimeoutMs} ms.`);
-    throw error;
+    throw deadlineFailure(
+      error,
+      caller,
+      deadline,
+      `robots.txt timed out after ${robotsTimeoutMs} ms.`,
+    );
   });
 }

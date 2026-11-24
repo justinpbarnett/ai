@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { UserMessage } from "@earendil-works/pi-ai";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_OLLAMA_MODEL, isLocalOllamaModel } from "../shared/ollama.js";
 import { JEV_UPSTREAM, jevBlocker } from "../shared/openrouter.js";
+import { readSettingsFile } from "../shared/settings-file.js";
 import { formatSummary } from "./display.js";
 import { installSummaryBorder } from "./editor.js";
 import { earlierExcerpts, EXCERPT_LENGTH, JEV_EXCERPT_COUNT, parseSummaryLabel, previewPrompt, REMOTE_EXCERPT_COUNT, SLOTS, type Labels, type Slot } from "./labels.js";
@@ -35,7 +34,8 @@ function isSetting(key: string): key is Setting {
 
 function loadSettings(): Settings | undefined {
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(join(getAgentDir(), SETTINGS_FILE), "utf8"));
+		const parsed = readSettingsFile(SETTINGS_FILE);
+		if (parsed === undefined) return { ...DEFAULTS };
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
 		const settings = { ...DEFAULTS };
 		for (const [key, value] of Object.entries(parsed)) {
@@ -44,8 +44,8 @@ function loadSettings(): Settings | undefined {
 			else return;
 		}
 		return settings;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ...DEFAULTS };
+	} catch {
+		return;
 	}
 }
 

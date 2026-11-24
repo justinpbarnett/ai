@@ -21,10 +21,12 @@ function policyProblem(window: number | undefined, keepRecentTokens: number | un
 	hard: number | undefined;
 	notice: number | undefined;
 	warning: number | undefined;
-}) {
+}, flags: { notice: unknown; warning: unknown }) {
 	const { hard, notice, warning } = thresholds;
 	if (!window) return "model limits unavailable";
 	if (keepRecentTokens === undefined || !hard || hard < 0) return "invalid native compaction limits";
+	if (flags.notice !== undefined && !notice) return `invalid --${NOTICE_FLAG} value`;
+	if (flags.warning !== undefined && !warning) return `invalid --${WARN_FLAG} value`;
 	if (!notice || !warning || notice >= warning || warning >= hard) return "require 0 < notice < warning < native cutoff";
 }
 
@@ -40,7 +42,7 @@ function resolvePolicy(settings: CompactionSettings, model: ExtensionContext["mo
 		notice: parseThreshold(noticeFlag, window, hard, 0.6),
 		warning: parseThreshold(warnFlag, window, hard, 0.8),
 	};
-	const problem = policyProblem(window, keepRecentTokens, thresholds);
+	const problem = policyProblem(window, keepRecentTokens, thresholds, { notice: noticeFlag, warning: warnFlag });
 	return { enabled, window, ...thresholds, keepRecentTokens, problem, tokens: usage?.tokens ?? null };
 }
 

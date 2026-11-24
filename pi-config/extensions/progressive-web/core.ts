@@ -1,7 +1,14 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { credentialsPath, loadCredentials } from "./config.ts";
 import { extractPage, type PageContent } from "./content.ts";
-import { deadlineSignal } from "./deadline.ts";
+import { deadlineFailure, deadlineSignal } from "./deadline.ts";
+import {
+  crawlLimits,
+  MAX_SCRAPE_URLS,
+  maxTierNumber,
+  scrapeTimeoutLimits,
+  tierSpecs,
+} from "./limits.ts";
 import { crawlPolicy } from "./robots.ts";
 import { searchStatus } from "./search.ts";
 import {
@@ -83,24 +90,10 @@ const tiers: {
   name: string;
   fetch: PageTransport;
   minimumTimeoutMs?: number;
-}[] = [
-  { name: "HTTP fetch", fetch: httpFetch },
-  { name: "cURL + browser headers", fetch: curlFetch },
-  { name: "Playwright", fetch: browserFetch },
-  { name: "Bright Data", fetch: brightDataFetch, minimumTimeoutMs: 60000 },
-];
+}[] = [httpFetch, curlFetch, browserFetch, brightDataFetch].map(
+  (fetch, index) => ({ ...tierSpecs[index], fetch }),
+);
 const browserTier = tiers.findIndex((tier) => tier.fetch === browserFetch) + 1;
-export const maxTierNumber = tiers.length;
-export const scrapeTimeoutLimits = {
-  minimum: 1000,
-  maximum: 120000,
-  fallback: 30000,
-};
-export const crawlLimits = {
-  maxPages: { minimum: 1, maximum: 50, fallback: 10 },
-  maxDepth: { minimum: 0, maximum: 5, fallback: 2 },
-  delayMs: { minimum: 250, maximum: 30000, fallback: 1000 },
-};
 const MAX_CACHED_PAGE_BYTES = 2 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 64;
 const MAX_CACHE_TOTAL_BYTES = 32 * 1024 * 1024;
@@ -226,15 +219,15 @@ async function fetchPageAtTier(
       content,
     };
   } catch (error) {
-    runtime.signal?.throwIfAborted();
-    const message = deadline.aborted
-      ? `Tier timed out after ${tierTimeoutMs} ms.`
-      : error instanceof Error
-        ? error.message
-        : String(error);
+    const failure = deadlineFailure(
+      error,
+      runtime.signal,
+      deadline,
+      `Tier timed out after ${tierTimeoutMs} ms.`,
+    );
     return {
       ok: false as const,
-      error: message,
+      error: failure instanceof Error ? failure.message : String(failure),
       terminal: error instanceof NonRetryableError,
     };
   }
@@ -353,8 +346,6 @@ async function scrapeOrReject(
   }
   return scrape(options, runtime);
 }
-
-export const MAX_SCRAPE_URLS = 10;
 
 export async function scrapeBatch(
   options: ScrapeOptions & { urls: string[] },

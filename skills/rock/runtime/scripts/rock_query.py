@@ -1,10 +1,11 @@
 import argparse
+import datetime
 import json
-import os
 import sys
 import traceback
 
-from rock_client import RockApiError, RockClient, RockNotFound, api_errors_reported, odata_str
+from rock_client import (RockApiError, RockClient, RockNotFound, api_errors_reported, odata_str,
+                         refuse_unless_writes_enabled)
 from rock_log import get_logger
 from rock_text import plural
 
@@ -229,9 +230,13 @@ def _find_entity(client, endpoint, identifier, name_field="Name", label=None,
     except (ValueError, RockNotFound):
         pass
 
-    exact, _more = search(f"{name_field} eq '{odata_str(identifier)}'", 1)
-    if exact:
+    exact, exact_more = search(f"{name_field} eq '{odata_str(identifier)}'",
+                               CHOOSER_LIMIT)
+    if len(exact) == 1:
         return exact[0]
+    if exact:
+        raise LookupMiss(_chooser(f"Multiple {label}s are named '{identifier}'",
+                                  exact, exact_more, name_field))
 
     results, more = search(
         f"substringof('{odata_str(identifier)}', {name_field}) eq true",
@@ -239,12 +244,16 @@ def _find_entity(client, endpoint, identifier, name_field="Name", label=None,
     if len(results) == 1:
         return results[0]
     if results:
-        chooser = Listing(f"Multiple {label}s match '{identifier}'", more,
-                          hint=CHOOSER_HINT)
-        for r in results:
-            chooser.add(r["Id"], r.get(name_field, "?"))
-        raise LookupMiss(chooser)
+        raise LookupMiss(_chooser(f"Multiple {label}s match '{identifier}'",
+                                  results, more, name_field))
     raise LookupMiss(Text(f"No {label} found matching '{identifier}'"))
+
+
+def _chooser(title, rows, more, name_field):
+    chooser = Listing(title, more, hint=CHOOSER_HINT)
+    for r in rows:
+        chooser.add(r["Id"], r.get(name_field, "?"))
+    return chooser
 
 
 def _people_filter(identifier):
@@ -546,6 +555,13 @@ def _audit_report(wf, issues, warnings):
     return Text("\n".join(lines).rstrip("\n"))
 
 
+def _is_reached(activity, reachable):
+    if activity.get("IsActivatedWithWorkflow"):
+        return True
+    identities = {str(activity["Id"]), str(activity.get("Guid") or "").lower()}
+    return bool(identities & reachable)
+
+
 def cmd_audit(args, client):
     wf = _find_entity(client, "WorkflowTypes", args.identifier,
                       label="workflow")
@@ -609,7 +625,7 @@ def cmd_audit(args, client):
                     for key in ("Activity", "ActivityType", "ActivityTypeGuid"):
                         val = settings.get(key, "")
                         if val:
-                            reachable.add(str(val))
+                            reachable.add(str(val).lower())
 
             if not args.skip_settings and entity_name:
                 name_lower = entity_name.lower().replace(" ", "")
@@ -623,7 +639,7 @@ def cmd_audit(args, client):
                             _check_sms(action, act, settings, issues)
 
     for act in activities:
-        if str(act["Id"]) not in reachable and not act.get("IsActivatedWithWorkflow"):
+        if not _is_reached(act, reachable):
             warnings.append(f"Activity '{act['Name']}' (ID: {act['Id']}) may be unreachable")
 
     return _audit_report(wf, issues, warnings)
@@ -694,13 +710,18 @@ def cmd_dataviews(args, client):
         "$orderby": "Name",
     }
     if args.category:
-        params["$filter"] = f"substringof('{odata_str(args.category)}', Name) eq true"
+        params["$filter"] = f"substringof('{odata_str(args.category)}', Category/Name) eq true"
 
     dvs, more = get_capped(client, "DataViews", params, args.limit)
 
+    cat_ids = {dv["CategoryId"] for dv in dvs if dv.get("CategoryId")}
+    cat_names = {cid: _resolve_name(client, "Categories", cid) for cid in cat_ids}
+
     listing = Listing("Data Views", more)
     for dv in dvs:
-        listing.add(dv["Id"], dv["Name"])
+        cat_name = cat_names.get(dv.get("CategoryId"), "")
+        cat_str = f" ({cat_name})" if cat_name else ""
+        listing.add(dv["Id"], f"{dv['Name']}{cat_str}")
     return listing
 
 
@@ -1132,8 +1153,8 @@ def cmd_connections(args, client):
         "$orderby": "CreatedDateTime desc",
     }
     filters = []
-    if args.state and args.state.lower() in CONNECTION_STATE_FILTER:
-        filters.append(f"ConnectionState eq {CONNECTION_STATE_FILTER[args.state.lower()]}")
+    if args.state:
+        filters.append(f"ConnectionState eq {CONNECTION_STATE_FILTER[args.state]}")
     if args.opportunity:
         filters.append(f"substringof('{odata_str(args.opportunity)}', ConnectionOpportunity/Name) eq true")
     if filters:
@@ -1418,7 +1439,7 @@ def cmd_attendance(args, client):
         group = _find_entity(client, "Groups", args.group, label="group")
         filters.append(f"GroupId eq {group['Id']}")
     if args.date:
-        filters.append(f"OccurrenceDate eq datetime'{args.date}'")
+        filters.append(f"OccurrenceDate eq datetime'{args.date.isoformat()}'")
     if filters:
         params["$filter"] = " and ".join(filters)
 
@@ -1532,17 +1553,21 @@ def cmd_person_create(args, client):
     return Text(f"Created person: {args.first} {args.last} (ID: {pid})")
 
 
+PERSON_UPDATE_ALIASES = {
+    "campus": "CampusId",
+    "connectionstatus": "ConnectionStatusValueId",
+    "recordstatus": "RecordStatusValueId",
+    "maritalstatus": "MaritalStatusValueId",
+}
+PERSON_UPDATE_COLUMNS = ("FirstName", "LastName", "Email", "NickName", "CampusId",
+                         "ConnectionStatusValueId", "RecordStatusValueId",
+                         "MaritalStatusValueId", "BirthDate", "Gender")
+PERSON_UPDATE_FIELDS = {**{c.lower(): c for c in PERSON_UPDATE_COLUMNS},
+                        **PERSON_UPDATE_ALIASES}
+
+
 def cmd_person_update(args, client):
     person = client.get(f"People/{args.id}")
-
-    field_map = {
-        "firstname": "FirstName", "lastname": "LastName", "email": "Email",
-        "nickname": "NickName", "campus": "CampusId",
-        "connectionstatus": "ConnectionStatusValueId",
-        "recordstatus": "RecordStatusValueId",
-        "maritalstatus": "MaritalStatusValueId",
-        "birthdate": "BirthDate", "gender": "Gender",
-    }
 
     data = {}
     for kv in args.fields:
@@ -1550,7 +1575,11 @@ def cmd_person_update(args, client):
             print(f"Invalid field format: {kv} (expected key=value)")
             sys.exit(1)
         key, value = kv.split("=", 1)
-        mapped = field_map.get(key.lower(), key)
+        mapped = PERSON_UPDATE_FIELDS.get(key.lower())
+        if mapped is None:
+            print(f"Unknown field: {key}. Valid fields: "
+                  f"{', '.join(sorted(PERSON_UPDATE_FIELDS))}")
+            sys.exit(1)
         data[mapped] = value
 
     client.patch(f"People/{args.id}", data)
@@ -1562,7 +1591,7 @@ def cmd_exception_clear(args, client):
     params = {"$select": "Id", "$orderby": "CreatedDateTime asc"}
     filters = []
     if args.before:
-        filters.append(f"CreatedDateTime lt datetime'{args.before}T00:00:00'")
+        filters.append(f"CreatedDateTime lt datetime'{args.before.isoformat()}T00:00:00'")
     if args.type:
         filters.append(f"substringof('{odata_str(args.type)}', ExceptionType) eq true")
     if filters:
@@ -1591,25 +1620,33 @@ def cmd_exception_clear(args, client):
     return Text(summary)
 
 
-WRITE_COMMANDS = {
-    "person-create": "creates a person record",
-    "person-update": "modifies a person record",
-    "block-set": "changes a block's settings",
-    "exception-clear": "deletes exception logs",
-}
-
-
-def _guard_writes(command):
-    if command not in WRITE_COMMANDS or os.environ.get("ROCK_ALLOW_WRITES") == "1":
+def _guard_writes(parsed):
+    effect = getattr(parsed, "writes", None)
+    if effect is None:
         return
-    print(
-        f"Refusing to run '{command}': it {WRITE_COMMANDS[command]}, and it was not "
+    refuse_unless_writes_enabled(
+        f"Refusing to run '{parsed.command}': it {effect}, and it was not "
         f"reached through rock.sh.\n"
-        f"Run it as `rock.sh query {command} ...` – the entry point is what logs the "
-        f"call and enables the write.",
-        file=sys.stderr,
+        f"Run it as `rock.sh query {parsed.command} ...` – rock.sh enables the write "
+        f"and this script logs the command name to rock.log."
     )
-    sys.exit(2)
+
+
+def positive_int(value):
+    try:
+        number = int(value)
+    except ValueError:
+        number = 0
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a whole number of 1 or more")
+    return number
+
+
+def iso_date(value):
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a date as YYYY-MM-DD") from None
 
 
 def not_blank(value):
@@ -1624,7 +1661,7 @@ def main():
 
     p_wfs = subparsers.add_parser("workflows", help="List workflow types")
     p_wfs.add_argument("--category", help="Filter by category name")
-    p_wfs.add_argument("--limit", type=int, default=100)
+    p_wfs.add_argument("--limit", type=positive_int, default=100)
     p_wfs.set_defaults(func=cmd_workflows)
 
     p_wf = subparsers.add_parser("workflow", help="Get a workflow by name or ID")
@@ -1634,7 +1671,7 @@ def main():
 
     p_pgs = subparsers.add_parser("pages", help="List pages")
     p_pgs.add_argument("--site", type=int, help="Filter by site ID")
-    p_pgs.add_argument("--limit", type=int, default=100)
+    p_pgs.add_argument("--limit", type=positive_int, default=100)
     p_pgs.set_defaults(func=cmd_pages)
 
     p_pg = subparsers.add_parser("page", help="Get a page by name, route, or ID")
@@ -1661,8 +1698,8 @@ def main():
     p_attrs.set_defaults(func=cmd_attributes)
 
     p_dvs = subparsers.add_parser("dataviews", help="List data views")
-    p_dvs.add_argument("--category", help="Filter by name substring")
-    p_dvs.add_argument("--limit", type=int, default=100)
+    p_dvs.add_argument("--category", help="Filter by category name substring")
+    p_dvs.add_argument("--limit", type=positive_int, default=100)
     p_dvs.set_defaults(func=cmd_dataviews)
 
     p_dv = subparsers.add_parser("dataview", help="Get a data view by name or ID")
@@ -1677,7 +1714,7 @@ def main():
     p_group = subparsers.add_parser("group", help="Get a group by name or ID")
     p_group.add_argument("identifier", type=not_blank, help="Group name or ID")
     p_group.add_argument("--json", action="store_true", help="Output raw JSON")
-    p_group.add_argument("--limit", type=int, default=50, help="Max members to show")
+    p_group.add_argument("--limit", type=positive_int, default=50, help="Max members to show")
     p_group.set_defaults(func=cmd_group)
 
     p_report = subparsers.add_parser("report", help="Get a report by name or ID")
@@ -1689,7 +1726,7 @@ def main():
     p_exs.add_argument("--type", help="Filter by exception type substring")
     p_exs.add_argument("--summary", action="store_true", help="Group by type with counts")
     p_exs.add_argument("--verbose", action="store_true", help="Show stack traces")
-    p_exs.add_argument("--limit", type=int, default=50)
+    p_exs.add_argument("--limit", type=positive_int, default=50)
     p_exs.set_defaults(func=cmd_exceptions)
 
     p_ex = subparsers.add_parser("exception", help="Get exception detail by ID")
@@ -1700,7 +1737,7 @@ def main():
     p_scheds = subparsers.add_parser("schedules", help="List schedules")
     p_scheds.add_argument("--active", action="store_true", help="Active only")
     p_scheds.add_argument("--query", help="Filter by name substring")
-    p_scheds.add_argument("--limit", type=int, default=100)
+    p_scheds.add_argument("--limit", type=positive_int, default=100)
     p_scheds.set_defaults(func=cmd_schedules)
 
     p_sched = subparsers.add_parser("schedule", help="Get a schedule by name or ID")
@@ -1711,7 +1748,7 @@ def main():
     p_regs = subparsers.add_parser("registrations", help="List registration instances")
     p_regs.add_argument("--active", action="store_true", help="Active only")
     p_regs.add_argument("--query", help="Filter by name substring")
-    p_regs.add_argument("--limit", type=int, default=50)
+    p_regs.add_argument("--limit", type=positive_int, default=50)
     p_regs.set_defaults(func=cmd_registrations)
 
     p_reg = subparsers.add_parser("registration", help="Get a registration instance by name or ID")
@@ -1720,9 +1757,10 @@ def main():
     p_reg.set_defaults(func=cmd_registration)
 
     p_conns = subparsers.add_parser("connections", help="List connection requests")
-    p_conns.add_argument("--state", help="Filter by state (active, inactive, future, connected)")
+    p_conns.add_argument("--state", type=str.lower, choices=sorted(CONNECTION_STATE_FILTER),
+                         help="Filter by connection state")
     p_conns.add_argument("--opportunity", help="Filter by opportunity name substring")
-    p_conns.add_argument("--limit", type=int, default=50)
+    p_conns.add_argument("--limit", type=positive_int, default=50)
     p_conns.set_defaults(func=cmd_connections)
 
     p_block = subparsers.add_parser("block", help="Get block with attributes by ID")
@@ -1733,7 +1771,7 @@ def main():
     p_bgc = subparsers.add_parser("bgc", help="List background checks")
     p_bgc.add_argument("--status", help="Filter by status substring")
     p_bgc.add_argument("--person", type=not_blank, help="Filter by person name or ID")
-    p_bgc.add_argument("--limit", type=int, default=50)
+    p_bgc.add_argument("--limit", type=positive_int, default=50)
     p_bgc.set_defaults(func=cmd_bgc)
 
     p_checkin = subparsers.add_parser("checkin", help="Show check-in configuration")
@@ -1743,22 +1781,22 @@ def main():
 
     p_att = subparsers.add_parser("attendance", help="List attendance occurrences")
     p_att.add_argument("--group", type=not_blank, help="Filter by group name or ID")
-    p_att.add_argument("--date", help="Filter by date (YYYY-MM-DD)")
-    p_att.add_argument("--limit", type=int, default=50)
+    p_att.add_argument("--date", type=iso_date, help="Filter by date (YYYY-MM-DD)")
+    p_att.add_argument("--limit", type=positive_int, default=50)
     p_att.set_defaults(func=cmd_attendance)
 
     p_occ = subparsers.add_parser("occurrence", help="Get attendance occurrence detail")
     p_occ.add_argument("id", type=int, help="Occurrence ID")
     p_occ.add_argument("--names", action="store_true", help="Show attendee names")
     p_occ.add_argument("--json", action="store_true", help="Output raw JSON")
-    p_occ.add_argument("--limit", type=int, default=200, help="Max attendees to show")
+    p_occ.add_argument("--limit", type=positive_int, default=200, help="Max attendees to show")
     p_occ.set_defaults(func=cmd_occurrence)
 
     p_bset = subparsers.add_parser("block-set", help="Set a block attribute value")
     p_bset.add_argument("id", type=int, help="Block ID")
     p_bset.add_argument("key", help="Attribute key")
     p_bset.add_argument("value", help="Attribute value")
-    p_bset.set_defaults(func=cmd_block_set)
+    p_bset.set_defaults(func=cmd_block_set, writes="changes a block's settings")
 
     p_pcreate = subparsers.add_parser("person-create", help="Create a new person record")
     p_pcreate.add_argument("--first", required=True, help="First name")
@@ -1767,22 +1805,22 @@ def main():
     p_pcreate.add_argument("--connection-status", type=int, help="ConnectionStatusValueId")
     p_pcreate.add_argument("--record-status", type=int, help="RecordStatusValueId")
     p_pcreate.add_argument("--campus", type=int, help="CampusId")
-    p_pcreate.set_defaults(func=cmd_person_create)
+    p_pcreate.set_defaults(func=cmd_person_create, writes="creates a person record")
 
     p_pupdate = subparsers.add_parser("person-update", help="Update a person's fields")
     p_pupdate.add_argument("id", type=int, help="Person ID")
     p_pupdate.add_argument("fields", nargs="+", help="Field=value pairs (e.g. Email=foo@bar.com)")
-    p_pupdate.set_defaults(func=cmd_person_update)
+    p_pupdate.set_defaults(func=cmd_person_update, writes="modifies a person record")
 
     p_exclear = subparsers.add_parser("exception-clear", help="Delete exception logs")
-    p_exclear.add_argument("--before", help="Delete exceptions before date (YYYY-MM-DD)")
+    p_exclear.add_argument("--before", type=iso_date, help="Delete exceptions before date (YYYY-MM-DD)")
     p_exclear.add_argument("--type", help="Filter by exception type substring")
-    p_exclear.add_argument("--limit", type=int, default=500, help="Max exceptions to delete per run")
-    p_exclear.set_defaults(func=cmd_exception_clear)
+    p_exclear.add_argument("--limit", type=positive_int, default=500, help="Max exceptions to delete per run")
+    p_exclear.set_defaults(func=cmd_exception_clear, writes="deletes exception logs")
 
     parsed = parser.parse_args()
-    _guard_writes(parsed.command)
-    log.info("cmd=%s args=%s", parsed.command, " ".join(sys.argv[2:]))
+    _guard_writes(parsed)
+    log.info("cmd=%s args=%d", parsed.command, len(sys.argv) - 2)
     with api_errors_reported():
         client = RockClient()
         try:

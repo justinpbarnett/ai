@@ -2,7 +2,7 @@
 import hashlib
 import math
 
-from tokens import tokens
+from tokens import font_stacks, tokens
 
 __all__ = [
     "Drawing", "INK", "MUTED", "GROUND", "ACT", "OK", "CAUTION", "FAULT", "WALL", "BENCH",
@@ -32,8 +32,9 @@ NEAR_BLACK = "#050506"
 DETAIL_SIZE = 4.2
 DETAIL_OPACITY = 'opacity="0.85"'
 
-FONT = "'Routed Gothic', 'DIN Alternate', 'Arial Narrow', sans-serif"
-READ = "'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace"
+STACKS = font_stacks()
+FONT = STACKS["mark"]
+READ = STACKS["read"]
 CAP = 0.71875         # Routed Gothic's capital height as a share of its font size
 
 HATCH = {

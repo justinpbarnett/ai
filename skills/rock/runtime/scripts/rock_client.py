@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import traceback
 from contextlib import contextmanager
@@ -54,6 +55,13 @@ class RockLoginFailed(RockAuthError):
         return f"Error: Rock login failed. Check {USERNAME_ENV} and {PASSWORD_ENV} in {passion_env.ENV_FILE}"
 
 
+class RockUnexpectedResponse(RockApiError):
+    def operator_message(self):
+        return (f"Error: Rock sent a reply that is not JSON (HTTP {self.status}) on "
+                f"{self.method} {self.endpoint}: {self.detail}\n"
+                "  The session may have expired or a proxy answered instead of Rock.")
+
+
 class RockRateLimited(RockApiError):
     def operator_message(self):
         return "Error: rate limited by the Rock API. Try again later."
@@ -76,23 +84,27 @@ def api_errors_reported():
         sys.exit(1)
 
 
-def get_credentials():
-    base_url, username, password = passion_env.require(
-        BASE_URL_ENV, USERNAME_ENV, PASSWORD_ENV
-    )
+def require_https(base_url):
     if not base_url.startswith("https://"):
         log.error("%s not HTTPS: %s", BASE_URL_ENV, base_url[:20])
         raise RockConfigError(
             f"Error: {BASE_URL_ENV} must use HTTPS (got: {base_url[:20]}...)\n"
             "  Credentials must not be transmitted over plain HTTP."
         )
-    return base_url.rstrip("/"), username, password
+    return base_url.rstrip("/")
+
+
+def get_credentials():
+    base_url, username, password = passion_env.require(
+        BASE_URL_ENV, USERNAME_ENV, PASSWORD_ENV
+    )
+    return require_https(base_url), username, password
 
 
 class RockClient:
     def __init__(self, base_url=None, username=None, password=None):
         if base_url and username and password:
-            self.base_url = base_url.rstrip("/")
+            self.base_url = require_https(base_url)
             self._username = username
             self._password = password
         else:
@@ -128,9 +140,19 @@ class RockClient:
         log.info("%s %s ok %dB", method, endpoint, len(resp.content))
         return resp
 
+    @staticmethod
+    def _json_body(resp, method, endpoint):
+        if not resp.content:
+            return None
+        try:
+            return resp.json()
+        except ValueError:
+            log.error("%s %s non-JSON body=%s", method, endpoint, resp.text[:200])
+            raise RockUnexpectedResponse(resp.status_code, method, endpoint, resp.text[:200]) from None
+
     def get(self, endpoint, params=None, timeout=30):
         resp = self._request("GET", endpoint, params=params, timeout=timeout)
-        return resp.json() if resp.content else None
+        return self._json_body(resp, "GET", endpoint)
 
     def post(self, endpoint, data=None, params=None, timeout=30):
         resp = self._request("POST", endpoint, params=params, data=data,
@@ -142,7 +164,7 @@ class RockClient:
             except (ValueError, TypeError):
                 pass
         if result is None:
-            result = resp.json() if resp.content else None
+            result = self._json_body(resp, "POST", endpoint)
         log.info("POST %s id=%s", endpoint, result)
         return result
 
@@ -188,10 +210,8 @@ class RockClient:
             raise RockNotFound(404, method, endpoint, detail)
 
         log.error(
-            "%s %s status=%d params=%s data=%s\n  response: %s\n  traceback:\n%s",
+            "%s %s status=%d\n  response: %s\n  traceback:\n%s",
             method, endpoint, status,
-            json.dumps(params)[:200] if params else None,
-            json.dumps(data)[:200] if data else None,
             detail_str[:500],
             "".join(traceback.format_stack()),
         )
@@ -199,18 +219,13 @@ class RockClient:
             status, method, endpoint, detail_str)
 
 
+def refuse_unless_writes_enabled(refusal):
+    if os.environ.get("ROCK_ALLOW_WRITES") == "1":
+        return
+    print(refusal, file=sys.stderr)
+    sys.exit(2)
+
+
 def odata_str(value):
     return value.replace("'", "''")
 
-
-def main():
-    with api_errors_reported():
-        client = RockClient()
-        campuses = client.get("Campuses", params={"$top": 1})
-        print(f"Connected to Rock RMS at {client.base_url}")
-        if campuses:
-            print(f"  Campus: {campuses[0].get('Name', 'unknown')}")
-
-
-if __name__ == "__main__":
-    main()

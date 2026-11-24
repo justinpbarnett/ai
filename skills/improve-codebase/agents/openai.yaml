@@ -1,0 +1,5 @@
+interface:
+  display_name: "Improve Codebase"
+  short_description: "Scan, review and verify codebase improvements"
+policy:
+  allow_implicit_invocation: false

@@ -12,7 +12,6 @@ import rock_paths
 log = get_logger("rock.catalog")
 
 rock_paths.ensure()
-CATALOG_PATH = rock_paths.CATALOG
 
 PAGE = 500
 
@@ -44,27 +43,27 @@ class CatalogUnreadable(RockError):
 
 def load_catalog():
     try:
-        return json.loads(CATALOG_PATH.read_text())
+        return json.loads(rock_paths.CATALOG.read_text())
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
         raise CatalogUnreadable(
-            f"{CATALOG_PATH.name} cannot be read ({exc}). Refresh it: rock.sh catalog refresh") from exc
+            f"{rock_paths.CATALOG.name} cannot be read ({exc}). Refresh it: rock.sh catalog refresh") from exc
 
 
 def catalog_mismatch(catalog, rock_url):
     if catalog.get("instance_url") == rock_url:
         return None
-    return (f"{CATALOG_PATH.name} is from {catalog.get('instance_url')}, not {rock_url}, and IDs differ between "
+    return (f"{rock_paths.CATALOG.name} is from {catalog.get('instance_url')}, not {rock_url}, and IDs differ between "
             "Rock instances. Refresh it: rock.sh catalog refresh")
 
 
 def save_catalog(catalog):
-    fd, temporary = tempfile.mkstemp(dir=CATALOG_PATH.parent, prefix="catalog.", suffix=".tmp")
+    fd, temporary = tempfile.mkstemp(dir=rock_paths.CATALOG.parent, prefix="catalog.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(catalog, f, indent=2)
-        os.replace(temporary, CATALOG_PATH)
+        os.replace(temporary, rock_paths.CATALOG)
     except BaseException:
         os.unlink(temporary)
         raise
@@ -240,7 +239,7 @@ def refresh(client):
     save_catalog(catalog)
     log.info("catalog refreshed: %d actions, %d blocks, %d fields, %d categories",
              len(actions), len(blocks), len(fields), len(categories))
-    print(f"\nCatalog saved to {CATALOG_PATH.name}")
+    print(f"\nCatalog saved to {rock_paths.CATALOG.name}")
     return catalog
 
 

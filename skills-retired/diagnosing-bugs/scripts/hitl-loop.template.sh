@@ -14,15 +14,20 @@
 
 set -euo pipefail
 
+input_ended() {
+  printf '\nNo input: run this script in the user terminal.\n' >&2
+  exit 2
+}
+
 step() {
   printf '\n>>> %s\n' "$1"
-  read -r -p "    [Enter when done] " _
+  read -r -p "    [Enter when done] " _ || input_ended
 }
 
 capture() {
   local var="$1" question="$2" answer
   printf '\n>>> %s\n' "$question"
-  read -r -p "    > " answer
+  read -r -p "    > " answer || input_ended
   printf -v "$var" '%s' "$answer"
 }
 

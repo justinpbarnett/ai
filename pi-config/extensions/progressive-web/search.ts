@@ -1,16 +1,9 @@
 import { JSDOM } from "jsdom";
 import { responseText } from "./body.ts";
-import { deadlineSignal } from "./deadline.ts";
+import { deadlineFailure, deadlineSignal } from "./deadline.ts";
 import { braveCredentialsPath, cliPath, loadBraveApiKey } from "./config.ts";
+import { searchLimits } from "./limits.ts";
 import { normalizeUrl } from "./url-policy.ts";
-
-export const searchLimits = {
-  queryCharacters: { maximum: 600 },
-  queryWords: { maximum: 75 },
-  count: { minimum: 1, maximum: 20, fallback: 5 },
-  offset: { minimum: 0, maximum: 9, fallback: 0 },
-  timeoutMs: { minimum: 1000, maximum: 60000, fallback: 15000 },
-};
 
 export async function searchStatus() {
   const braveKey = await loadBraveApiKey();
@@ -260,9 +253,11 @@ export async function search(
       durationMs: Date.now() - started,
     };
   } catch (error) {
-    runtime.signal?.throwIfAborted();
-    if (deadline.aborted)
-      throw new Error(`Brave Search timed out after ${timeoutMs} ms.`);
-    throw error;
+    throw deadlineFailure(
+      error,
+      runtime.signal,
+      deadline,
+      `Brave Search timed out after ${timeoutMs} ms.`,
+    );
   }
 }

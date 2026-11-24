@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { OllamaUnavailableError, OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
 import { purposeCall, type Invocation, type PurposeCall } from "./evidence.js";
@@ -11,21 +12,43 @@ const MAX_REASONING_CHARS = 6_000;
 
 export type Writer = { kind: "ollama"; model: string } | { kind: "openrouter"; model: string } | { kind: "off" };
 
-const cues = [
-	[/\bpython[\d.]*\b/i, "Python script"],
-	[/\b(?:node|tsx|deno)\b/i, "JavaScript or TypeScript script"],
-	[/(?:^|[^a-z])(?:rg|grep)(?=\s)/i, "pattern search"],
-	[/\b(?:lookup|look_up|search|find)[-_ ](?:a[-_ ])?(?:person|people|user|employee)s?\b/i, "person lookup"],
-	[/(?:^|\s)--(?:person-)?name(?:=|\s|$)/i, "name filter"],
-	[/\b(?:count|wc)\b/i, "counting"],
-	[/\b(?:curl|wget)\b/i, "HTTP request"],
-	[/\b(?:build|compile|bundle)\b/i, "build"],
-	[/\b(?:lint|typecheck)\b/i, "code checks"],
-	[/\b(?:print|echo|printf)(?=\s|\()/i, "print text"],
+const operationCues = [
+	[/^python[\d.]*$/i, "Python script"],
+	[/^(?:node|tsx|deno)$/i, "JavaScript or TypeScript script"],
+	[/^(?:rg|grep)$/i, "pattern search"],
+	[/^(?:lookup|look_up|search|find)[-_](?:a[-_])?(?:person|people|user|employee)s?(?:\.\w+)?$/i, "person lookup"],
+	[/^(?:count|wc)$/i, "counting"],
+	[/^(?:curl|wget)$/i, "HTTP request"],
+	[/^(?:build|compile|bundle)(?:\.\w+)?$/i, "build"],
+	[/^(?:lint|typecheck)(?:\.\w+)?$/i, "code checks"],
+	[/^(?:print|echo|printf)$/i, "print text"],
 ] as const;
 
+const NAME_FILTER = /^--(?:person-)?name(?:=|$)/i;
+const PROGRAM_RUNNER = /^(?:python[\d.]*|node|tsx|deno|npm|pnpm|yarn|bun|uv|go|cargo|make|just|bash|sh|zsh)$/i;
+const ASSIGNMENT = /^[a-z_]\w*=/i;
+
+function invokedWords(segment: string): { operation: string[]; flags: string[] } {
+	const words = segment.trim().split(/\s+/).filter(Boolean);
+	while (ASSIGNMENT.test(words[0] ?? "")) words.shift();
+	const [program = "", ...args] = words;
+	const name = basename(program);
+	const operands = PROGRAM_RUNNER.test(name) ? args.filter((arg) => !arg.startsWith("-")).slice(0, 2).map((arg) => basename(arg)) : [];
+	return { operation: name ? [name, ...operands] : [], flags: args };
+}
+
+function commandHints(command: string): string[] {
+	const labels = new Set<string>();
+	for (const segment of command.split(/&&|\|\||[;|\n\r]/)) {
+		const { operation, flags } = invokedWords(segment);
+		for (const [pattern, label] of operationCues) if (operation.some((word) => pattern.test(word))) labels.add(label);
+		if (flags.some((flag) => NAME_FILTER.test(flag))) labels.add("name filter");
+	}
+	return [...labels];
+}
+
 export function operationHints({ operation, command }: PurposeCall): string[] {
-	return [operation, ...cues.filter(([pattern]) => command && pattern.test(command)).map(([, label]) => label)];
+	return [operation, ...(command ? commandHints(command) : [])];
 }
 
 export const writesThinking = (writer: Writer): writer is Extract<Writer, { kind: "ollama" }> => writer.kind === "ollama";

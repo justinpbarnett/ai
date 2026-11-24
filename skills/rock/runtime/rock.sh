@@ -17,9 +17,9 @@ export ROCK_HOME="${ROCK_HOME:-$HOME/.local/share/passion-rock}"
 export UV_PROJECT_ENVIRONMENT="$ROCK_HOME/.venv"
 mkdir -p "$ROCK_HOME"
 run=(uv run --frozen --project "$runtime")
-if [[ "${ROCK_WITH_BROWSER:-}" == 1 || -f "$ROCK_HOME/.browser" ]]; then
+if [[ "${ROCK_WITH_BROWSER:-}" == 1 || "$tool" == browser || -f "$ROCK_HOME/.browser" ]]; then
   run+=(--group browser)
-  if [[ "${ROCK_WITH_BROWSER:-}" == 1 || "$tool" == browser ]]; then
+  if [[ "${ROCK_WITH_BROWSER:-}" == 1 || ! -f "$ROCK_HOME/.browser" ]]; then
     "${run[@]}" playwright install chromium
     touch "$ROCK_HOME/.browser"
   fi

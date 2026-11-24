@@ -1,6 +1,5 @@
 import inspect
 import json
-import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -9,8 +8,8 @@ from urllib.parse import unquote
 
 import rock_paths
 from rock_client import (RockClient, RockError, RockNotFound, api_errors_reported, get_credentials,
-                         odata_str)
-from rock_catalog import CATALOG_PATH, CatalogUnreadable, catalog_mismatch, load_catalog
+                         odata_str, refuse_unless_writes_enabled)
+from rock_catalog import CatalogUnreadable, catalog_mismatch, load_catalog
 from rock_log import get_logger
 from rock_text import plural
 
@@ -204,6 +203,13 @@ REQUIREMENTS = {
 CHANGES_NOTHING = "The build would change nothing and still report success."
 
 
+def required_id_paths(spec):
+    for requirement in spec.get("requires", ()):
+        for path in (requirement,) if isinstance(requirement, str) else requirement:
+            if path.endswith("_id"):
+                yield path
+
+
 def plan_problems(operation, plan):
     spec = REQUIREMENTS.get(operation, {})
     problems = {}
@@ -234,6 +240,12 @@ def plan_problems(operation, plan):
         listed = " or ".join(f'"{path}"' for path in any_of)
         problems.setdefault(any_of[0], f"needs something in {listed}. {CHANGES_NOTHING}")
 
+    for path in required_id_paths(spec):
+        for where, value in nodes(path):
+            if value is not None and not is_id(value):
+                problems.setdefault(where, f'"{where}" must be a whole number id, '
+                                           f'got {json.dumps(value)}')
+
     for path in spec.get("names", ()):
         for where, value in given_nodes(plan, path, problems):
             if not is_name(value):
@@ -252,28 +264,37 @@ def plan_problems(operation, plan):
     return list(problems.values())
 
 
+def _exact_or_unique(candidates, noun, name, is_exact, contains):
+    for entry_id, label, entry in candidates:
+        if is_exact(entry):
+            return entry_id
+    partial = {entry_id: label for entry_id, label, entry in candidates if contains(entry)}
+    if len(partial) > 1:
+        listed = ", ".join(f"{label!r} (id {entry_id})" for entry_id, label in partial.items())
+        raise PlanError(f"{name!r} matches {len(partial)} {noun}: {listed}. "
+                        f"Give the exact name.")
+    return next(iter(partial), None)
+
+
 def resolve_action_type(catalog, name):
     name_lower = name.lower().replace(" ", "")
-    for ac in catalog.get("action_components", []):
-        ac_name = ac["name"].lower().replace(" ", "")
-        ac_class = ac["class_name"].lower().split(".")[-1]
-        if ac_name == name_lower or ac_class == name_lower:
-            return ac["entity_type_id"]
-    for ac in catalog.get("action_components", []):
-        if name_lower in ac["name"].lower() or name_lower in ac["class_name"].lower():
-            return ac["entity_type_id"]
-    return None
+    candidates = [(ac["entity_type_id"], ac["name"], ac)
+                  for ac in catalog.get("action_components", [])]
+    return _exact_or_unique(
+        candidates, "action types", name,
+        lambda ac: (ac["name"].lower().replace(" ", "") == name_lower
+                    or ac["class_name"].lower().split(".")[-1] == name_lower),
+        lambda ac: (name_lower in ac["name"].lower()
+                    or name_lower in ac["class_name"].lower()))
 
 
 def _resolve_entry(entries, name):
     name_lower = name.lower()
-    for entry in entries:
-        if entry["name"].lower() == name_lower:
-            return entry["id"]
-    for entry in entries:
-        if name_lower in entry["name"].lower():
-            return entry["id"]
-    return None
+    candidates = [(entry["id"], entry["name"], entry) for entry in entries]
+    return _exact_or_unique(
+        candidates, "catalog entries", name,
+        lambda entry: entry["name"].lower() == name_lower,
+        lambda entry: name_lower in entry["name"].lower())
 
 
 def resolve_field_type(catalog, name):
@@ -297,7 +318,7 @@ def resolve_page_layout(client, catalog, parent_id, name):
     parent_layout = next((layout for layout in layouts if layout["id"] == parent["LayoutId"]), None)
     if parent_layout is None:
         raise PlanError(f"the parent page's layout, id {parent['LayoutId']}, is not in "
-                        f"{CATALOG_PATH.name}. Refresh it: rock.sh catalog refresh")
+                        f"{rock_paths.CATALOG.name}. Refresh it: rock.sh catalog refresh")
     site_id = parent_layout["site_id"]
     site_layouts = [layout for layout in layouts if layout["site_id"] == site_id]
     found = _resolve_entry(site_layouts, name)
@@ -332,16 +353,16 @@ def entity_type_named(client, name):
 
 def resolve_workflow_category(client, name):
     workflow_type = entity_type_named(client, "Rock.Model.WorkflowType")
-    return _first_id(client, "Categories",
-                     f"EntityTypeId eq {workflow_type} and Name eq '{odata_str(name)}'")
+    return uniquely_named(client, "Categories", "category", name,
+                          scope=f"EntityTypeId eq {workflow_type} and ")
 
 
 NEAR_NAMES = 5
 
 
-def uniquely_named(client, endpoint, name_key, name):
+def uniquely_named(client, endpoint, name_key, name, scope=""):
     matches = client.get(endpoint, params={
-        "$filter": f"Name eq '{odata_str(name)}'",
+        "$filter": f"{scope}Name eq '{odata_str(name)}'",
         "$select": "Id",
     })
     if len(matches) == 1:
@@ -352,7 +373,7 @@ def uniquely_named(client, endpoint, name_key, name):
         raise PlanError(f"{len(matches)} {noun}s are named {name!r}, ids {ids}. "
                         f"Give the id of the one you mean.")
     near = client.get(endpoint, params={
-        "$filter": f"substringof('{odata_str(name)}', Name) eq true",
+        "$filter": f"{scope}substringof('{odata_str(name)}', Name) eq true",
         "$select": "Name",
         "$top": NEAR_NAMES,
     })
@@ -383,7 +404,7 @@ def resolve_member_role(client, member_id, role_name):
 
 
 def resolve_data_view(client, name):
-    return _named(client, "DataViews", name)
+    return uniquely_named(client, "DataViews", "data_view", name)
 
 
 def resolve_page_route(client, route):
@@ -1183,15 +1204,11 @@ def snapshot_entity(client, endpoint):
 
 
 def require_writes_enabled(operation):
-    if os.environ.get("ROCK_ALLOW_WRITES") == "1":
-        return
-    print(
+    refuse_unless_writes_enabled(
         f"Refusing to run '{operation}': everything in this script changes Rock, "
         f"and ROCK_ALLOW_WRITES is not set.\n"
-        f"Run it as `rock.sh build <plan.json>`, which sets it.",
-        file=sys.stderr,
+        f"Run it as `rock.sh build <plan.json>`, which sets it."
     )
-    sys.exit(2)
 
 
 OPERATIONS = {

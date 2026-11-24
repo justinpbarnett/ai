@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from .layout import directory
 from .ledger import (
     SEVERITIES,
     now,
@@ -8,7 +7,7 @@ from .ledger import (
     validate_dependencies,
     validate_prerequisite_cycle,
 )
-from .paths import is_test_path
+from .paths import directory, is_test_path
 from .review_units import STAGES, matching_receipts
 from .rules import GRAPH_WIDE_RULES, WIDE_FOLDER
 from .validation import array, object_value, require, string

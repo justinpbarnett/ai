@@ -87,9 +87,16 @@ def nearest_aliases(ancestors, profiles):
     return next((profiles[path] for path in candidates if path in profiles), None)
 
 
-def local_targets(paths, base, ref, extensions):
+def contained_path(base, ref):
     resolved = posixpath.normpath(posixpath.join(base, ref))
     if resolved == ".." or resolved.startswith(("../", "/")):
+        return None
+    return resolved
+
+
+def local_targets(paths, base, ref, extensions):
+    resolved = contained_path(base, ref)
+    if resolved is None:
         return []
     candidates = dict.fromkeys(
         [
@@ -102,8 +109,23 @@ def local_targets(paths, base, ref, extensions):
 
 
 def tiered_targets(paths, base, ref):
-    return local_targets(paths, base, ref, JS_CODE_EXT) or local_targets(
-        paths, base, ref, JS_OTHER_EXT
+    resolved = contained_path(base, ref)
+    if resolved is None:
+        return []
+    tiers = (
+        (resolved,),
+        tuple(resolved + e for e in JS_CODE_EXT),
+        tuple(resolved + e for e in JS_OTHER_EXT),
+        tuple(resolved + "/index" + e for e in JS_CODE_EXT),
+        tuple(resolved + "/index" + e for e in JS_OTHER_EXT),
+    )
+    return next(
+        (
+            matches
+            for tier in tiers
+            if (matches := [path for path in tier if path in paths])
+        ),
+        [],
     )
 
 

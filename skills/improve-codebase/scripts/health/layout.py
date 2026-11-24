@@ -3,7 +3,7 @@ from itertools import combinations
 from pathlib import PurePosixPath
 
 from .dependency_graph import components
-from .paths import is_test_path, within
+from .paths import directory, is_test_path, within
 from .rules import (
     CHANGE_COUPLING,
     FOLDER_CYCLE,
@@ -26,10 +26,6 @@ GENERIC_FOLDERS = {
 }
 SAMPLE_LIMIT = 20
 EDGE_LIMIT = 100
-
-
-def directory(path):
-    return PurePosixPath(path).parent.as_posix()
 
 
 def files_by_directory(files):

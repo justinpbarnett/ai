@@ -7,6 +7,10 @@ TEST_FILE = re.compile(
 )
 
 
+def directory(path):
+    return PurePosixPath(path).parent.as_posix()
+
+
 def within(path, prefix):
     return prefix == "." or path == prefix or path.startswith(prefix + "/")
 

@@ -4,6 +4,7 @@ import json
 import os
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,8 @@ BROWSERS = ("chromium", "chromium-browser", "google-chrome-stable", "google-chro
 ANSWER_TIMEOUT_S = 120
 QUIET_MS = 400
 SETTLE_S = 10
+GROUP_TERM_S = 5
+GROUP_KILL_S = 5
 COUNT_REQUESTS = """(() => {
   let busy = 0;
   const fetchFirst = window.fetch;
@@ -94,7 +97,7 @@ class Browser:
             ["/bin/sh", "-c", f'exec "$@" 3<&{r} 4>&{w}', "sh", exe, "--headless=new", "--remote-debugging-pipe",
              "--run-all-compositor-stages-before-draw", "--disable-partial-raster", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
              f"--user-data-dir={profile}", *flags],
-            pass_fds=(r, w), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            pass_fds=(r, w), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         for fd in (theirs_r, theirs_w, r, w):
             os.close(fd)
         self.r, self.w, self.buf, self.n, self.events = ours_r, ours_w, b"", 0, []
@@ -117,6 +120,25 @@ class Browser:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             self.proc.wait()
+        self.end_group()
+
+    def end_group(self):
+        for sig, patience_s in ((signal.SIGTERM, GROUP_TERM_S), (signal.SIGKILL, GROUP_KILL_S)):
+            if self.signal_group(sig):
+                return
+            end = time.monotonic() + patience_s
+            while time.monotonic() < end:
+                if self.signal_group(0):
+                    return
+                time.sleep(0.02)
+        raise BrowserError("the browser left processes running")
+
+    def signal_group(self, sig):
+        try:
+            os.killpg(self.proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            return True
+        return False
 
     def read(self):
         end = time.monotonic() + ANSWER_TIMEOUT_S

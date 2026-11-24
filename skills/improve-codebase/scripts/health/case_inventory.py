@@ -288,6 +288,21 @@ def real_arguments(arguments):
     return [item for item in arguments.named_children if "comment" not in item.type]
 
 
+def is_js_data_argument(node):
+    if node.type in JS_DATA_NODES:
+        return True
+    if node.type != "unary_expression":
+        return False
+    operator = node.child_by_field_name("operator")
+    operand = node.child_by_field_name("argument")
+    return (
+        operator is not None
+        and operator.type in {"-", "+"}
+        and operand is not None
+        and operand.type == "number"
+    )
+
+
 def js_case_name(data, call):
     arguments = call.child_by_field_name("arguments")
     if arguments is None or arguments.type != "arguments":
@@ -298,7 +313,7 @@ def js_case_name(data, call):
     first = real[0]
     if first.type in {"string", "template_string"}:
         return node_text(data, first).strip("`\"'"), arguments
-    if any(item.type not in JS_DATA_NODES for item in real[1:]):
+    if any(not is_js_data_argument(item) for item in real[1:]):
         return node_text(data, first), arguments
     return None, None
 

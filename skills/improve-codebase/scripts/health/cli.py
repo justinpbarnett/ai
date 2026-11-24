@@ -47,13 +47,27 @@ def validate_run_arguments(args, root, is_git):
             resolve_base_commit(root, args.base)
 
 
-def configure_run(args, store, scope):
-    if args.action == "list":
-        return {"runs": store.runs()}
-    name = run_name(args.name)
+def plan_fallout(args, root, is_git, scopes, thresholds):
+    state_dir = safe_state_dir(root, is_git, args.state_dir, False)
+    store = Store(state_dir / STATE_DATABASE, root, scopes, thresholds)
+    try:
+        require_new_run(store, args.name)
+        return fallout_scope(store, root, state_dir, scopes, args.base, args.include)
+    finally:
+        store.close()
+
+
+def require_new_run(store, name):
     require(
         name not in store.runs(), f"run {name!r} already exists; resume it with --run"
     )
+
+
+def configure_run(args, store, scope, plan):
+    if args.action == "list":
+        return {"runs": store.runs()}
+    name = run_name(args.name)
+    require_new_run(store, name)
     if args.action == "slice":
         configuration = slice_configuration(
             scope.root, args.run, current_run(store, args.run), args.path
@@ -64,21 +78,11 @@ def configure_run(args, store, scope):
             "scope": scope.scopes,
             "thresholds": scope.thresholds,
         }
-        if args.base:
-            paths, fallout = fallout_scope(
-                store,
-                scope.root,
-                scope.state_dir,
-                scope.scopes,
-                args.base,
-                args.include,
-            )
+        if plan:
+            paths, fallout = plan
             configuration.update(scope=paths, fallout=fallout)
     with store.transaction():
-        require(
-            name not in store.runs(),
-            f"run {name!r} already exists; resume it with --run",
-        )
+        require_new_run(store, name)
         store.save_run(name, configuration)
     return {"run": name, "configuration": configuration}
 
@@ -188,8 +192,11 @@ def command_workspace(args, envelope):
     )
     scopes = normalize_scope(root, args.scope)
     thresholds = settings(read_json(args.thresholds) if args.thresholds else {})
+    plan = None
     if args.command == "run":
         validate_run_arguments(args, root, is_git)
+        if args.action == "start" and args.base:
+            plan = plan_fallout(args, root, is_git, scopes, thresholds)
     initialize = not args.run and args.writes and args.command in {"scan", "run"}
     state_dir = safe_state_dir(root, is_git, args.state_dir, initialize)
     envelope.update(
@@ -207,7 +214,7 @@ def command_workspace(args, envelope):
             else "scan before recording evidence",
         )
         state_dir = safe_state_dir(root, is_git, args.state_dir, True)
-    return ScanScope(root, is_git, scopes, thresholds, state_dir)
+    return ScanScope(root, is_git, scopes, thresholds, state_dir), plan
 
 
 def doctor_command(args, scope, envelope):
@@ -229,9 +236,9 @@ def open_store(args, scope):
         store.close()
 
 
-def run_command(args, scope, envelope):
+def run_command(args, scope, envelope, plan=None):
     with open_store(args, scope) as store:
-        return configure_run(args, store, scope), 0
+        return configure_run(args, store, scope, plan), 0
 
 
 def load_ledger(args, store, scope, envelope):
@@ -324,7 +331,9 @@ HANDLERS = CommandHandlers(
 
 
 def execute(args, envelope):
-    scope = command_workspace(args, envelope)
+    scope, plan = command_workspace(args, envelope)
+    if plan:
+        return args.handler(args, scope, envelope, plan)
     return args.handler(args, scope, envelope)
 
 

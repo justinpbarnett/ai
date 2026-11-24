@@ -350,7 +350,7 @@ def is_tool_directive(line, number):
     return is_directive(line.strip().decode("utf-8", errors="replace"), number)
 
 
-def has_generated_banner(data):
+def has_generated_banner(data, markdown=False):
     lines = data.removeprefix(b"\xef\xbb\xbf").splitlines()[:BANNER_LINES]
     previous = None
     for number, line in enumerate(lines, 1):
@@ -358,7 +358,7 @@ def has_generated_banner(data):
             previous = None
             continue
         comment = BANNER_COMMENT.match(line)
-        if comment is None:
+        if comment is None or (markdown and line.lstrip().startswith(b"#")):
             return False
         text = comment.group(1)
         if not continues_sentence(previous, text) and GENERATOR_BANNER.search(text):
@@ -381,7 +381,7 @@ def classify_content(name, data, hashed, selected):
             selected or guide,
             incomplete=bool(language or guide),
         )
-    if has_generated_banner(data):
+    if has_generated_banner(data, suffix.lower() == ".md"):
         return skipped_entry("generated source header", selected)
     shebang = data.startswith(b"#!")
     if (

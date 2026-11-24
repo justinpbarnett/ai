@@ -125,5 +125,5 @@ reached through rock.sh.
 ```
 
 That means the script was run directly rather than through the entry point. Run
-it as `rock.sh query person-update ...`; the entry point is what logs the call
-and enables the write.
+it as `rock.sh query person-update ...`; rock.sh enables the write, and the
+query script logs the command name to rock.log.

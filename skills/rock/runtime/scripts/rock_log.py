@@ -3,7 +3,6 @@ from logging.handlers import RotatingFileHandler
 import rock_paths
 
 rock_paths.ensure()
-LOG_PATH = rock_paths.LOG
 
 
 def get_logger(name="rock"):
@@ -13,7 +12,7 @@ def get_logger(name="rock"):
 
     logger.setLevel(logging.DEBUG)
 
-    fh = RotatingFileHandler(LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3)
+    fh = RotatingFileHandler(rock_paths.LOG, maxBytes=2 * 1024 * 1024, backupCount=3)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",

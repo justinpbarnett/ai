@@ -4,6 +4,8 @@
 
 End every report with a short, separate **Waiting on you** list. Each item names the exact command, click or decision it needs. When nothing waits, say so in one line, and say whether the session's work is finished.
 
+Write each report so someone reading cold can follow it: lead with what happened in plain words, and define any internal name, flag or label the first time you use it. When I say I don't understand, rewrite the answer from the start in plain words instead of adding detail.
+
 ## Reversible work
 
 When you have a recommendation for reversible work inside the current task, do it, then report. That covers gaps you found, follow up fixes, cleanup, opening PRs into staging, merging a PR into staging once its checks pass when I have asked for the merge, and committing your own edits. I answer "do what you recommend" almost every time, so a turn that ends by offering the work costs me a round trip. A status update ends with your recommendation, and by then its reversible part is already done: only steps from the list below wait for my word.

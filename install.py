@@ -112,6 +112,71 @@ def is_skill_dir(path: Path) -> bool:
     return path.is_dir() and (path / "SKILL.md").is_file()
 
 
+def configure_planning(config: dict[str, Any], *, uninstall: bool, dry_run: bool, optional: bool) -> None:
+    target = Path(config["target"]).expanduser()
+    skills_dir = target / "skills"
+    context = target / "passion-planning-context.md"
+    context_path = Path(config["context"])
+    checkout = expand_path(os.environ.get("TECH_SKILLS_DIR") or config["checkout"])
+
+    # The context link records the chosen checkout even if it has since moved or
+    # been removed. A plain uninstall can still remove exactly its dangling links.
+    if context.is_symlink():
+        previous_context = context.resolve()
+        if previous_context.parts[-len(context_path.parts):] == context_path.parts:
+            previous = previous_context.parents[len(context_path.parts) - 1]
+            if uninstall or "TECH_SKILLS_DIR" not in os.environ:
+                checkout = previous
+
+    sources = {
+        skills_dir / name: checkout / root / name
+        for root, names in config["skill_groups"].items()
+        for name in names
+    }
+    context_source = checkout / context_path
+
+    if skills_dir.is_symlink() or (skills_dir.exists() and not skills_dir.is_dir()):
+        raise ValueError(f"existing {skills_dir} must be a real directory to manage individual planning skills")
+
+    if uninstall:
+        for destination, source in (sources | {context: context_source}).items():
+            if remove_managed_link(source, destination, dry_run=dry_run):
+                print(f"    REMOVE {destination}")
+        return
+
+    missing = [source for source in sources.values() if not is_skill_dir(source)]
+    if not context_source.is_file():
+        missing.append(context_source)
+    if missing:
+        message = (
+            f"shared planning is unavailable in {checkout} (missing {missing[0].relative_to(checkout)}). "
+            "Set TECH_SKILLS_DIR to a checkout with the planning skills."
+        )
+        if optional and "TECH_SKILLS_DIR" not in os.environ:
+            print(f"    SKIP {message}")
+            return
+        raise ValueError(message)
+
+    links = {context: context_source, **sources}
+    for destination, source in links.items():
+        if destination.exists() or destination.is_symlink():
+            if not is_managed_link(source, destination):
+                raise ValueError(f"{destination} already exists and points elsewhere; left the installation untouched")
+
+    for destination, source in links.items():
+        if is_managed_link(source, destination):
+            print(f"    KEEP {destination}")
+            continue
+        if not dry_run:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                destination.symlink_to(source)
+            except FileExistsError:
+                if not is_managed_link(source, destination):
+                    raise
+        print(f"    LINK {destination} -> {source}")
+
+
 def link_children(source_dir: Path, target_dir: Path, *, dry_run: bool) -> None:
     if not source_dir.is_dir():
         print(f"    SKIP {target_dir.name} (source dir missing)")
@@ -241,9 +306,18 @@ def main() -> None:
     failed = []
     for name in selected:
         try:
-            configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
+            if name == "planning":
+                configure_planning(
+                    config[name], uninstall=args.uninstall, dry_run=args.dry_run,
+                    optional="all" in args.harnesses,
+                )
+            else:
+                configure_harness(name, config[name], uninstall=args.uninstall, dry_run=args.dry_run)
         except subprocess.CalledProcessError as error:
             print(f"ERROR: {name} failed (exit {error.returncode}), continuing", file=sys.stderr)
+            failed.append(name)
+        except (OSError, ValueError) as error:
+            print(f"ERROR: {name}: {error}", file=sys.stderr)
             failed.append(name)
 
     if not args.dry_run:

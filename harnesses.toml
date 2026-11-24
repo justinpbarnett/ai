@@ -22,6 +22,21 @@
 #   "children"            → create individual symlinks for each skill (codex, droid, etc.)
 # Children mode leaves a symlinked target skills directory and its contents untouched.
 
+# Shared planning skills for Pi, Codex, OpenCode, Gemini CLI and Droid.
+# ./install.sh planning installs only this profile. "all" includes it when
+# the team checkout is available. Set TECH_SKILLS_DIR for another checkout.
+[planning]
+target = "~/.agents"
+checkout = "~/dev/passion/tech-skills"
+context = "plugins/plan/runtime/planning-context.md"
+
+[planning.skill_groups]
+"plugins/general/runtime/pocock" = ["grill-with-docs", "grilling"]
+"plugins/plan/runtime/pocock" = [
+    "domain-modeling", "to-spec", "to-tickets", "retro",
+    "setup-matt-pocock-skills", "writing-for-agents",
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Claude Code
 # Docs: https://docs.anthropic.com/en/docs/claude-code

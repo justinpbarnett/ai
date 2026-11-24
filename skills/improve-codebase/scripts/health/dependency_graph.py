@@ -9,7 +9,8 @@ from pathlib import PurePosixPath
 from .parsers import GRAMMARS
 
 JS_CODE_EXT = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
-JS_OTHER_EXT = (".vue", ".json", ".css", ".scss")
+JS_DATA_EXT = (".json", ".vue")
+JS_STYLE_EXT = (".css", ".scss")
 ALIAS_CONFIG_FILES = ("tsconfig.json", "jsconfig.json")
 ALIAS_LANGUAGES = {"javascript", "typescript", "tsx", "vue"}
 PLACEHOLDER = re.compile(r"[$*{}<>]")
@@ -94,6 +95,20 @@ def contained_path(base, ref):
     return resolved
 
 
+def names_directory(ref):
+    return ref.endswith("/") or posixpath.basename(ref) in {".", ".."}
+
+
+def with_extensions(stem, extensions):
+    return tuple(stem + e for e in extensions)
+
+
+def index_files(directory, extensions):
+    return tuple(
+        posixpath.normpath(posixpath.join(directory, "index" + e)) for e in extensions
+    )
+
+
 def local_targets(paths, base, ref, extensions):
     resolved = contained_path(base, ref)
     if resolved is None:
@@ -101,8 +116,8 @@ def local_targets(paths, base, ref, extensions):
     candidates = dict.fromkeys(
         [
             resolved,
-            *(resolved + e for e in extensions),
-            *(resolved + "/index" + e for e in extensions),
+            *with_extensions(resolved, extensions),
+            *index_files(resolved, extensions),
         ]
     )
     return [path for path in candidates if path in paths]
@@ -112,13 +127,21 @@ def tiered_targets(paths, base, ref):
     resolved = contained_path(base, ref)
     if resolved is None:
         return []
-    tiers = (
-        (resolved,),
-        tuple(resolved + e for e in JS_CODE_EXT),
-        tuple(resolved + e for e in JS_OTHER_EXT),
-        tuple(resolved + "/index" + e for e in JS_CODE_EXT),
-        tuple(resolved + "/index" + e for e in JS_OTHER_EXT),
+    index_tiers = (
+        index_files(resolved, JS_CODE_EXT),
+        index_files(resolved, JS_DATA_EXT),
     )
+    if names_directory(ref):
+        tiers = index_tiers
+    else:
+        tiers = (
+            (resolved,),
+            with_extensions(resolved, JS_CODE_EXT),
+            with_extensions(resolved, JS_DATA_EXT),
+            *index_tiers,
+            with_extensions(resolved, JS_STYLE_EXT),
+            index_files(resolved, JS_STYLE_EXT),
+        )
     return next(
         (
             matches

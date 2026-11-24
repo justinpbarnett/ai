@@ -22,10 +22,13 @@ ESLINT_NAMES = re.compile(
     r"|exported\s+[\w$]+(?:\s*,\s*[\w$]+)*)\s*$"
 )
 ENCODING = re.compile(r"^#.*coding[:=]\s*[-\w.]+")
-LEGAL = re.compile(
+LEGAL_NOTICE = re.compile(
     r"copyright\s*(?:\(c\)|©|\d{4})|\(c\)\s*\d{4}|©|all rights reserved|SPDX"
-    r"|@copyright\b|(?m:^)\W*licen[sc]ed\s+(?:under|to)\b"
-    r"|\A\W*(?:the\s+)?licen[sc]e"
+    r"|@copyright\b|(?m:^)\W*licen[sc]ed\s+(?:under|to)\b",
+    re.I,
+)
+LEGAL_GROUP_START = re.compile(
+    r"\A\W*(?:the\s+)?licen[sc]e\b(?=\s*:|\s+(?-i:[A-Z0-9])|[ \t]*(?m:$))"
     r"|\A\W*copyright\b[\s:]*(?:by\s+)?(?-i:[A-Z0-9])",
     re.I,
 )
@@ -160,7 +163,9 @@ def mark_leading_legal(data, groups, texts, directives):
         if (
             index not in directives
             and not group["docstring"]
-            and (LEGAL.search(text) or adjacent)
+            and (
+                LEGAL_NOTICE.search(text) or LEGAL_GROUP_START.search(text) or adjacent
+            )
         ):
             legal.add(index)
             previous_legal_end = group["end"]
@@ -191,7 +196,9 @@ def legal_spans(data, group, parse_with):
     spans = []
     for label, start, end in classified_runs(data, group, parse_with):
         text = data[start:end].decode("utf-8", "replace")
-        if label not in {"marker", "commented-code"} or LEGAL.search(text):
+        if label == "commented-code":
+            label = "legal" if LEGAL_NOTICE.search(text) else label
+        elif label != "marker":
             label = "legal"
         if spans and label == "legal" and spans[-1][0] == "legal":
             spans[-1][2] = end

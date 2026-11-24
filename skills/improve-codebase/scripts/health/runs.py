@@ -4,6 +4,7 @@ from itertools import chain
 from pathlib import PurePosixPath
 
 from .dependency_graph import blocks_wiring, resolve_edges
+from .detectors import ParseOptions, parse_snapshot
 from .history import git
 from .inventory import (
     MAX_SOURCE_BYTES,
@@ -16,10 +17,17 @@ from .inventory import (
     owning_project,
     source_language,
 )
-from .parsers import analyze
-from .paths import in_paths
-from .scanning import parse_for_graph
+from .parsers import analyze, capabilities
+from .paths import directory, in_paths
+from .profiles import current_parser_profile
 from .validation import require
+
+
+def parse_for_graph(entries, sources, store):
+    options = ParseOptions(
+        current_parser_profile(capabilities(False)), False, store.cached, False
+    )
+    return parse_snapshot(entries, sources, options)[0]
 
 
 def run_name(name):
@@ -76,7 +84,7 @@ def base_overlay(root, base, touched, entries, sources, parsed):
         path: result for path, result in parsed.items() if path not in touched
     }
     projects = {
-        PurePosixPath(path).parent.as_posix()
+        directory(path)
         for path in base_sources.keys() | historical.keys()
         if PROJECT.fullmatch(PurePosixPath(path).name)
     }

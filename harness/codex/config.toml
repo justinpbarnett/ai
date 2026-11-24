@@ -6,6 +6,7 @@ model = "gpt-6.2-sol"
 model_reasoning_effort = "high"
 
 [tui]
+collapse_turn_details = true
 screen_reader_detection_done = true
 
 [tui.model_availability_nux]

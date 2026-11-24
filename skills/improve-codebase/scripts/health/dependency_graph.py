@@ -220,6 +220,10 @@ def python_bases(ancestors, project, dots):
     )
 
 
+def source_or_stub(paths, stem):
+    return stem + ".py" if stem + ".py" in paths else stem + ".pyi"
+
+
 def python_targets(site, ref):
     dots = len(ref) - len(ref.lstrip("."))
     if dots > len(site.ancestors):
@@ -229,14 +233,13 @@ def python_targets(site, ref):
     matches = []
     for base in bases:
         resolved = posixpath.normpath(posixpath.join(base, tail))
-        candidates = [posixpath.normpath(posixpath.join(resolved, "__init__.py"))]
-        if tail:
-            module = (
-                resolved + ".py"
-                if resolved + ".py" in site.paths
-                else resolved + ".pyi"
+        candidates = [
+            source_or_stub(
+                site.paths, posixpath.normpath(posixpath.join(resolved, "__init__"))
             )
-            candidates = [module, *candidates]
+        ]
+        if tail:
+            candidates = [source_or_stub(site.paths, resolved), *candidates]
         matches.extend(path for path in candidates if path in site.paths)
     return matches
 

@@ -141,12 +141,32 @@ def is_test_class(data, node, name):
     )
 
 
+def base_names(data, node):
+    bases = node.child_by_field_name("superclasses")
+    if bases is None:
+        return []
+    names = []
+    for base in bases.named_children:
+        if base.type in {"keyword_argument", "dictionary_splat"}:
+            continue
+        if base.type == "subscript":
+            base = base.child_by_field_name("value")
+        names.append(node_text(data, base))
+    return names
+
+
+def inherits_suite(data, node, module_suites):
+    return any(
+        module_suites.get(base, base != "object") for base in base_names(data, node)
+    )
+
+
 def is_test_function(name, in_class):
     return name.startswith("test_") or (in_class and name.startswith("test"))
 
 
 def python_cases(surface, root):
-    data, cases = surface.data, []
+    data, cases, module_suites = surface.data, [], {}
     stack = [(root, False, "module")]
     while stack:
         node, skipped, scope = stack.pop()
@@ -156,7 +176,12 @@ def python_cases(surface, root):
             decorators = definition_decorators(data, node)
             marked = skipped or any(SKIP_DECORATOR.match(d) for d in decorators)
             if kind == "class_definition":
-                collected = scope != "other" and is_test_class(data, node, name)
+                collected = scope != "other" and (
+                    is_test_class(data, node, name)
+                    or inherits_suite(data, node, module_suites)
+                )
+                if scope == "module":
+                    module_suites[name] = collected
                 stack.append(
                     (
                         node.child_by_field_name("body"),

@@ -4,7 +4,7 @@ from itertools import chain
 from pathlib import PurePosixPath
 
 from .dependency_graph import resolve_edges
-from .history import git
+from .history import REGULAR_MODES, git
 from .inventory import (
     MAX_SOURCE_BYTES,
     PROJECT,
@@ -63,7 +63,7 @@ def historical_blobs(root, base, touched):
         mode, kind, oid, size = metadata.split()
         if (
             kind == b"blob"
-            and mode in {b"100644", b"100755"}
+            and mode in REGULAR_MODES
             and int(size) <= MAX_SOURCE_BYTES
             and source_language(path)
         ):

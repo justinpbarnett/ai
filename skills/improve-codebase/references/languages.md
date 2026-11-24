@@ -42,9 +42,9 @@ Test files get one `tests` candidate per file with case counts and flags for no 
 Assertion counts include interaction checks. A file with zero detected cases in a parsed language reports `support`, which means the extractor found no cases, not that the file is clean; a test file in a language without a case extractor, such as Go, reports `unparsed` and needs a manual case count.
 Test detection follows path and name conventions, and the same conventions exclude test files from layout rules.
 
-Layout rules work on directories of authored non-test files: `generic-folder` for catch-all names, `single-importer` for a folder imported by exactly one other folder, `folder-cycle` for strongly connected folders, and `wide-folder` above `folder_files`.
+Layout rules work on directories of authored non-test files: `generic-folder` for catch-all names, `single-importer` for a folder of two or more files, other than the root, imported by exactly one other folder that neither contains it nor sits inside it, `folder-cycle` for strongly connected folders, and `wide-folder` above `folder_files`.
 They use resolved edges only, so unresolved imports hide cycles and importers.
-`change-coupling` pairs files that changed together in at least `coupling_revisions` commits with a degree of at least `coupling_degree`, where degree is shared commits divided by the mean of each file's commits.
+`change-coupling` pairs files in different directories that changed together in at least `coupling_revisions` commits with a degree of at least `coupling_degree`, where degree is shared commits divided by the mean of each file's commits.
 The history window is the latest 500 commits, and commits over 30 files are skipped as bulk edits.
 Historical paths follow renames committed in history and staged renames in the working tree, and an unstaged move when one deleted regular file and one untracked regular file share the same content exactly (read only, no index write); a modified or ambiguous move is not detected, and its old history stays under the old path.
 Without Git history the scan records a limitation and skips coupling and locality.

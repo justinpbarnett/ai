@@ -37,6 +37,14 @@ class LocalAliases:
     limitation: str | None = None
 
 
+@dataclass(frozen=True)
+class ImportSite:
+    paths: set[str]
+    ancestors: tuple[PurePosixPath, ...]
+    project: str
+    aliases: LocalAliases | None
+
+
 def relative_option(value):
     return isinstance(value, str) and not value.startswith("/")
 
@@ -146,11 +154,11 @@ def python_bases(ancestors, project, dots):
     )
 
 
-def python_targets(paths, ancestors, project, ref):
+def python_targets(site, ref):
     dots = len(ref) - len(ref.lstrip("."))
-    if dots > len(ancestors):
+    if dots > len(site.ancestors):
         return []
-    bases = python_bases(ancestors, project, dots)
+    bases = python_bases(site.ancestors, site.project, dots)
     tail = ref[dots:].replace(".", "/")
     matches = []
     for base in bases:
@@ -158,7 +166,7 @@ def python_targets(paths, ancestors, project, ref):
         candidates = [posixpath.normpath(posixpath.join(resolved, "__init__.py"))]
         if tail:
             candidates = [resolved + ".py", resolved + ".pyi", *candidates]
-        matches.extend(path for path in candidates if path in paths)
+        matches.extend(path for path in candidates if path in site.paths)
     return matches
 
 
@@ -174,19 +182,19 @@ def style_targets(paths, parent, ref):
     return matches
 
 
-def reference_targets(paths, ancestors, project, aliases, kind, ref):
-    parent = str(ancestors[0])
+def reference_targets(site, kind, ref):
+    parent = str(site.ancestors[0])
     if kind == "js":
-        return javascript_targets(paths, parent, ref, aliases)
+        return javascript_targets(site.paths, parent, ref, site.aliases)
     if kind in PYTHON_KINDS:
-        return python_targets(paths, ancestors, project, ref)
+        return python_targets(site, ref)
     if kind == "style":
-        return style_targets(paths, parent, ref)
+        return style_targets(site.paths, parent, ref)
     if PLACEHOLDER.search(ref):
         return []
     base = "." if ref.startswith("/") else parent
     return local_targets(
-        paths, base, ref.lstrip("/"), JS_EXT if kind == "vue-external" else ()
+        site.paths, base, ref.lstrip("/"), JS_EXT if kind == "vue-external" else ()
     )
 
 
@@ -195,9 +203,9 @@ def member_module(ref):
     return prefix if not prefix.strip(".") else prefix[:-1]
 
 
-def is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
+def is_symbol_of_resolved_module(site, import_kind, ref):
     return import_kind == "python-member" and bool(
-        python_targets(paths, ancestors, project, member_module(ref))
+        python_targets(site, member_module(ref))
     )
 
 
@@ -240,12 +248,12 @@ def is_external_import(aliases, import_kind, ref):
     )
 
 
-def unresolved_problem(paths, ancestors, project, aliases, import_kind, ref, targets):
+def unresolved_problem(site, import_kind, ref, targets):
     if targets:
         return "ambiguous"
-    if is_symbol_of_resolved_module(paths, ancestors, project, import_kind, ref):
+    if is_symbol_of_resolved_module(site, import_kind, ref):
         return None
-    if is_external_import(aliases, import_kind, ref):
+    if is_external_import(site.aliases, import_kind, ref):
         return EXTERNAL_PROBLEM
     return "unresolved or external"
 
@@ -266,33 +274,23 @@ def resolve_edges(entries, parsed, sources):
     for path, result in parsed.items():
         parent = PurePosixPath(path).parent
         ancestors = (parent, *parent.parents)
-        aliases = nearest_aliases(ancestors, profiles)
         entry = entries[path]
-        limits = source_limitations(result, aliases, entry["language"])
+        site = ImportSite(
+            paths, ancestors, entry["project"], nearest_aliases(ancestors, profiles)
+        )
+        limits = source_limitations(result, site.aliases, entry["language"])
         if limits:
             limitations[path].update(limits)
         for import_kind, ref in result["imports"]:
             kind = "python" if import_kind in PYTHON_KINDS else import_kind
-            matches = set(
-                reference_targets(
-                    paths, ancestors, entry["project"], aliases, import_kind, ref
-                )
-            )
+            matches = set(reference_targets(site, import_kind, ref))
             if kind == "python":
                 matches.discard(path)
             targets = sorted(matches)
             if len(targets) == 1:
                 edges.add((path, targets[0], kind))
             else:
-                problem = unresolved_problem(
-                    paths,
-                    ancestors,
-                    entry["project"],
-                    aliases,
-                    import_kind,
-                    ref,
-                    targets,
-                )
+                problem = unresolved_problem(site, import_kind, ref, targets)
                 if problem:
                     limitations[path].add(f"{problem} {kind} target: {ref}")
             if kind == "vue-external":

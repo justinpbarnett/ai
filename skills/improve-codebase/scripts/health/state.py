@@ -86,11 +86,11 @@ class Store:
             isolation_level=None,
         )
         self.connection.execute("PRAGMA trusted_schema = OFF")
-        if not write and self.is_empty_database():
-            self.close()
-            self.connection = None
-            return
         try:
+            if not write and self.is_empty_database():
+                self.close()
+                self.connection = None
+                return
             if write:
                 with self.transaction():
                     self.validate(root, initialize=True)

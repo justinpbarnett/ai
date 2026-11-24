@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 
 from .hashing import digest
+from .layout import directory
 from .validation import require
 
 DEBT = {"open", "in_progress", "pending_verification", "blocked", "accepted_risk"}
@@ -77,11 +78,8 @@ def same_folder_finding(findings, finding):
     return matches[0] if len(matches) == 1 else None
 
 
-def overlapping_members_finding(state, finding):
-    members = finding.get("observation", {}).get("members")
-    if not isinstance(members, list):
-        return None
-    matches = [
+def comparable_priors(state, finding):
+    return [
         item
         for item in state["findings"].values()
         if unclaimed(state, item)
@@ -90,7 +88,52 @@ def overlapping_members_finding(state, finding):
         and item["anchor"] == finding["anchor"]
         and item.get("identity", "") == finding.get("identity", "")
         and isinstance(item.get("observation", {}).get("members"), list)
-        and set(item["observation"]["members"]) & set(members)
+    ]
+
+
+def vacated_directory_destination(relocations, directory_path, entries):
+    if any(
+        entry.get("hash") and directory(path) == directory_path
+        for path, entry in entries.items()
+    ):
+        return None
+    destinations = {
+        directory(destination)
+        for old in relocations
+        if directory(old) == directory_path
+        and (destination := relocation_destination(relocations, old, entries))
+        is not None
+    }
+    return destinations.pop() if len(destinations) == 1 else None
+
+
+def mapped_member(relocations, member, entries):
+    destination = relocation_destination(relocations, member, entries)
+    if destination is None:
+        destination = vacated_directory_destination(relocations, member, entries)
+    return member if destination is None else destination
+
+
+def qualifying_overlap(state, prior, finding, entries):
+    relocations = state.get("relocations") or {}
+    prior_members = prior["observation"]["members"]
+    members = finding["observation"]["members"]
+    shared = {
+        mapped_member(relocations, member, entries) for member in prior_members
+    } & set(members)
+    if 2 * len(shared) > min(len(prior_members), len(members)):
+        return len(shared)
+    return 0
+
+
+def overlapping_members_finding(state, finding, entries):
+    members = finding.get("observation", {}).get("members")
+    if not isinstance(members, list):
+        return None
+    matches = [
+        item
+        for item in comparable_priors(state, finding)
+        if qualifying_overlap(state, item, finding, entries)
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -124,10 +167,25 @@ def located_prior(state, finding):
     return location_key, prior
 
 
-def located_first(state, findings):
-    return sorted(
-        findings, key=lambda finding: located_prior(state, finding)[1] is None
+def largest_member_overlap(state, finding, entries):
+    if not isinstance(finding.get("observation", {}).get("members"), list):
+        return 0
+    return max(
+        (
+            qualifying_overlap(state, item, finding, entries)
+            for item in comparable_priors(state, finding)
+        ),
+        default=0,
     )
+
+
+def claim_order(state, findings, entries):
+    def key(finding):
+        if located_prior(state, finding)[1] is not None:
+            return (False, 0)
+        return (True, -largest_member_overlap(state, finding, entries))
+
+    return sorted(findings, key=key)
 
 
 def resolve_identity(state, finding, entries):
@@ -137,7 +195,7 @@ def resolve_identity(state, finding, entries):
         prior = (
             moved_finding(state, finding, entries)
             or same_folder_finding(findings, finding)
-            or overlapping_members_finding(state, finding)
+            or overlapping_members_finding(state, finding, entries)
         )
     if prior is not None:
         identifier = prior["id"]

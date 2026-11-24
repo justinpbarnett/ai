@@ -208,7 +208,10 @@ def semantic_finding(doc, entries, unit, reads, *, fallout=False):
         and entries[primary["path"]]["disposition"] == "source",
         "finding must point to reviewed, in-scope source",
     )
-    related = [location(item, entries) for item in obj.get("related", [])]
+    related = [
+        location(item, entries)
+        for item in (array(obj, "related") if "related" in obj else [])
+    ]
     require(
         all(loc["path"] in reads for loc in related),
         "related location must be in reviewed inputs",

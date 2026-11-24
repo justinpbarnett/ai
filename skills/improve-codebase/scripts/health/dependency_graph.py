@@ -8,20 +8,8 @@ from pathlib import PurePosixPath
 
 from .parsers import GRAMMARS
 
-JS_EXT = (
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".vue",
-    ".json",
-    ".css",
-    ".scss",
-)
+JS_CODE_EXT = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+JS_OTHER_EXT = (".vue", ".json", ".css", ".scss")
 ALIAS_CONFIG_FILES = ("tsconfig.json", "jsconfig.json")
 ALIAS_LANGUAGES = {"javascript", "typescript", "tsx", "vue"}
 PLACEHOLDER = re.compile(r"[$*{}<>]")
@@ -113,6 +101,12 @@ def local_targets(paths, base, ref, extensions):
     return [path for path in candidates if path in paths]
 
 
+def tiered_targets(paths, base, ref):
+    return local_targets(paths, base, ref, JS_CODE_EXT) or local_targets(
+        paths, base, ref, JS_OTHER_EXT
+    )
+
+
 def alias_replacements(aliases, ref):
     for pattern, replacements in aliases.paths.items():
         prefix, star, suffix = pattern.partition("*")
@@ -128,7 +122,7 @@ def alias_replacements(aliases, ref):
 
 def javascript_targets(paths, parent, ref, aliases):
     if ref.startswith("."):
-        matches = local_targets(paths, parent, ref, JS_EXT)
+        matches = tiered_targets(paths, parent, ref)
         if not matches and ref.endswith((".js", ".mjs", ".cjs", ".jsx")):
             return local_targets(
                 paths, parent, ref.rsplit(".", 1)[0], (".ts", ".mts", ".cts", ".tsx")
@@ -139,10 +133,10 @@ def javascript_targets(paths, parent, ref, aliases):
     matches = [
         path
         for replacement in alias_replacements(aliases, ref)
-        for path in local_targets(paths, aliases.root, replacement, JS_EXT)
+        for path in tiered_targets(paths, aliases.root, replacement)
     ]
     if not matches and aliases.has_base_url:
-        return local_targets(paths, aliases.root, ref, JS_EXT)
+        return tiered_targets(paths, aliases.root, ref)
     return matches
 
 
@@ -193,9 +187,9 @@ def reference_targets(site, kind, ref):
     if PLACEHOLDER.search(ref):
         return []
     base = "." if ref.startswith("/") else parent
-    return local_targets(
-        site.paths, base, ref.lstrip("/"), JS_EXT if kind == "vue-external" else ()
-    )
+    if kind == "vue-external":
+        return tiered_targets(site.paths, base, ref.lstrip("/"))
+    return local_targets(site.paths, base, ref.lstrip("/"), ())
 
 
 def member_module(ref):

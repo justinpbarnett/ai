@@ -12,7 +12,7 @@ from .detectors import (
 from .hashing import content_hash, digest
 from .history import commit_history, hotspots
 from .inventory import inventory
-from .ledger import detect_moves, located_first, observe, relocation_destination
+from .ledger import claim_order, detect_moves, observe, relocation_destination
 from .parsers import capabilities
 from .review_units import REVIEW_VERSION, units_for
 from .rules import HISTORY_RULES
@@ -236,7 +236,7 @@ def scan(store, state, scope, *, core_only, full, checkpoint):
         scan_revision=state["revision"] + 1,
         scan_repeated_snapshot=previous_snapshot == snapshot,
     )
-    for observation in located_first(state, candidates):
+    for observation in claim_order(state, candidates, live["entries"]):
         observe(state, observation | {"detector_profile": profile})
     if checkpoint:
         checkpoint_progress(state)

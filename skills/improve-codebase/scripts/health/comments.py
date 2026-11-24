@@ -24,8 +24,8 @@ ESLINT_NAMES = re.compile(
 ENCODING = re.compile(r"^#.*coding[:=]\s*[-\w.]+")
 LEGAL = re.compile(
     r"copyright\s*(?:\(c\)|©|\d{4})|\(c\)\s*\d{4}|©|all rights reserved|SPDX"
-    r"|^\W*(?:the\s+)?licen[sc]e",
-    re.I,
+    r"|^\W*(?:the\s+)?licen[sc]e|^\W*copyright\b|@copyright\b",
+    re.I | re.M,
 )
 MARKER = re.compile(r"\b(?:TODO|FIXME|HACK|XXX)\b")
 BANNER = re.compile(r"([=\-#*~_])\1{3,}")

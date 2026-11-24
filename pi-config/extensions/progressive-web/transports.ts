@@ -13,7 +13,6 @@ import {
   responseText,
 } from "./body.ts";
 import { loadCredentials } from "./config.ts";
-import type { PageResponse } from "./content.ts";
 import {
   checkScope,
   NonRetryableError,
@@ -29,6 +28,14 @@ interface RequestContext {
 export interface TransportOptions extends RequestContext {
   timeoutMs: number;
   waitForSelector?: string;
+}
+
+export interface PageResponse {
+  status: number;
+  url: string;
+  contentType: string;
+  body: string;
+  redirectUrl?: string;
 }
 
 export type PageTransport = (

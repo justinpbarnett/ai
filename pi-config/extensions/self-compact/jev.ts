@@ -10,9 +10,9 @@ export const JEV_EXCERPT_LIMIT = 512;
 const JEV_CONFIDENCE = 0.9;
 const JEV_TIMEOUT = 2500;
 
-type JevMode = "on" | "off" | "unavailable";
+export type JevMode = "on" | "off" | "unavailable";
 type SwitchDecision = "switch" | "deferred" | "unavailable" | "cancelled";
-type PromptPair = { previous: string; current: string };
+export type PromptPair = { previous: string; current: string };
 interface Excerpt { digest: string; text: string }
 
 const NON_PROMPT = /(?:^|\s)(?:[!/]\S|@\S)|\[.*?\]\(file:|file:\/\//i;

@@ -174,16 +174,16 @@ def checkpoint_progress(state):
     state["progress_at_checkpoint"] = state["progress"]
 
 
-def scan(args, store, state, scope):
+def scan(store, state, scope, *, core_only, full, checkpoint):
     live, files = scope.collect(gather=True)
-    caps = capabilities(args.core_only)
+    caps = capabilities(core_only)
     parser_profile, profile = analyzer_profiles(scope.thresholds, caps)
     rubric = rubric_version()
     analyzed, fresh = scan_sources(
         live,
         files,
         scope.thresholds,
-        ParseOptions(parser_profile, args.core_only, store.cached, args.full),
+        ParseOptions(parser_profile, core_only, store.cached, full),
         scope.history(),
     )
     scope_inputs, snapshot, units = scope_evidence(live, analyzed, profile, rubric)
@@ -202,7 +202,7 @@ def scan(args, store, state, scope):
         remember_previous_units(state)
     reconcile_baseline(state, store, live, scope_inputs)
     candidates = analyzed.pop("candidates")
-    if not args.full:
+    if not full:
         refine_work_reasons(
             analyzed["detector_work"], prior_entries, live["entries"], changed_parser
         )
@@ -216,7 +216,7 @@ def scan(args, store, state, scope):
         capabilities=caps,
         observation_profile=profile,
         parser_profile=parser_profile,
-        core_only=args.core_only,
+        core_only=core_only,
         scope_inputs=scope_inputs,
         scope_evidence_version=SCOPE_EVIDENCE_VERSION,
         moves=moves,
@@ -227,7 +227,7 @@ def scan(args, store, state, scope):
     )
     for observation in candidates:
         observe(state, observation | {"detector_profile": profile})
-    if args.checkpoint:
+    if checkpoint:
         checkpoint_progress(state)
     with store.transaction():
         store.assert_revision(state["revision"])
@@ -245,7 +245,7 @@ def scan(args, store, state, scope):
                 "profile_changed": bool(old_profile) and old_profile != profile,
                 "previous_snapshot": previous_snapshot,
                 "moves": moves,
-                "checkpoint": args.checkpoint,
+                "checkpoint": checkpoint,
                 "idle_cycles": state["idle_cycles"],
                 "inventory_fingerprint": live["fingerprint"],
                 "scope_inputs": scope_inputs,

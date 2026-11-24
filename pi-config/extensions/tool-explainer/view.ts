@@ -102,7 +102,7 @@ export async function collectExplanation(ctx: ExtensionContext, calls: Evidence[
 		const loader = new BorderedLoader(tui, theme, "Explaining tool output via OpenRouter…");
 		const combined = AbortSignal.any([signal, loader.signal]);
 		loader.onAbort = () => done(undefined);
-		void withinDeadline(combined, (deadline) => explain(registry, calls, deadline)).then(
+		void withinDeadline(combined, "Explanation timed out.", (deadline) => explain(registry, calls, deadline)).then(
 			(result) => { if (!combined.aborted) done({ result }); },
 			(error: unknown) => { if (!loader.signal.aborted) done(signal.aborted ? undefined : { error: failureMessage(error) }); },
 		);

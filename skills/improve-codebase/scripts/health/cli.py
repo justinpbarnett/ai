@@ -227,7 +227,14 @@ def load_ledger(args, store, scope, envelope):
 def scan_command(args, scope, envelope):
     with open_store(args, scope) as store:
         scope, state, view = load_ledger(args, store, scope, envelope)
-        current = scan(args, store, state, scope)
+        current = scan(
+            store,
+            state,
+            scope,
+            core_only=args.core_only,
+            full=args.full,
+            checkpoint=args.checkpoint,
+        )
         return command_report(args, store, state, current, True, view), 0
 
 

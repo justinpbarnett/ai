@@ -1,7 +1,7 @@
 import type { ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { checkpointDraft, minimumSavings, preservesCut, selectCut, summarizeCut, tokenCount } from "./checkpoint.js";
 import type { CheckpointRequest, Cut, SummaryResult } from "./checkpoint.js";
-import type { Jev } from "./jev.js";
+import type { Jev, JevMode, PromptPair } from "./jev.js";
 import { autoEnabled } from "./policy.js";
 import type { Policy, Pressure, PressureCycle } from "./policy.js";
 
@@ -27,7 +27,7 @@ interface Turn {
 	underPressure: boolean;
 	nativeCutoff: boolean;
 	band: Pressure;
-	mode: ReturnType<Jev["mode"]>;
+	mode: JevMode;
 }
 
 function completed(event: TurnEndEvent, ctx: ExtensionContext) {
@@ -180,7 +180,7 @@ export class BackgroundCompaction {
 		});
 	}
 
-	private checkTaskSwitch(turn: Turn, pair: ReturnType<Jev["takePair"]>) {
+	private checkTaskSwitch(turn: Turn, pair: PromptPair | undefined) {
 		const job = this.job;
 		if (!pair || !job || job.handoff || (job.jevRequest && !job.jevRequest.aborted) || !canUseJev(turn)) return;
 		this.jev.check(turn.ctx, pair, job.controller.signal, (candidate) => { job.jevRequest = candidate; });

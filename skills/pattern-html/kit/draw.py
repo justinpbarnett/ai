@@ -17,6 +17,8 @@ ACT = PAGE["act"]     # one line at the touch point, never a face
 OK = PAGE["ok"]
 CAUTION = PAGE["caution"]
 FAULT = PAGE["fault"]
+OK_HIGHLIGHT = "#B9F5CF"
+OK_RIM = "#062B14"
 
 # things, in tones pushed apart so black on black reads on a screen
 WALL = "#5C5F62"
@@ -128,10 +130,10 @@ class Space:
     def lamp(self, x, y, color=OK, behind=False):
         if behind:
             self.circle(x, y, 5.5, color, extra='opacity="0.35"')
-            self.circle(x, y, 2.1, "#B9F5CF" if color == OK else INK)
+            self.circle(x, y, 2.1, OK_HIGHLIGHT if color == OK else INK)
         else:
             self.circle(x, y, 4.4, color, extra='opacity="0.28"')
-            self.circle(x, y, 2.0, color, "#062B14" if color == OK else darker(color), 0.3)
+            self.circle(x, y, 2.0, color, OK_RIM if color == OK else darker(color), 0.3)
 
     def smoke(self, x, y, w, h, internals=None):
         sheet = self.sheet

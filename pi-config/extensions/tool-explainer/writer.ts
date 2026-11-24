@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
+import { OllamaUnavailableError, OllamaWriterError, writeWithOllama } from "../shared/ollama.js";
 import { purposeCall, type Invocation, type PurposeCall } from "./evidence.js";
 import { OPENROUTER_PROVIDER, OPENROUTER_SIGN_IN_MESSAGE, completionText, isOpenRouterConfigured, isPiOffline } from "../shared/openrouter.js";
 import { withinDeadline } from "./deadline.js";
@@ -85,19 +85,22 @@ function withoutNarrator(summary: string): string {
 		.replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_, lead: string, letter: string) => lead + letter.toUpperCase());
 }
 
+class WriterUnavailableError extends ExplanationError {}
+
 async function writeLocally(model: string, evidence: object, systemPrompt: string, signal: AbortSignal): Promise<string> {
 	try {
 		return await writeWithOllama({ model, systemPrompt, evidence, maxTokens: MAX_TOKENS }, signal);
 	} catch (error) {
+		if (error instanceof OllamaUnavailableError) throw new WriterUnavailableError(error.message);
 		if (error instanceof OllamaWriterError) throw new ExplanationError(error.message);
 		throw error;
 	}
 }
 
 async function writeRemotely(registry: ExtensionContext["modelRegistry"], id: string, hints: string[][], systemPrompt: string, signal: AbortSignal): Promise<string> {
-	if (!isOpenRouterConfigured(registry)) throw new ExplanationError(OPENROUTER_SIGN_IN_MESSAGE);
+	if (!isOpenRouterConfigured(registry)) throw new WriterUnavailableError(OPENROUTER_SIGN_IN_MESSAGE);
 	const model = registry.find(OPENROUTER_PROVIDER, id);
-	if (!model) throw new ExplanationError("OpenRouter writing model unavailable in Pi.");
+	if (!model) throw new WriterUnavailableError("OpenRouter writing model unavailable in Pi.");
 	const result = await registry.streamSimple(model, {
 		systemPrompt,
 		messages: [{ role: "user", content: JSON.stringify({ operationHints: hints }), timestamp: Date.now() }],
@@ -112,29 +115,30 @@ export type WritingRequest = { kind: "ollama"; model: string; evidence: PurposeE
 
 const GENERIC_PURPOSE = /^(?:ran|executed|invoked|read|opened|called|used|wrote|edited|listed|find the requirements)\b|^(?:run|execute|invoke|call) (?:an? |the )?(?:(?:shell|bash|terminal|powershell|python|node(?:\.js)?|inline) )*(?:commands?|scripts?|tools?|code)$/i;
 
-async function attempt(parent: AbortSignal, run: (signal: AbortSignal) => Promise<string>, generic?: RegExp): Promise<string> {
-	const summary = usableSummary(await withinDeadline(parent, run));
+async function attempt(parent: AbortSignal, timeoutMessage: string, run: (signal: AbortSignal) => Promise<string>, generic?: RegExp): Promise<string> {
+	const summary = usableSummary(await withinDeadline(parent, timeoutMessage, run));
 	if (!summary) throw new ExplanationError("The writer did not return a plain-text summary.");
 	if (/^unknown\.?$/i.test(summary) || generic?.test(summary)) throw new ExplanationError("The writer could not infer a specific summary.");
 	return summary;
 }
 
-async function withRetry(parent: AbortSignal, prompts: readonly [string, string], run: (prompt: string, signal: AbortSignal) => Promise<string>, generic?: RegExp): Promise<string> {
+async function withRetry(parent: AbortSignal, timeoutMessage: string, prompts: readonly [string, string], run: (prompt: string, signal: AbortSignal) => Promise<string>, generic?: RegExp): Promise<string> {
 	try {
-		return await attempt(parent, (signal) => run(prompts[0], signal), generic);
-	} catch {
+		return await attempt(parent, timeoutMessage, (signal) => run(prompts[0], signal), generic);
+	} catch (error) {
+		if (error instanceof WriterUnavailableError) throw error;
 		parent.throwIfAborted();
-		return attempt(parent, (signal) => run(prompts[1], signal), generic);
+		return attempt(parent, timeoutMessage, (signal) => run(prompts[1], signal), generic);
 	}
 }
 
 export function writeSummary(registry: ExtensionContext["modelRegistry"], request: WritingRequest, parent: AbortSignal): Promise<string> {
-	return withRetry(parent, request.kind === "ollama" ? localPurposePrompts : hostedPurposePrompts, (prompt, signal) => request.kind === "ollama"
+	return withRetry(parent, "Call summary timed out.", request.kind === "ollama" ? localPurposePrompts : hostedPurposePrompts, (prompt, signal) => request.kind === "ollama"
 		? writeLocally(request.model, request.evidence, prompt, signal)
 		: writeRemotely(registry, request.model, request.hints, prompt, signal), GENERIC_PURPOSE);
 }
 
 export function writeThinkingSummary(model: string, reasoning: string, parent: AbortSignal): Promise<string> {
 	const evidence = { reasoning: clip(plain(reasoning), MAX_REASONING_CHARS) };
-	return withRetry(parent, thinkingPrompts, (prompt, signal) => writeLocally(model, evidence, prompt, signal)).then(withoutNarrator);
+	return withRetry(parent, "Thinking summary timed out.", thinkingPrompts, (prompt, signal) => writeLocally(model, evidence, prompt, signal)).then(withoutNarrator);
 }

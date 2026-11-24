@@ -3,6 +3,7 @@ const OLLAMA_TAG = /^(?:[\w.-]+(?::\d+)?\/){0,2}[\w.-]+(?::[\w.-]+)?$/;
 export const DEFAULT_OLLAMA_MODEL = "qwen3.5:2b";
 
 export class OllamaWriterError extends Error {}
+export class OllamaUnavailableError extends OllamaWriterError {}
 
 export function isLocalOllamaModel(value: unknown): value is string {
 	return typeof value === "string" && value.length <= 150 && OLLAMA_TAG.test(value) && !/(?:[:-])cloud$/i.test(value);
@@ -20,7 +21,7 @@ interface ChatReply {
 }
 
 async function post(path: string, body: object, signal: AbortSignal): Promise<any> {
-	const unreachable = new OllamaWriterError("Ollama request failed; check that the model is installed and Ollama is running.");
+	const unreachable = new OllamaUnavailableError("Ollama request failed; check that the model is installed and Ollama is running.");
 	const response = await fetch(`${OLLAMA_URL}${path}`, {
 		method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal, redirect: "error",
 	}).catch((error) => {
@@ -46,10 +47,10 @@ interface WritingRequest {
 
 export async function writeWithOllama({ model, systemPrompt, evidence, maxTokens, format }: WritingRequest, signal: AbortSignal): Promise<string> {
 	const modelError = "Ollama writer requires a locally installed, non-cloud model.";
-	if (!isLocalOllamaModel(model)) throw new OllamaWriterError(modelError);
+	if (!isLocalOllamaModel(model)) throw new OllamaUnavailableError(modelError);
 	const info: ShowReply | null = await post("/api/show", { model }, signal);
 	if (info?.remote_host || info?.remote_model || !info?.model_info?.["general.architecture"]) {
-		throw new OllamaWriterError(modelError);
+		throw new OllamaUnavailableError(modelError);
 	}
 	const response: ChatReply | null = await post("/api/chat", {
 		model, stream: false, think: false, format,

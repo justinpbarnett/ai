@@ -2,15 +2,8 @@ import { isProbablyReaderable, Readability } from "@mozilla/readability";
 import { JSDOM, VirtualConsole } from "jsdom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import type { PageResponse } from "./transports.ts";
 import { NonRetryableError, normalizeUrl } from "./url-policy.ts";
-
-export interface PageResponse {
-  status: number;
-  url: string;
-  contentType: string;
-  body: string;
-  redirectUrl?: string;
-}
 
 export interface PageContent {
   title: string;

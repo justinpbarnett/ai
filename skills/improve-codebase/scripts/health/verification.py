@@ -176,7 +176,7 @@ def verification_baseline(state, document, outcome):
 
 def verified_artifacts(document, state_dir):
     artifacts = []
-    for value in document.get("artifacts", []):
+    for value in array(document, "artifacts") if "artifacts" in document else []:
         item = object_value(value, "artifact")
         path = string(item, "path")
         hashed = artifact_hash(state_dir, path)

@@ -70,23 +70,23 @@ def report(results):
     return int(worst)
 
 
-def source(text, size):
+def source(text, size=None):
     found = {"fail": [], "warn": [], "note": []}
     for slot in sorted({m.group(0) for m in PLACE.finditer(text)})[:6]:
         found["fail"].append(["slot", f"{slot} was never filled: hand out the built page, never the template"])
-    if size > ARTIFACT_BYTE_LIMIT:
+    if size is not None and size > ARTIFACT_BYTE_LIMIT:
         found["warn"].append(["size", "over 16 MB, which is more than an Artifact takes: shrink the images"])
     if re.search(r"<html\b", text, flags=re.I) and not re.search(r"<meta[^>]+name=[\"']viewport", text, flags=re.I):
         found["warn"].append(["viewport", "no viewport meta, so a phone draws the page at desktop width"])
     return found
 
 
-def check_viewport(browser, url, viewport, js, file_findings):
+def check_viewport(browser, url, viewport, js, served, file_findings):
     width = viewport.width
     settled = browser.open(url, width, viewport.height, viewport.phone)
-    if file_findings is None:
+    if served:
         markup = browser.ask("fetch(location.href).then((got) => got.text()).then(JSON.stringify)")
-        source_findings = source(markup, 0)
+        source_findings = source(markup)
     else:
         source_findings = file_findings
     result = browser.ask(js.replace("/*VIEWPORT_WIDTH*/null", str(width), 1))
@@ -164,7 +164,7 @@ def main(argv):
         if out:
             out.mkdir(parents=True, exist_ok=True)
         for viewport in WIDTHS:
-            result = check_viewport(browser, url, viewport, js, file_findings)
+            result = check_viewport(browser, url, viewport, js, served, file_findings)
             results.append(result)
             if out:
                 names.extend(save_slices(browser, viewport, result["info"]["height"], out, stem))

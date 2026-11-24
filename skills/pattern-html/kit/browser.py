@@ -47,8 +47,14 @@ SETTLE = """(quiet, cap) => new Promise((done) => {
 
 
 def find_browser(candidates=BROWSERS):
-    for name in (os.environ.get("PATTERN_BROWSER"),) + tuple(candidates):
-        if name and (shutil.which(name) or Path(name).is_file()):
+    chosen = os.environ.get("PATTERN_BROWSER")
+    if chosen:
+        found = shutil.which(chosen) or (chosen if Path(chosen).is_file() else None)
+        if not found:
+            raise BrowserError(f"PATTERN_BROWSER is {chosen}, which is neither a file nor on the PATH")
+        return found
+    for name in candidates:
+        if shutil.which(name) or Path(name).is_file():
             return shutil.which(name) or name
     return None
 

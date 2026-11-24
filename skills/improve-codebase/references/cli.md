@@ -70,6 +70,7 @@ Paths seen only as context can be recorded as observations, but never count as f
 The default worktree-local database is `.improve-codebase/state.sqlite3`.
 The first write protects the directory through Git's local exclude file, with no tracked `.gitignore` edit.
 When upgrading a ledger, rescan before importing; the wiring rubric upgrade needs new review evidence, but does not reset findings or recorded baselines.
+The first write by a newer scanner upgrades the ledger schema in place, and read only commands leave it as it is; there is no downgrade, so an older scanner then refuses the ledger as an unsupported state schema: keep using the newer scanner instead of archiving the ledger.
 For non-Git projects it is still local, but no Git ignore protection is available.
 Keep receipt inputs, logs, and screenshots in that directory; use `umask 077` for new local artifacts and redact credentials or sensitive outputs.
 `--state-dir` selects an alternate location; an in-worktree override must already be ignored and untracked.

@@ -71,7 +71,7 @@ def new_case(surface, node, name):
     }
 
 
-def count_python_call(data, call, case):
+def count_python_call(data, call, case, unconditional):
     function = call.child_by_field_name("function")
     name = node_text(data, function) if function is not None else ""
     last = name.rsplit(".", 1)[-1]
@@ -79,7 +79,7 @@ def count_python_call(data, call, case):
         case["assertions"] += 1
     if PYTHON_INTERACTION.fullmatch(last):
         case["interactions"] += 1
-    if name in PYTHON_SKIP_CALLS:
+    if unconditional and name in PYTHON_SKIP_CALLS:
         case["skipped"] = True
     if PYTHON_SNAPSHOT_CALL.fullmatch(last):
         case["snapshots"] += 1
@@ -100,8 +100,15 @@ def takes_snapshot_fixture(data, function):
     )
 
 
+def unconditional_calls(body):
+    return {
+        statement.id for statement in body.named_children if statement.type == "call"
+    }
+
+
 def python_count(data, node, case):
     body = node.child_by_field_name("body")
+    unconditional = unconditional_calls(body)
     fixture = takes_snapshot_fixture(data, node)
     for item in descendants(node):
         kind = item.type
@@ -115,7 +122,7 @@ def python_count(data, node, case):
         ):
             case["snapshots"] += 1
         elif kind == "call":
-            count_python_call(data, item, case)
+            count_python_call(data, item, case, item.id in unconditional)
 
 
 def definition_decorators(data, node):

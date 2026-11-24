@@ -163,9 +163,9 @@ def triage(store, state, document, state_dir, entries):
         after["pending_snapshot"] = state["snapshot"]
         after["change_evidence"] = string(document, "evidence")
         if before["rule"] == WIDE_FOLDER:
-            after["pending_members"] = folder_members(
-                entries, before["observation"]["directory"]
-            )
+            members = folder_members(entries, before["observation"]["directory"])
+            after["pending_members"] = members
+            after["pending_twins"] = sorted(preexisting_twins(entries, members))
     if status == "resolved":
         removal = verify_resolution(store, state, before, document, state_dir, entries)
         record_resolution(state, before, after, document, removal)
@@ -223,13 +223,24 @@ def folder_members(entries, folder):
     }
 
 
-def departed_destinations(state, pending, departed, entries, folder):
+def preexisting_twins(entries, members):
+    hashes = set(members.values())
+    return [
+        path
+        for path, entry in entries.items()
+        if path not in members and entry.get("hash") in hashes
+    ]
+
+
+def departed_destinations(state, finding, departed, entries, folder):
+    pending = finding["pending_members"]
+    known = set(pending) | set(finding["pending_twins"])
     destinations = {}
     for path in departed:
         carriers = [
             carrier
             for carrier, entry in entries.items()
-            if entry.get("hash") == pending[path]
+            if entry.get("hash") == pending[path] and carrier not in known
         ]
         in_scope = [
             carrier
@@ -240,7 +251,8 @@ def departed_destinations(state, pending, departed, entries, folder):
         ]
         require(
             in_scope or not carriers,
-            "a move across the scope boundary or into tests is not a resolution",
+            "a move across the scope boundary or into tests is not a resolution, "
+            "and neither is a rename inside the folder",
         )
         recorded = state.get("moves", {}).get(path)
         destinations[path] = [recorded] if recorded in in_scope else in_scope
@@ -250,7 +262,7 @@ def departed_destinations(state, pending, departed, entries, folder):
 def wide_folder_inputs(state, finding, document, entries):
     pending = finding.get("pending_members")
     require(
-        pending is not None,
+        pending is not None and finding.get("pending_twins") is not None,
         "this wide-folder finding was marked pending without its members recorded; "
         "move it to open and mark it pending again",
     )
@@ -265,7 +277,7 @@ def wide_folder_inputs(state, finding, document, entries):
         ),
         "a skipped file is not a resolution",
     )
-    destinations = departed_destinations(state, pending, departed, entries, folder)
+    destinations = departed_destinations(state, finding, departed, entries, folder)
     deleted = {path for path, moved in destinations.items() if not moved}
     moved_to = {target for moved in destinations.values() for target in moved}
     removal = None

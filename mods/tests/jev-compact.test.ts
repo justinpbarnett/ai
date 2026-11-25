@@ -1,49 +1,67 @@
 import { expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { recommendation } from '../jev-compact/policy.ts'
+import { approved, classifierArgs, excerpt } from '../jev-compact/policy.ts'
 
-const script = join(import.meta.dir, '../jev-compact/codex/usage.ts')
+const root = join(import.meta.dir, '../jev-compact/codex')
 
-test('the strong warning starts one token above 150,000', () => {
-  expect(recommendation(150_000)).toBeUndefined()
-  expect(recommendation(150_001)).toContain('150,001 tokens. Strongly recommend running /compact')
+test('a smaller context needs switch evidence and an uncertain verdict defers', () => {
+  const exchange = { current: 'Count the apples', answer: 'Three apples.' }
+  expect(classifierArgs(89_999, { ...exchange, previous: 'Design a door' })).toBeUndefined()
+  expect(classifierArgs(100_000, exchange)).toBeUndefined()
+  expect(classifierArgs(95_000, { ...exchange, previous: 'Design a door' })?.join(' ')).toContain('independent tasks')
+  expect(classifierArgs(120_000, exchange)).toBeDefined()
+  expect(approved({ answer: 'continuing', confidence: 1 })).toBe(false)
+  expect(approved({ answer: 'compact', confidence: 0.79 })).toBe(false)
+  expect(approved({ answer: 'compact', confidence: 0.8 })).toBe(true)
+  expect(approved({ answer: 'compact', confidence: 1.1 })).toBe(false)
+  expect(excerpt('x'.repeat(800) + ' Which option should we test?')).toEndWith('Which option should we test?')
 })
 
-test('Codex warns once across parallel tools, ignores stale reports, and rearms after relief', async () => {
-  const data = await mkdtemp(join(tmpdir(), 'jev-compact-test-'))
-  const common = { session_id: 'main', turn_id: 'first' }
-  async function hook(event: object) {
-    const child = Bun.spawn([process.execPath, script], {
-      env: { ...process.env, PLUGIN_DATA: data },
-      stdin: new Blob([JSON.stringify({ ...common, ...event })]), stdout: 'pipe', stderr: 'pipe',
+test('only a JEV-approved, answered high-context turn produces a strong recommendation', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jev-boundary-'))
+  const input = { session_id: 'main', turn_id: 'first', transcript_path: join(dir, 'thread.jsonl') }
+  const env = { ...process.env, PLUGIN_DATA: dir, CODEX_HOME: dir, PATH: dir + ':' + process.env.PATH }
+  async function hook(script: string, event: object, ...args: string[]) {
+    const child = Bun.spawn([process.execPath, join(root, script), ...args], {
+      env, stdin: new Blob([JSON.stringify({ ...input, ...event })]), stdout: 'pipe', stderr: 'pipe',
     })
     const output = await new Response(child.stdout).text()
     expect(await child.exited).toBe(0)
     return output
   }
-  const usage = (tokens: number) => hook({
+  const usage = (tokens: number) => hook('usage.ts', {
     hook_event_name: 'PostModelRequest', kind: 'sampling', thread_id: 'main', status: 'completed',
-    token_usage: { total_tokens: tokens, cached_input_tokens: 100_000 },
+    token_usage: { total_tokens: tokens },
   })
-  const tool = { hook_event_name: 'PostToolUse' }
-  const stop = { hook_event_name: 'Stop' }
+  const stop = (message: string, turn = 'first') => hook('compact.ts', {
+    hook_event_name: 'Stop', last_assistant_message: message, turn_id: turn,
+  }, 'assess')
   try {
+    await writeFile(input.transcript_path, JSON.stringify({ type: 'event_msg', payload: {
+      type: 'item_completed', thread_id: 'main', turn_id: 'first',
+      item: { type: 'UserMessage', content: [{ type: 'text', text: 'Count the apples.' }] },
+    } }) + '\n')
+    await writeFile(join(dir, 'arete'), '#!/bin/sh\ncat > "$PLUGIN_DATA/exchange"\ncat "$PLUGIN_DATA/verdict"\n', { mode: 0o700 })
+    const verdict = (answer: string, confidence: number) => writeFile(join(dir, 'verdict'), JSON.stringify({ answer, confidence }))
+    await usage(180_000)
+    expect(await hook('usage.ts', { hook_event_name: 'PostToolUse' })).toBe('')
+    await verdict('continuing', 1)
+    expect(await stop('Which basket?')).toBe('')
+    expect(JSON.parse(await Bun.file(join(dir, 'exchange')).text()).answer).toBe('Which basket?')
+    await verdict('compact', 0.72)
+    expect(await stop('Three apples.')).toBe('')
+    await writeFile(join(dir, 'verdict'), 'unavailable')
+    expect(await stop('Three apples.')).toBe('')
+    await verdict('compact', 0.99)
+    expect(await stop('Three apples.', 'stale')).toBe('')
+    expect(await stop('password=abc')).toBe('')
     await usage(150_000)
-    expect(await hook(stop)).toBe('')
+    expect(await stop('Three apples.')).toBe('')
     await usage(150_001)
-    expect(await hook({ ...tool, turn_id: 'other' })).toBe('')
-    expect(await hook({ ...tool, session_id: 'other' })).toBe('')
-    const warnings = (await Promise.all([hook(tool), hook(tool), hook(stop)])).filter(Boolean)
-    expect(warnings).toHaveLength(1)
-    expect(JSON.parse(warnings[0]).systemMessage).toBe(recommendation(150_001))
-    await usage(175_000)
-    expect(await hook(stop)).toBe('')
-    await usage(50_000)
-    await usage(150_002)
-    expect(JSON.parse(await hook(stop)).systemMessage).toBe(recommendation(150_002))
+    expect(JSON.parse(await stop('Three apples.')).systemMessage).toContain('150,001 tokens')
   } finally {
-    await rm(data, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true })
   }
 })

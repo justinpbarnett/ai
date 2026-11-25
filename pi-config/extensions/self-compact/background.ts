@@ -1,7 +1,7 @@
 import type { ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { checkpointDraft, minimumSavings, preservesCut, selectCut, summarizeCut, tokenCount } from "./checkpoint.js";
 import type { CheckpointRequest, Cut, SummaryResult } from "./checkpoint.js";
-import type { Jev, JevMode, PromptPair } from "./jev.js";
+import type { Jev } from "./jev.js";
 import { autoEnabled } from "./policy.js";
 import type { Policy, Pressure, PressureCycle } from "./policy.js";
 
@@ -16,7 +16,6 @@ interface BackgroundJob {
 	controller: AbortController;
 	result?: SummaryResult;
 	handoff?: string;
-	jevRequest?: AbortSignal;
 }
 
 interface Turn {
@@ -27,7 +26,6 @@ interface Turn {
 	underPressure: boolean;
 	nativeCutoff: boolean;
 	band: Pressure;
-	mode: JevMode;
 }
 
 function completed(event: TurnEndEvent, ctx: ExtensionContext) {
@@ -40,12 +38,10 @@ function modelForTurn(event: TurnEndEvent, ctx: ExtensionContext) {
 	return ctx.modelRegistry.find(event.message.provider, event.message.model);
 }
 
-function canUseJev(turn: Turn) { return turn.underPressure && turn.mode === "on" && !turn.ctx.hasPendingMessages(); }
-
-function requestForTurn(turn: Turn, job: BackgroundJob): CheckpointRequest | undefined {
+function requestForTurn(turn: Turn, job: BackgroundJob, approved: boolean): CheckpointRequest | undefined {
 	if (job.handoff) return { source: "tool", handoff: job.handoff };
-	if (job.jevRequest && !job.jevRequest.aborted && canUseJev(turn)) return { source: "jev" };
-	if (autoEnabled(turn.settings) && (turn.band === "warning" || turn.nativeCutoff)) return { source: "background" };
+	if (approved) return { source: "jev" };
+	if (turn.nativeCutoff) return { source: "background" };
 }
 
 export class BackgroundCompaction {
@@ -93,7 +89,7 @@ export class BackgroundCompaction {
 		}
 	}
 
-	advance(event: TurnEndEvent, ctx: ExtensionContext, settings: Policy, band: Pressure) {
+	async advance(event: TurnEndEvent, ctx: ExtensionContext, settings: Policy, band: Pressure) {
 		const explicit = this.takeHandoff(event);
 		if (!completed(event, ctx)) {
 			this.jev.clearInput();
@@ -102,19 +98,24 @@ export class BackgroundCompaction {
 
 		const auto = autoEnabled(settings);
 		const mode = this.jev.mode(ctx);
-		const pair = this.jev.takePair(event.context.contextEntries, mode);
+		const exchange = this.jev.exchange(event, mode);
 		const turn: Turn = {
-			event, ctx, settings, band, mode,
+			event, ctx, settings, band,
 			model: modelForTurn(event, ctx),
 			underPressure: auto && (band === "notice" || band === "warning"),
 			nativeCutoff: auto && band === "native cutoff",
 		};
 		const previousFailure = this.reconcile(turn, explicit);
-		const draft = this.publishReady(turn);
-		if (draft && "type" in draft) return { draft };
+		const immediate = this.publishReady(turn, false);
+		if (immediate && "type" in immediate) return { draft: immediate };
 		const schedulingFailure = this.schedule(turn, explicit);
-		this.checkTaskSwitch(turn, pair);
-		return { failure: schedulingFailure ?? draft?.reason ?? previousFailure };
+		const candidate = this.job;
+		const large = (settings.tokens ?? 0) > 150_000;
+		const approved = Boolean(auto && !turn.nativeCutoff && (turn.underPressure || large) && exchange &&
+			!candidate?.handoff && !explicit && !ctx.hasPendingMessages() && await this.jev.boundary(ctx, exchange));
+		const draft = approved && candidate && this.job === candidate ? this.publishReady(turn, true) : undefined;
+		if (draft && "type" in draft) return { draft, approved };
+		return { approved, failure: schedulingFailure ?? immediate?.reason ?? draft?.reason ?? previousFailure };
 	}
 
 	private takeHandoff(event: TurnEndEvent) {
@@ -147,10 +148,10 @@ export class BackgroundCompaction {
 		if (explicit) job.handoff = explicit;
 	}
 
-	private publishReady(turn: Turn) {
+	private publishReady(turn: Turn, approved: boolean) {
 		const job = this.job;
 		if (!job?.result) return;
-		const request = requestForTurn(turn, job);
+		const request = requestForTurn(turn, job, approved);
 		if (!request) return;
 		const contextTokens = turn.settings.tokens ?? tokenCount(turn.event.context.contextEntries);
 		const draft = checkpointDraft(job.cut, job.result, request, contextTokens);
@@ -180,9 +181,4 @@ export class BackgroundCompaction {
 		});
 	}
 
-	private checkTaskSwitch(turn: Turn, pair: PromptPair | undefined) {
-		const job = this.job;
-		if (!pair || !job || job.handoff || (job.jevRequest && !job.jevRequest.aborted) || !canUseJev(turn)) return;
-		this.jev.check(turn.ctx, pair, job.controller.signal, (candidate) => { job.jevRequest = candidate; });
-	}
 }

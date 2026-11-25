@@ -1,16 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { recommendation, SWITCH_FLOOR_TOKENS } from '../policy.ts'
+import { SWITCH_FLOOR_TOKENS } from '../policy.ts'
 
 export type StopEvent = {
   session_id: string
   turn_id: string
   last_assistant_message?: string
   stop_hook_active?: boolean
+  transcript_path?: string | null
 }
 
-type Usage = { turn: string; tokens: number }
+export type Usage = { turn: string; tokens: number; sample: string }
 
 function usagePath(thread: string) {
   const name = createHash('sha256').update(thread).digest('hex')
@@ -25,12 +26,23 @@ export async function lastUsage(thread: string): Promise<Usage | undefined> {
   }
 }
 
+export async function markApproved(thread: string, sample: string) {
+  await atomicWrite(usagePath(thread) + '.approved', sample)
+}
+
+export async function isApproved(thread: string, sample: string) {
+  return (await Bun.file(usagePath(thread) + '.approved').text().catch(() => '')) === sample
+}
+
+async function atomicWrite(path: string, value: string) {
+  const temporary = path + '.' + randomUUID()
+  await writeFile(temporary, value, { mode: 0o600 })
+  await rename(temporary, path)
+}
+
 async function save(thread: string, usage: Usage) {
   await mkdir(join(process.env.PLUGIN_DATA!, 'usage'), { recursive: true, mode: 0o700 })
-  const path = usagePath(thread)
-  const temporary = path + '.' + randomUUID()
-  await writeFile(temporary, JSON.stringify(usage), { mode: 0o600 })
-  await rename(temporary, path)
+  await atomicWrite(usagePath(thread), JSON.stringify(usage))
 }
 
 if (import.meta.main) {
@@ -42,21 +54,8 @@ if (import.meta.main) {
       // total_tokens is per request here. Cached input and reasoning are already included.
       const tokens = event.token_usage?.total_tokens
       if (Number.isSafeInteger(tokens) && tokens >= 0) {
-        if (!recommendation(tokens)) await rm(usagePath(thread) + '.warned', { force: true })
         if (tokens < SWITCH_FLOOR_TOKENS) await rm(usagePath(thread), { force: true })
-        else await save(thread, { turn: event.turn_id, tokens })
-      }
-    } else if (event.hook_event_name === 'PostToolUse' || event.hook_event_name === 'Stop') {
-      const usage = await lastUsage(thread)
-      const message = usage?.turn === event.turn_id && recommendation(usage.tokens)
-      if (message) {
-        // Parallel tools can finish together. Only the first one should show the warning.
-        try {
-          await writeFile(usagePath(thread) + '.warned', '', { flag: 'wx', mode: 0o600 })
-          console.log(JSON.stringify({ systemMessage: message }))
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        }
+        else await save(thread, { turn: event.turn_id, tokens, sample: event.request_id ?? randomUUID() })
       }
     }
   }

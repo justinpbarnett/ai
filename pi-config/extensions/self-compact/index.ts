@@ -46,19 +46,18 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", (event, ctx) => jev.startPrompt(event.messageType === "user" && !event.images?.length ? event.prompt : undefined, ctx));
 	pi.on("user_bash", () => jev.clearInput());
 
-	pi.on("turn_end", (event, ctx) => {
+	pi.on("turn_end", async (event, ctx) => {
 		const settings = readPolicy(pi, ctx);
 		const tokens = settings.tokens;
-		if (ctx.hasUI && tokens !== null) {
-			if (tokens > 150_000 && !warnedOver150k) {
-				ctx.ui.notify(`Current context is ${tokens.toLocaleString("en-US")} tokens. Strongly recommend running /compact before continuing.`, "warning");
-			}
-			warnedOver150k = tokens > 150_000;
-		}
+		if (tokens !== null && tokens <= 150_000) warnedOver150k = false;
 		const band = pressure(settings);
 		const checkpointId = currentCheckpoint(ctx)?.id;
 		cycle.observe(checkpointId, band);
-		const result = background.advance(event, ctx, settings, band);
+		const result = await background.advance(event, ctx, settings, band);
+		if (result?.approved && ctx.hasUI && tokens !== null && tokens > 150_000 && !warnedOver150k) {
+			ctx.ui.notify(`JEV found a natural stopping point at ${tokens.toLocaleString("en-US")} tokens and strongly recommends /compact here.`, "warning");
+			warnedOver150k = true;
+		}
 		if (result?.draft) return { entries: [...event.entries, result.draft] };
 		if (!result || !continuesNaturally(event)) return;
 		if (result.failure) return note(event, `Self-compaction skipped: ${result.failure}.`);

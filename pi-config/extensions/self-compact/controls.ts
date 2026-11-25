@@ -37,7 +37,7 @@ function showStatus(ctx: ExtensionContext, pi: ExtensionAPI, background: Backgro
 		`Notice: ${tokens(settings.notice)} | Warning: ${tokens(settings.warning)} | Native cutoff: ${tokens(settings.hard)}`,
 		`Native auto-compaction: ${settings.enabled ? "on" : "off"}${paused}`,
 		`Background: ${background.status()} | Last checkpoint: ${lastSource(ctx)} | JEV: ${jevLabel}`,
-		...(jev.mode(ctx) === "on" ? [`JEV can send up to ${JEV_EXCERPT_LIMIT} characters from each of two new prompts to OpenRouter under context pressure. Use /self-compact jev off to disable.`] : []),
+		...(jev.mode(ctx) === "on" ? [`JEV can send up to ${JEV_EXCERPT_LIMIT} characters from each of the current request, previous request and latest reply to OpenRouter under context pressure. Use /self-compact jev off to disable.`] : []),
 	].join("\n"), "info");
 }
 
@@ -70,7 +70,7 @@ export function registerControls(pi: ExtensionAPI, background: BackgroundCompact
 		},
 	});
 	pi.registerCommand("self-compact", {
-		description: "Show context pressure, compact while idle, or toggle JEV task-switch detection",
+		description: "Show context pressure, compact while idle, or toggle JEV stopping-point detection",
 		getArgumentCompletions: (prefix) => ["status", "now", "jev on", "jev off"].filter((arg) => arg.startsWith(prefix))
 			.map((arg) => ({ value: arg, label: arg })),
 		async handler(args, ctx) {

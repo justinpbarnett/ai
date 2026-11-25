@@ -1,7 +1,7 @@
 {
   "name": "jev-compact",
-  "version": "0.2.0",
-  "description": "Compact at a JEV-detected task boundary and recommend /compact above 150,000 context tokens.",
+  "version": "0.3.0",
+  "description": "Use JEV to compact at a natural stopping point and keep ongoing conversations intact.",
   "author": {
     "name": "Justin Barnett"
   }

@@ -96,14 +96,14 @@ The portable installer includes the extension and leaves the tier overrides loca
 
 The `self_compact` tool lets the coding agent request a background checkpoint with a short handoff.
 When context reaches the notice threshold, Pi can also prepare one checkpoint in the background using the active chat model, without waiting for JEV or for the summary to finish.
-At a later turn boundary, Pi applies a ready checkpoint after a tool request, a confident JEV task switch, or when context reaches the warning threshold.
+At a later turn boundary, Pi applies a ready checkpoint after a tool request, when JEV confirms the current exchange reached a natural stopping point, or at the native cutoff.
 The checkpoint replaces only the older history before the original cut, not the history through the point of application.
 All messages and tool results added while it ran are kept verbatim, as is the handoff supplied to the tool.
 If the result finishes while Pi is idle, it waits for the next completed turn; it does not start a turn on its own.
 Pi discards an unsafe or stale result, including after a model or branch switch, a context edit, or native compaction.
 Native `/compact`, threshold compaction, and overflow recovery still work; if Pi reaches its cutoff before the background job is ready, it does not wait for it.
 
-In the TUI, Pi also strongly recommends `/compact` when current context first exceeds 150,000 tokens. This warning works with JEV off.
+Above 150,000 tokens, Pi also checks for a stopping point after an eligible final reply, even in a larger context window. The TUI strongly recommends `/compact` only when JEV confirms one. An open question, pending check, or unavailable classifier defers the recommendation.
 
 Pi's context footer shows proactive compaction pressure and JEV state in place of `(auto)`, for example `(proactive: normal | JEV on)`.
 `/self-compact status` shows context usage, thresholds, background progress, the last checkpoint source, and JEV mode.
@@ -117,9 +117,9 @@ Require `0 < notice < warning < native cutoff`; an invalid pair disables extensi
 Turning off Pi's automatic compaction also disables proactive background work and notices; the explicit tool still works.
 
 **JEV is on by default in trusted TUI sessions** when Pi has OpenRouter credentials and the `typesafe/jev-1.14` classifier is available.
-Under context pressure, Pi can send up to 512 characters each from two consecutive new user prompts to OpenRouter and its upstream model provider.
+Under context pressure, Pi can send up to 512 characters each from the current request, the preceding request when available, and the latest reply to OpenRouter and its upstream model provider.
 Use Pi's OpenRouter login or `OPENROUTER_API_KEY`; no direct TypeSafe credentials are needed.
-JEV checks for an independent task switch, not what to put in the summary.
+JEV decides whether the exchange has reached a natural stopping point. The active chat model writes the summary.
 Pi skips queued prompts, commands, attachments and obvious credentials, but that filter is not a guarantee of redaction.
 For work that cannot send prompt excerpts off-machine, start Pi with `--no-self-compact-jev=true`, or run `/self-compact jev off` before submitting prompts.
 The command clears stored excerpts and turns JEV off for the loaded extension; the launch flag keeps it off by default across reloads.

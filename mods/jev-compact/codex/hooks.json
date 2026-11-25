@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "PostModelRequest": [
+      { "hooks": [
+        { "type": "command", "command": "bun \"$PLUGIN_ROOT/codex/usage.ts\"", "timeout": 5 }
+      ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [
+        { "type": "command", "command": "bun \"$PLUGIN_ROOT/codex/usage.ts\"", "timeout": 5 }
+      ] }
+    ],
+    "Stop": [
+      { "hooks": [
+        { "type": "command", "command": "bun \"$PLUGIN_ROOT/codex/usage.ts\"", "timeout": 5 },
+        { "type": "command", "command": "bun \"$PLUGIN_ROOT/codex/compact.ts\"", "async": true, "timeout": 15 }
+      ] }
+    ]
+  }
+}

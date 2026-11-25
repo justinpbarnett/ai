@@ -21,6 +21,7 @@ function continuesNaturally(event: TurnEndEvent) {
 export default function (pi: ExtensionAPI) {
 	const status = new StatusRelay();
 	const cycle = new PressureCycle();
+	let warnedOver150k = false;
 	const jev = new Jev(() => pi.getFlag(JEV_OFF_FLAG) === true, status.notify);
 	const background = new BackgroundCompaction(jev, cycle, status.notify);
 
@@ -28,6 +29,7 @@ export default function (pi: ExtensionAPI) {
 		background.reset();
 		jev.reset();
 		cycle.reset();
+		warnedOver150k = false;
 	}
 
 	pi.registerFlag(NOTICE_FLAG, { type: "string", description: "Self-compaction notice threshold in tokens (6000, 6k) or percent (60%)" });
@@ -46,6 +48,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("turn_end", (event, ctx) => {
 		const settings = readPolicy(pi, ctx);
+		const tokens = settings.tokens;
+		if (ctx.hasUI && tokens !== null) {
+			if (tokens > 150_000 && !warnedOver150k) {
+				ctx.ui.notify(`Current context is ${tokens.toLocaleString("en-US")} tokens. Strongly recommend running /compact before continuing.`, "warning");
+			}
+			warnedOver150k = tokens > 150_000;
+		}
 		const band = pressure(settings);
 		const checkpointId = currentCheckpoint(ctx)?.id;
 		cycle.observe(checkpointId, band);

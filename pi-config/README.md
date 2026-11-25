@@ -103,6 +103,8 @@ If the result finishes while Pi is idle, it waits for the next completed turn; i
 Pi discards an unsafe or stale result, including after a model or branch switch, a context edit, or native compaction.
 Native `/compact`, threshold compaction, and overflow recovery still work; if Pi reaches its cutoff before the background job is ready, it does not wait for it.
 
+In the TUI, Pi also strongly recommends `/compact` when current context first exceeds 150,000 tokens. This warning works with JEV off.
+
 Pi's context footer shows proactive compaction pressure and JEV state in place of `(auto)`, for example `(proactive: normal | JEV on)`.
 `/self-compact status` shows context usage, thresholds, background progress, the last checkpoint source, and JEV mode.
 `/self-compact now [focus]` uses Pi's normal manual compaction and only runs while idle.

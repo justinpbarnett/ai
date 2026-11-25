@@ -1,7 +1,7 @@
 {
   "name": "jev-compact",
-  "version": "0.1.0",
-  "description": "Compacts when JEV reads a topic switch or a good stopping point, not only at the token limit",
+  "version": "0.2.0",
+  "description": "Compact at a JEV-detected task boundary and recommend /compact above 150,000 context tokens.",
   "author": {
     "name": "Justin Barnett"
   }

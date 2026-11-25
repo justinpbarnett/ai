@@ -1,23 +1,19 @@
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
+import { SWITCH_FLOOR_TOKENS, PAUSE_FLOOR_TOKENS, SURE, CREDENTIAL_LIKE, SWITCHES, PAUSES, recommendation } from '../policy.ts'
 
-const SWITCH_FLOOR_TOKENS = 90_000
-const PAUSE_FLOOR_TOKENS = 120_000
-const SURE = 0.8
 const RECENT_CHARS = 12_000
 const MESSAGE_CHARS = 2_000
 const NEXT_TASK_CHARS = 500
 const PAUSE_DELAY_MS = 2_000
 const PEOPLE = new Set(['composer', 'bridge'])
-const CREDENTIAL_LIKE = /-----BEGIN [\w ]*(?:PRIVATE KEY|SECRET)-----|\b(?:sk[-_][\w-]{8,}|(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]{8,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)|\bBearer\s+\S|(?:api[-_ ]?key|access[-_ ]?token|token|secret|password|credential)["']?\s*[:=]\s*\S|:\/\/[^\s/@:]+:[^\s/@]+@/i
 
-const SWITCHES = 'Does the new message start a different task from the recent work, so that the details of the recent work no longer matter for it?'
-const PAUSES = "Did the assistant's last reply finish the work the user asked for, with nothing left running and no question waiting on the user, so this is a good point to pause?"
 const PAUSE_SUMMARY = 'The work just reached a good stopping point. Keep what was done and decided, the files touched, and anything the user may follow up on. Drop the working detail.'
 
 type TopicSwitch = { text: string; verdict: string; tokens: number; turnId?: string }
 
 let compacting = false
 let compactedSinceAnswer = false
+let warned = false
 let submitted = 0
 let topicSwitch: TopicSwitch | undefined
 
@@ -100,6 +96,16 @@ async function compactIfPause($: EngineInterface, submission: number): Promise<v
 }
 
 export const register: Register = on => {
+  on('session.measure', ($, e, next) => {
+    const tokens = e.context.tokens
+    if (typeof tokens === 'number') {
+      const message = recommendation(tokens)
+      if (message && !warned) $.ui.toast(message)
+      warned = Boolean(message)
+    }
+    return next(e)
+  })
+
   on('prompt.submit', async ($, e, next) => {
     const submission = ++submitted
     topicSwitch = undefined
@@ -146,6 +152,7 @@ export const register: Register = on => {
     const done = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && done.skip === undefined) {
       compactedSinceAnswer = true
+      warned = false
       topicSwitch = undefined
     }
     return done
@@ -153,6 +160,7 @@ export const register: Register = on => {
 
   on('session.end', ($, e, next) => {
     submitted += 1
+    warned = false
     topicSwitch = undefined
     compactedSinceAnswer = false
     return next(e)

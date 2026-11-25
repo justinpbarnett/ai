@@ -1,0 +1,6 @@
+{
+  "name": "jev-compact",
+  "version": "0.2.0",
+  "description": "Compact at a JEV-detected task boundary and recommend /compact above 150,000 context tokens.",
+  "hooks": "./codex/hooks.json"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "ai-mods",
+  "interface": { "displayName": "AI mods" },
+  "plugins": [
+    {
+      "name": "jev-compact",
+      "source": { "source": "local", "path": "./jev-compact" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: pattern-html
-description: Use the Pattern kit when Justin explicitly asks for the Pattern look, or when styling a new standalone HTML deliverable for his personal use with no other look specified. Includes templates and visuals for those deliverables. Otherwise skip employer or client work, existing sites and apps, HTML email, and routine edits to HTML-generating code.
+description: Style new standalone personal HTML deliverables (reports, boards, tools, Artifacts) with Justin's Pattern kit. Skip employer/client work, existing apps, and HTML email.
 ---
 
 # Pattern HTML

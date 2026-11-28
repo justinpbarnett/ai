@@ -1,5 +1,0 @@
-interface:
-  display_name: "Plan Feature"
-  short_description: "Plan a new feature from the existing codebase"
-policy:
-  allow_implicit_invocation: false

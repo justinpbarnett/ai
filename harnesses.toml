@@ -22,7 +22,9 @@
 #   "children"            → create individual symlinks for each skill (codex, droid, etc.)
 # Children mode leaves a symlinked target skills directory and its contents untouched.
 
-# Shared planning skills for Pi, Codex, OpenCode, Gemini CLI and Droid.
+# Shared Passion tech-skills symlinked into ~/.agents/skills for non-Claude
+# harnesses (Pi, Codex, OpenCode, Gemini CLI, Droid, Antigravity) without
+# duplicating files into ~/dev/ai/skills/. Claude Code loads them via plugins.
 # ./install.sh planning installs only this profile. "all" includes it when
 # the team checkout is available. Set TECH_SKILLS_DIR for another checkout.
 [planning]
@@ -31,12 +33,20 @@ checkout = "~/dev/passion/tech-skills"
 context = "plugins/plan/runtime/planning-context.md"
 
 [planning.skill_groups]
-"plugins/general/skills" = ["research"]
+"plugins/general/skills" = ["research", "humanize", "to-ste", "teach"]
 "plugins/general/runtime" = ["grill-with-docs", "grilling"]
+"plugins/dev/skills" = [
+    "implement", "code-review", "diagnosing-bugs", "prototype",
+    "codebase-design", "improve-codebase-architecture", "resolving-merge-conflicts",
+]
 "plugins/plan/runtime" = [
     "domain-modeling", "to-spec", "to-tickets", "retro",
     "setup-tech-skills", "writing-for-agents",
 ]
+"plugins/plan/skills" = ["wayfinder", "triage"]
+"plugins/jira/skills" = ["ticket", "sprint"]
+"plugins/rock/skills" = ["rock", "doctor"]
+"plugins/studio/skills" = ["deck", "deck-picture"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Claude Code
@@ -79,8 +89,6 @@ skills = "skills"
 [codex]
 target = "~/.codex"
 skills_mode = "children"
-# Codex also discovers the team install under ~/.agents/skills.
-standalone_fallbacks = ["setup-tech-skills"]
 
 [codex.symlinks]
 skills = "skills"

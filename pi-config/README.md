@@ -12,7 +12,6 @@ Tracked items are copied from or linked into the target pi config directory:
 - `extensions/prompt-stash.ts`
 - `extensions/jev-router/`
 - `extensions/progressive-web/` (install its dependencies as its README describes; copy mode skips `node_modules/`)
-- `extensions/self-compact/`
 - `extensions/shared/`
 - `extensions/tool-explainer/`
 - `extensions/working-summary/`
@@ -33,7 +32,7 @@ Type `/`, narrow the results, then use Tab or Enter to accept a completion.
 Command argument completions, file attachments, and path completions still use Pi's existing providers.
 
 ```text
-Investigate the missing search results /skill:plan-bugfix
+Investigate the missing search results /skill:diagnosing-bugs
 Please /skill:implement /path/to/plan.md
 Review this change /review concurrency
 Build the agreed feature /goal
@@ -274,22 +273,7 @@ To try it without installing, run `pi -ne -e "$HOME/dev/ai/pi-config/extensions/
 
 ## Planning and implementation commands
 
-These commands are available globally in Pi:
-
-```text
-/skill:plan-feature Add saved searches for the current user
-/skill:plan-chore Update the project's lint configuration
-/skill:plan-bugfix Search results disappear after clearing a filter
-/skill:implement /path/to/plan.md
-```
-
-The planning commands investigate the repository and write a plan without implementing it.
-Plans use the requested path or the repository's documented planning location, falling back to the operating system's temporary directory.
-`/skill:implement` builds a supplied plan and verifies the result in use.
-
-Each skill lives in `skills/<name>/SKILL.md` and uses Pi's native skill commands.
-Claude Code exposes the same skills as `/plan-feature`, `/plan-chore`, `/plan-bugfix`, and `/implement`.
-Run `/reload` in an existing Pi session to discover new commands.
+Shared engineering skills (`to-spec`, `to-tickets`, `implement`, `code-review`, `diagnosing-bugs`, `prototype`, `codebase-design`, `wayfinder`, `triage`, etc.) are symlinked into `~/.agents/skills/` via `./install.sh planning` from `~/dev/passion/tech-skills` and exposed natively via Pi's `/skill:<name>` commands. Run `/reload` in an existing Pi session to pick up new or updated skills.
 
 ## Improve a codebase
 

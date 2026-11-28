@@ -2,12 +2,15 @@
 # Docs: https://developers.openai.com/codex/config-reference
 # Symlinked from ~/dev/ai via install.sh
 
-model = "gpt-6.2-sol"
-model_reasoning_effort = "high"
+model = "gpt-6.2-astra"
+model_reasoning_effort = "xhigh"
 
 [tui]
 collapse_turn_details = true
 screen_reader_detection_done = true
+sidebar_width_percent = 54
+status_line = ["model-with-reasoning", "thread-name", "weekly-limit", "context-window-size"]
+status_line_use_colors = true
 
 [tui.model_availability_nux]
 "gpt-6.1-sol" = 4
@@ -35,3 +38,9 @@ trust_level = "trusted"
 
 [projects."/Users/justin.barnett/dev/passion/portal"]
 trust_level = "trusted"
+
+[projects."/Users/justin.barnett/dev/passion/rock-doctor"]
+trust_level = "trusted"
+
+[notice]
+hide_rate_limit_model_nudge = true

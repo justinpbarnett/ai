@@ -68,7 +68,7 @@ accept_invalid_certs = false
 
 [session]
 provider_id = "openai"
-model_id = "gpt-5.4"
+model_id = "gpt-6.2-astra"
 
 [updates]
 frequency = "daily"
@@ -78,7 +78,7 @@ auto_update = true
 retention_window = 6
 eviction_window = 0.2
 max_tokens = 2000
-token_threshold = 100000
+token_threshold = 400000
 message_threshold = 200
 on_turn_end = false
 

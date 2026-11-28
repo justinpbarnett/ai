@@ -1,22 +1,15 @@
 {
   "cleanupPeriodDays": 365,
-  "skillListingBudgetFraction": 0.027,
   "env": {
     "CLAUDE_CODE_NO_FLICKER": "1",
-    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-    "ENABLE_TOOL_SEARCH": "true",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL": "sonnet",
-    "CLAUDE_CODE_SUBAGENT_EFFORT": "medium"
+    "ENABLE_TOOL_SEARCH": "true"
   },
   "attribution": {
     "commit": "",
     "pr": ""
   },
-  "model": "opus",
+  "model": "fable",
   "skillOverrides": {
-    "contribute": "name-only",
-    "de-design-slop": "name-only",
     "twg": "name-only",
     "twg-agentic-search": "name-only",
     "twg-artifacts": "name-only",
@@ -43,17 +36,6 @@
     "anthropic-skills:xlsx": "name-only"
   },
   "hooks": {
-    "PreCompact": [
-      {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s\\n' 'Keep this summary under 4,000 words. Cover the current task, decisions made, open questions, and key file paths with one-line notes. Condense any earlier compaction summary to its still-relevant points instead of carrying it forward verbatim. Do not include file contents, long code blocks, or tool output; reference file paths instead.'"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Skill|Agent|Task|Bash",
@@ -100,7 +82,7 @@
     "rock@passion-tech": true,
     "global-engineering@passion-tech": true,
     "hey@37signals": true,
-    "jev-compact@ai-mods": true,
+    "jev-compact@ai-mods": false,
     "studio@passion-tech": true
   },
   "extraKnownMarketplaces": {
@@ -132,9 +114,11 @@
     },
     "claude-opus-5-5": {
       "effortLevel": "xhigh"
+    },
+    "claude-fable-5-2": {
+      "effortLevel": "xhigh"
     }
   },
-  "autoCompactWindow": 200000,
   "skipDangerousModePermissionPrompt": true,
   "switchModelsOnFlag": true,
   "voiceEnabled": true

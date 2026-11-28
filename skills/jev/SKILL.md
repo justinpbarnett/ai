@@ -1,6 +1,6 @@
 ---
 name: jev
-description: "JEV, a classifier that answers in about a second for a fraction of a cent, through `arete ask`. Use to sort or filter many files, lines or items before reading them; to sort a test failure, log or error before digging in; to check a diff or draft against its task; to judge whether two items are the same; or to put a yes or no, choice or rating step in a script."
+description: "Fast, cheap classifier via `arete ask`. Use to filter many files/logs before reading, triage test failures, check diffs against tasks, or classify items in scripts."
 ---
 
 # JEV
